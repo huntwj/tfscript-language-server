@@ -40,12 +40,12 @@ export interface LogicalEntry {
 
 const DEF_RE = /^\s*\/def\b/i;
 
-function isCommentLine(line: string): boolean {
+export function isCommentLine(line: string): boolean {
   const first = /\S/.exec(line);
   return first !== null && (first[0] === ";" || first[0] === "#");
 }
 
-function continuesToNextLine(line: string): boolean {
+export function continuesToNextLine(line: string): boolean {
   if (!line.endsWith("\\")) return false;
   // "%\" is an escaped literal backslash, not a continuation marker.
   return !(line.length >= 2 && line[line.length - 2] === "%");

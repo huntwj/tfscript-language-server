@@ -24,8 +24,9 @@ message to that session).
 
 ## What's implemented
 
-Diagnostics for four of the proven rules, each a pure function over a document's text in
-`src/rules/`:
+Diagnostics for five of the proven rules, each a pure function in `src/rules/` (four take a
+`LogicalEntry`; `indented-line-after-command` needs the whole file's raw lines, since it is a
+line-by-line state machine, not a per-command check):
 
 | Rule | id | What it catches |
 | --- | --- | --- |
@@ -33,6 +34,7 @@ Diagnostics for four of the proven rules, each a pure function over a document's
 | 4 | `load-no-expansion` | `%{var}` in a top-level command (not expanded; needs `/eval`) |
 | 5 | `let-swallows-endif` | `/let`/`/set` swallowing a following `/if` or `/endif` into its value |
 | 6 | `dollar-bracket-in-if` | redundant `$[...]` inside an `/if (...)` condition |
+| — | `indented-line-after-command` | an indented line starting a new command right after one that didn't end in `\` — tf's own "possibly missing trailing \\" warning |
 
 `src/logicalEntries.ts` is the part worth reading first: it models the two facts about tf's
 file loader (`tinyfugue/src/command.c`'s `load_file()`) that the rules above depend on,

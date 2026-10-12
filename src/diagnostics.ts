@@ -1,5 +1,6 @@
 import { splitLogicalEntries } from "./logicalEntries";
 import { RULES, type Severity } from "./rules";
+import { indentedLineAfterCommand } from "./rules/indentedLineAfterCommand";
 
 export interface Position {
   line: number;
@@ -38,6 +39,18 @@ export function getDiagnostics(text: string): TfDiagnostic[] {
         });
       }
     }
+  }
+
+  for (const match of indentedLineAfterCommand(text)) {
+    diagnostics.push({
+      range: {
+        start: { line: match.line, character: match.startChar },
+        end: { line: match.line, character: match.endChar },
+      },
+      message: match.message,
+      code: "indented-line-after-command",
+      severity: "warning",
+    });
   }
 
   return diagnostics;

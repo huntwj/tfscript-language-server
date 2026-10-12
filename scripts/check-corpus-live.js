@@ -4,10 +4,14 @@
  * ~/ai/mud/scripts/tf_script_check.py (needs Docker). Not part of `npm test` — the fast
  * loop should not need Docker — run it by hand with `npm run test:corpus-live`.
  *
- * For each configured corpus, loads the real entry point through tf-script-check (mounting
- * its repo read-only) and separately runs this engine's getDiagnostics() over every file in
- * that corpus, then checks the two verdicts agree. This is a comparison tool, not a test
- * runner: a mismatch is reported for a human to look at, not auto-resolved either way.
+ * Each corpus is a set of real /load-able "targets" — a target is one real entry point
+ * (what a user actually /loads) plus the list of files that entry point reads, since this
+ * engine scores each file on its own and the two totals need to line up. For a cascading
+ * entry point (wotmud.tf /loads logging.tf, mapping.tf) that's one target covering three
+ * files; for a directory of independent scripts (tinyfugue's lib/tf) it's one target per
+ * file. Each target is checked on its own, not folded into one corpus-wide verdict, so a
+ * mismatch always names the exact file — needed once a corpus has more than a couple of
+ * files to not have to bisect by hand.
  */
 const { spawnSync } = require("node:child_process");
 const { readFileSync, readdirSync } = require("node:fs");
@@ -19,23 +23,39 @@ const TF_SCRIPT_CHECK = path.join(MUD_DIR, "scripts", "tf_script_check.py");
 
 const { getDiagnostics } = require("../dist/diagnostics");
 
+function singleFileTarget(file) {
+  return { entry: `/corpus/${file}`, files: [file] };
+}
+
 /**
- * Add a corpus here for another sibling repo's scripts.
  * - `mountHostDir` is mounted read-only inside the check container at `mountContainerDir`
- *   (needs to be the repo ROOT, not just the tf/ directory, so the script's own
- *   %{wotmud_repo_dir}-style /load paths resolve exactly as they do for a real user).
- * - `entry` is the real /load entry point, as a container path under mountContainerDir.
- * - `filesDir` + `files` are the real .tf files this engine should also score, read
- *   straight off disk (no container needed for that half).
+ *   (the repo ROOT a real /load path is relative to, not just the directory holding the
+ *   scripts, so %{var}-built /load paths resolve exactly as they do for a real user).
+ * - `filesDir` is where this engine reads the real files from, straight off disk.
+ * - `targets` is computed lazily (a function), since one corpus lists every .tf file in a
+ *   directory at run time rather than naming each by hand.
  */
 const CORPORA = [
   {
     name: "wotmud",
     mountHostDir: path.resolve(MUD_DIR, "..", "wotmud"),
     mountContainerDir: "/wotmud",
-    entry: "/wotmud/tf/wotmud.tf",
     filesDir: path.resolve(MUD_DIR, "..", "wotmud", "tf"),
-    files: ["wotmud.tf", "logging.tf", "mapping.tf"],
+    targets: () => [
+      { entry: "/wotmud/tf/wotmud.tf", files: ["wotmud.tf", "logging.tf", "mapping.tf"] },
+    ],
+  },
+  {
+    name: "tinyfugue-lib",
+    // tinyfugue/ is upstream's private fork (another session owns it) — read-only here.
+    mountHostDir: path.resolve(MUD_DIR, "tinyfugue", "lib", "tf"),
+    mountContainerDir: "/corpus",
+    filesDir: path.resolve(MUD_DIR, "tinyfugue", "lib", "tf"),
+    targets: (filesDir) =>
+      readdirSync(filesDir)
+        .filter((f) => f.endsWith(".tf"))
+        .sort()
+        .map(singleFileTarget),
   },
 ];
 
@@ -71,36 +91,35 @@ function runThisEngine(filesDir, files) {
   return { verdict: anyProblem ? "problem" : "clean", perFile };
 }
 
+let total = 0;
 let mismatches = 0;
 
 for (const corpus of CORPORA) {
-  console.log(`=== ${corpus.name} ===`);
-  const missing = readdirSync(corpus.filesDir).filter(
-    (f) => f.endsWith(".tf") && !corpus.files.includes(f),
-  );
-  if (missing.length > 0) {
-    console.log(`  note: not in the configured file list (not scored): ${missing.join(", ")}`);
-  }
+  const targets = corpus.targets(corpus.filesDir);
+  console.log(`=== ${corpus.name} (${targets.length} target(s)) ===`);
 
-  const real = runTfScriptCheck(corpus.mountHostDir, corpus.mountContainerDir, corpus.entry);
-  const mine = runThisEngine(corpus.filesDir, corpus.files);
+  for (const target of targets) {
+    total += 1;
+    const real = runTfScriptCheck(corpus.mountHostDir, corpus.mountContainerDir, target.entry);
+    const mine = runThisEngine(corpus.filesDir, target.files);
 
-  console.log(`  real tf (tf-script-check):  ${real.verdict}`);
-  console.log(`  this engine (aggregate):    ${mine.verdict}`);
-  for (const [file, diags] of Object.entries(mine.perFile)) {
-    console.log(`    ${file}: ${diags.length} diagnostic(s)`);
-    for (const d of diags) console.log(`      [${d.severity}] ${d.code}: ${d.message}`);
-  }
+    if (real.verdict === mine.verdict) {
+      console.log(`  OK   ${target.entry}: ${real.verdict}`);
+      continue;
+    }
 
-  if (real.verdict !== mine.verdict) {
     mismatches += 1;
-    console.log(`  MISMATCH. tf-script-check output:\n${real.output}`);
+    console.log(`  DIFF ${target.entry}: real=${real.verdict} mine=${mine.verdict}`);
+    for (const [file, diags] of Object.entries(mine.perFile)) {
+      for (const d of diags) console.log(`    ${file}: [${d.severity}] ${d.code}: ${d.message}`);
+    }
+    console.log(`  real tf output:\n${real.output}`);
   }
 }
 
 if (mismatches > 0) {
-  console.error(`\n${mismatches} corpus mismatch(es).`);
+  console.error(`\n${total - mismatches}/${total} targets agree with real tf. ${mismatches} mismatch(es).`);
   process.exit(1);
 } else {
-  console.log("\nAll corpora agree with real tf.");
+  console.log(`\nAll ${total} targets agree with real tf.`);
 }

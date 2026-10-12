@@ -37,7 +37,7 @@ file gets truncated, since tf never reads past the line it aborts on.
 | Rule | id | What it catches |
 | --- | --- | --- |
 | 2 | `if-multiline-top-level` | `/if` with no matching `/endif` in the same top-level command |
-| 4 | `load-no-expansion` | `%{var}` in a top-level command (not expanded; needs `/eval`) |
+| 4 | `load-no-expansion` | `%{var}` in a top-level command (not expanded; needs `/eval`, or being inside a `/def`/`/for` body) |
 | 5 | `let-swallows-endif` | `/let`/`/set` swallowing a following `/if` or `/endif` into its value |
 | 6 | `dollar-bracket-in-if` | redundant `$[...]` inside an `/if (...)` condition |
 | — | `indented-line-after-command` | an indented line starting a new command right after one that didn't end in `\` — tf's own "possibly missing trailing \\" warning |
@@ -54,6 +54,16 @@ scripting.md alone:
 - a trailing `\` continues a top-level line onto the next one **generally**, not only inside
   `/def` bodies as scripting.md's rule 3 implies. A plain `/if (1) \` / `/echo yes%; \` /
   `/endif`, no `/def`, three physical lines, loads clean.
+
+`LogicalEntry.isForLoop` is the other exemption found the same way, but by running the
+tinyfugue/lib/tf corpus check rather than a hand-written case: a top-level `/for` body gets
+`%{var}` substituted on every iteration (`/for i 0 2 /nosuchcmd_%{i}` raised three distinctly
+named errors, not one), so it's exempt from rule 4 same as a `/def` body, for a different
+reason (eager per-iteration substitution, not deferred execution). `/while` and `/repeat`
+are NOT exempted — two ad hoc tries at testing them the same way gave confusing results that
+looked like mistakes in the test script rather than real evidence, so they're left alone
+rather than guessed at; if either ever produces a false positive against a real script, that's
+the next one to actually pin down.
 
 Rules 1 and 3 aren't diagnostics by themselves — rule 1 (parsed at run time) is why rule 2
 can still fire usefully inside a `/def` body, and rule 3 is folded into the general
@@ -78,6 +88,8 @@ test/
                         whole-file rules, including the abort-truncation behaviour
   groundTruth.test.ts   runs every case in ~/ai/mud/tests/tfscript/cases/ through this
                         engine and checks it against that file's own ;; expect: header
+  tinyfugueLibCorpus.test.ts  regression guard over tinyfugue/lib/tf/*.tf — the primary real-
+                        script corpus (tf's own bundled scripts; read-only, upstream's)
   wotmudCorpus.test.ts  regression guard over ~/ai/wotmud/tf/*.tf (real, in-use scripts from
                         a sibling project; read-only, never edit that repo from here)
 scripts/
@@ -98,16 +110,20 @@ npm run test:corpus-live  # slow: needs Docker, cross-checks real tf scripts aga
 
 Two layers, matching ~/ai/mud's own fast-loop/slow-run split:
 
-- **Fast (`npm test`):** `wotmudCorpus.test.ts` runs this engine over `~/ai/wotmud/tf/*.tf`
-  (a sibling repo of real, in-use WoTMUD scripts — read-only, owned by the WoTMUD session)
-  and asserts it doesn't crash and stays clean, matching what real tf says today. This is a
-  regression guard, not an oracle: it can't ask tf anything new, it just catches a rule that
-  starts misfiring on real scripts.
+- **Fast (`npm test`):** a regression guard per corpus — `tinyfugueLibCorpus.test.ts` (primary;
+  the 46 scripts bundled with tf itself: stdlib, color, keybinding sets, and the rest) and
+  `wotmudCorpus.test.ts` (real, in-use WoTMUD scripts, added afterwards per the user's call
+  2026-10-11 to prioritize tf's own scripts first). Both are read-only over sibling repos this
+  project doesn't own. Each asserts the engine doesn't crash and stays clean, matching what
+  real tf says today. This is a regression guard, not an oracle: it can't ask tf anything new,
+  it just catches a rule that starts misfiring on real scripts.
 - **Slow (`npm run test:corpus-live`):** `scripts/check-corpus-live.js` actually asks real tf,
-  via `tf-script-check`, mounting the corpus's repo read-only and loading its real entry
-  point (so `/load` chains and `%{var}`-built paths resolve exactly as they do for a real
-  user), then compares that verdict against this engine's own. Needs Docker; add a corpus to
-  the `CORPORA` list in that script for another sibling project's scripts.
+  via `tf-script-check`, mounting each corpus's repo read-only and loading its real entry
+  point(s) (so `/load` chains and `%{var}`-built paths resolve exactly as they do for a real
+  user), then compares that verdict against this engine's own, per file. Needs Docker; add a
+  corpus to the `CORPORA` list in that script for another sibling project's scripts. This is
+  how the `/for`-body false positive below was found, and how the fix was confirmed against
+  all 46 tinyfugue/lib/tf files plus the 3 WoTMUD ones.
 
 Nothing wires this into an editor yet. `dist/server.js` speaks LSP over stdio
 (`textDocument/didOpen`, `didChange` -> `textDocument/publishDiagnostics`); a client config

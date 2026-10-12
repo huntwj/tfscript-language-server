@@ -29,6 +29,19 @@ export interface LogicalEntry {
   text: string;
   /** True when this entry is a `/def` command, so its body is macro text, not top-level commands. */
   isDefBody: boolean;
+  /**
+   * True when this entry is a `/for` command. Proven 2026-10-11 against
+   * tinyfugue/lib/tf/color.tf: `%{var}` inside a top-level `/for` body (no `/def` involved)
+   * is substituted on every iteration (`/for i 0 2 /nosuchcmd_%{i}` raised three distinctly
+   * named "no such command" errors — nosuchcmd_0, nosuchcmd_1, nosuchcmd_2 — not one). So a
+   * `/for` body is exempt from the same rule a `/def` body is, just for a different reason:
+   * a `/def` body is deferred (rule 1), a `/for` body is substituted eagerly but per
+   * iteration, not by load_file()'s single top-level pass. Not yet checked the same way for
+   * `/while` or `/repeat` — two ad hoc tries at it gave confusing results that looked like
+   * mistakes in the test script rather than evidence either way, so they are left alone
+   * rather than guessed at.
+   */
+  isForLoop: boolean;
   /** 0-based line number of the entry's first physical line. */
   startLine: number;
   /** 0-based line number of the entry's last physical line. */
@@ -39,6 +52,7 @@ export interface LogicalEntry {
 }
 
 const DEF_RE = /^\s*\/def\b/i;
+const FOR_RE = /^\s*\/for\b/i;
 
 export function isCommentLine(line: string): boolean {
   const first = /\S/.exec(line);
@@ -103,6 +117,7 @@ export function splitLogicalEntries(text: string): LogicalEntry[] {
     entries.push({
       text: joinedText,
       isDefBody: DEF_RE.test(parts[0]?.text ?? ""),
+      isForLoop: FOR_RE.test(parts[0]?.text ?? ""),
       startLine,
       endLine: lineIdx,
       parts,

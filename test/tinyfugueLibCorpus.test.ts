@@ -1,0 +1,43 @@
+import { describe, expect, it } from "vitest";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { getDiagnostics } from "../src/diagnostics";
+
+/**
+ * tinyfugue/lib/tf/*.tf are the scripts bundled with tf itself (stdlib.tf, color.tf, the
+ * keybinding sets, and the rest) — tinyfugue/ is a sibling private fork another session
+ * owns, so this is read-only, same as the WoTMUD corpus. This is the primary real-script
+ * corpus (the user's call, 2026-10-11): bigger and more varied than any user-land script,
+ * and worth trusting first since it's tf's own code.
+ *
+ * Fast regression guard, not a correctness oracle — see scripts/check-corpus-live.js for
+ * the slow, Docker-backed version that actually asks real tf. Cross-checked against it
+ * 2026-10-11 (all 46 files clean, after fixing one real false positive this comparison
+ * found: %{var} inside a top-level /for body is substituted per iteration, same as inside a
+ * /def — see LogicalEntry.isForLoop in logicalEntries.ts).
+ */
+const CORPUS_DIR = join(__dirname, "..", "..", "tinyfugue", "lib", "tf");
+const describeOrSkip = existsSync(CORPUS_DIR) ? describe : describe.skip;
+
+describeOrSkip("tinyfugue lib/tf corpus (read-only)", () => {
+  const files = readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".tf"));
+
+  it("found the expected number of scripts", () => {
+    // Not a magic number to preserve exactly — just a floor. If this ever fails because
+    // tinyfugue/ added files, that's good news (a bigger corpus); update the number.
+    expect(files.length).toBeGreaterThanOrEqual(40);
+  });
+
+  for (const file of files) {
+    it(`${file} does not crash the diagnostics engine`, () => {
+      const text = readFileSync(join(CORPUS_DIR, file), "utf8");
+      expect(() => getDiagnostics(text)).not.toThrow();
+    });
+
+    it(`${file} stays clean`, () => {
+      const text = readFileSync(join(CORPUS_DIR, file), "utf8");
+      const diags = getDiagnostics(text);
+      expect(diags, JSON.stringify(diags, null, 2)).toEqual([]);
+    });
+  }
+});

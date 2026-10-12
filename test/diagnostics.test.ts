@@ -49,6 +49,15 @@ describe("load-no-expansion (rule 4)", () => {
   it("does not flag an ordinary /set assignment with no %{...}", () => {
     expect(codes("/set d=/script\n")).not.toContain("load-no-expansion");
   });
+
+  // Regression: found as a real false positive against tinyfugue/lib/tf/color.tf. Confirmed
+  // directly that %{i} inside a top-level /for body is substituted on every iteration
+  // (/for i 0 2 /nosuchcmd_%{i} raised three distinctly-named "no such command" errors, not
+  // one), unlike an ordinary top-level line.
+  it("does not flag %{var} inside a /for body, not just a /def body", () => {
+    const text = "/for i 0 2 /set x%{i}=hello\n";
+    expect(codes(text)).not.toContain("load-no-expansion");
+  });
 });
 
 describe("let-swallows-endif (rule 5)", () => {

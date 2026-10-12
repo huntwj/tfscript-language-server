@@ -1,7 +1,7 @@
 # tfscript-language-server
 
-A language server for tfscript, TinyFugue's macro language. Private and early: diagnostics
-for the handful of rules proven so far, nothing else yet.
+A language server for tfscript, TinyFugue's macro language. Early days: diagnostics for the
+handful of rules proven so far, command-name completion, nothing else yet.
 
 ## Why this needs its own parser
 
@@ -18,9 +18,10 @@ tf, in the sibling `~/ai/mud` checkout:
   diagnostics are tested against it (`test/groundTruth.test.ts` reads that directory directly,
   skipped if it is not present as a sibling checkout).
 
-That directory belongs to the "tf dev" project (`~/ai/mud`), not this one — read it, don't
-edit it. If a diagnostic here needs a new proven rule, that's a case to add there first (or a
-message to that session).
+That checkout is a separate, private project (notes and a regression harness for TinyFugue
+itself) — this repo only reads from it, never edits it. It is optional: tests that depend on
+it are skipped when it's not present as a sibling directory. If a diagnostic here needs a new
+proven rule, that's a case to add there first.
 
 ## What's implemented
 
@@ -167,4 +168,6 @@ far). Following scripting.md's roadmap order: diagnostics done, completion start
 names; functions and variables still needed), then hover, then go-to-definition for `/def`
 across `/load`, then formatting.
 
-Licence: not decided.
+## Licence
+
+MIT — see [LICENSE](LICENSE).

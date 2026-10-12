@@ -1,9 +1,16 @@
 {
   "name": "tfscript-language-server",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Language server for tfscript, TinyFugue's macro language.",
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "author": "Wil Hunt",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/huntwj/tfscript-language-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/huntwj/tfscript-language-server/issues"
+  },
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc -p .",

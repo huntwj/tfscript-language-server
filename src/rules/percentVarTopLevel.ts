@@ -1,4 +1,4 @@
-import type { Rule, RuleMatch } from "./types";
+import type { EntryRule, EntryMatch } from "./types";
 
 /**
  * Rule 4 (scripting.md): `%{var}` is not expanded in a top-level command. `/def` bodies are
@@ -8,10 +8,11 @@ import type { Rule, RuleMatch } from "./types";
 const EVAL_PREFIX_RE = /^\s*\/eval\b/i;
 const PERCENT_BRACE_RE = /%\{[^}]*\}/g;
 
-export const percentVarTopLevel: Rule = {
+export const percentVarTopLevel: EntryRule = {
   id: "load-no-expansion",
   severity: "warning",
-  check(entry): RuleMatch[] {
+  scope: "entry",
+  check(entry): EntryMatch[] {
     if (entry.isDefBody) return [];
     if (EVAL_PREFIX_RE.test(entry.text)) return [];
 

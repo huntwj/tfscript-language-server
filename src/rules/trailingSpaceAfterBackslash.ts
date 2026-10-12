@@ -1,4 +1,5 @@
-import { isCommentLine } from "../logicalEntries";
+import { isBlankLine, isCommentLine } from "../logicalEntries";
+import type { FileRule, LineMatch } from "./types";
 
 /**
  * tf's warning (tinyfugue/src/command.c, load_file(); proven by
@@ -9,18 +10,7 @@ import { isCommentLine } from "../logicalEntries";
  * continuesToNextLine already treats it (that function requires line.endsWith("\\")), so
  * this rule only adds the warning tf itself prints; it changes no continuation behaviour.
  */
-export interface LineMatch {
-  line: number;
-  startChar: number;
-  endChar: number;
-  message: string;
-}
-
-function isBlankLine(line: string): boolean {
-  return /^[ \t]*$/.test(line);
-}
-
-export function trailingSpaceAfterBackslash(text: string): LineMatch[] {
+function check(text: string): LineMatch[] {
   const lines = text.split(/\r\n|\r|\n/);
   const matches: LineMatch[] = [];
 
@@ -45,3 +35,10 @@ export function trailingSpaceAfterBackslash(text: string): LineMatch[] {
 
   return matches;
 }
+
+export const trailingSpaceAfterBackslash: FileRule = {
+  id: "trailing-space-after-backslash",
+  severity: "warning",
+  scope: "file",
+  check,
+};

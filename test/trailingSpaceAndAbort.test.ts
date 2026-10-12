@@ -50,4 +50,32 @@ describe("bare-line-after-command", () => {
   it("does not flag a /def body, which starts with /", () => {
     expect(codes("/def tfsc_f = /echo hi\n")).not.toContain("bare-line-after-command");
   });
+
+  // Regression: findAbortEntry used to look only at an entry's first physical part, so a
+  // continuation whose first line is itself blank (just a lone `\`) was wrongly treated as a
+  // blank entry and the abort was missed, even though tf joins it with the next line and
+  // sees the same bare command.
+  it("detects the abort even when the aborting entry's first physical line is just a backslash", () => {
+    const text = ["\\", "tfscw localhost 4000", ""].join("\n");
+    expect(codes(text)).toContain("bare-line-after-command");
+  });
+
+  // Regression: tf reads every physical line of the aborting entry (joining any backslash
+  // continuation) before it checks the assembled command and aborts, so the other rules'
+  // truncation boundary has to be the entry's LAST line, not wherever its first non-blank
+  // character happens to land.
+  it("still runs file-scoped rules on every physical line of the aborting entry itself", () => {
+    const text = ["/echo first", "  tfscw localhost 4000", ""].join("\n");
+    const found = codes(text);
+    expect(found).toContain("bare-line-after-command");
+    expect(found).toContain("indented-line-after-command");
+  });
+
+  it("truncates after the aborting entry's last continued line, not its first", () => {
+    const text = ["tfscw localhost 4000 \\", "/more", "/echo never", ""].join("\n");
+    const found = codes(text);
+    expect(found).toContain("bare-line-after-command");
+    // Nothing on or after the never-read third line should be flagged.
+    expect(found).not.toContain("if-multiline-top-level");
+  });
 });

@@ -1,4 +1,4 @@
-import type { Rule, RuleMatch } from "./types";
+import type { EntryRule, EntryMatch } from "./types";
 
 /**
  * Rule 6 (scripting.md): writing `$[...]` inside an `/if (...)` condition is legal but
@@ -8,11 +8,12 @@ import type { Rule, RuleMatch } from "./types";
 const IF_OPEN_RE = /\/if\s*\(/gi;
 const DOLLAR_BRACKET = "$[";
 
-export const dollarBracketInIf: Rule = {
+export const dollarBracketInIf: EntryRule = {
   id: "dollar-bracket-in-if",
   severity: "warning",
-  check(entry): RuleMatch[] {
-    const matches: RuleMatch[] = [];
+  scope: "entry",
+  check(entry): EntryMatch[] {
+    const matches: EntryMatch[] = [];
 
     for (const open of entry.text.matchAll(IF_OPEN_RE)) {
       if (open.index === undefined) continue;

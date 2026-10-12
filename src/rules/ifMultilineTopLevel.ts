@@ -1,4 +1,4 @@
-import type { Rule, RuleMatch } from "./types";
+import type { EntryRule, EntryMatch } from "./types";
 
 /**
  * Rule 2 (scripting.md): a multi-line `/if` ... `/endif` is rejected at the top level of a
@@ -18,10 +18,11 @@ import type { Rule, RuleMatch } from "./types";
 const IF_RE = /\/if\b/gi;
 const ENDIF_RE = /\/endif\b/gi;
 
-export const ifMultilineTopLevel: Rule = {
+export const ifMultilineTopLevel: EntryRule = {
   id: "if-multiline-top-level",
   severity: "error",
-  check(entry): RuleMatch[] {
+  scope: "entry",
+  check(entry): EntryMatch[] {
     const ifMatches = [...entry.text.matchAll(IF_RE)];
     if (ifMatches.length === 0) return [];
     const endifCount = [...entry.text.matchAll(ENDIF_RE)].length;

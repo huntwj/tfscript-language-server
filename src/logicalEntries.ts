@@ -45,6 +45,17 @@ export function isCommentLine(line: string): boolean {
   return first !== null && (first[0] === ";" || first[0] === "#");
 }
 
+/** Index of the first non-space-or-tab character, or `line.length` if there is none. */
+export function leadingWhitespaceLength(line: string): number {
+  let i = 0;
+  while (i < line.length && (line[i] === " " || line[i] === "\t")) i += 1;
+  return i;
+}
+
+export function isBlankLine(line: string): boolean {
+  return leadingWhitespaceLength(line) === line.length;
+}
+
 export function continuesToNextLine(line: string): boolean {
   if (!line.endsWith("\\")) return false;
   // "%\" is an escaped literal backslash, not a continuation marker.

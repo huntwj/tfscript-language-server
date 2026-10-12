@@ -24,11 +24,15 @@ message to that session).
 
 ## What's implemented
 
-Diagnostics for seven of the proven rules, each a pure function in `src/rules/`. Four take a
-`LogicalEntry`; three (`indented-line-after-command`, `trailing-space-after-backslash`,
-`bare-line-after-command`) need the whole file's raw lines or entry sequence, since they are
-line-by-line state machines (mirroring `load_file()`'s own `new_cmd`/`last_cmd_line`), not
-per-command checks:
+Diagnostics for seven of the proven rules, each a pure function in `src/rules/`, under one of
+two shapes (`src/rules/types.ts`): an `EntryRule` scans one `LogicalEntry` and returns offset
+ranges into its joined text (four rules); a `FileRule` scans the whole file's raw lines and
+returns positions directly, for the two line-by-line state machines that mirror
+`load_file()`'s own `new_cmd`/`last_cmd_line` tracking (`indented-line-after-command`,
+`trailing-space-after-backslash`). `diagnostics.ts` drives both kinds through one loop.
+`bare-line-after-command` is the one exception, wired by hand rather than through that loop:
+it doesn't just report a diagnostic, it also decides where every other rule's view of the
+file gets truncated, since tf never reads past the line it aborts on.
 
 | Rule | id | What it catches |
 | --- | --- | --- |

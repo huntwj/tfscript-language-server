@@ -1,4 +1,4 @@
-import type { Rule, RuleMatch } from "./types";
+import type { EntryRule, EntryMatch } from "./types";
 
 /**
  * Rule 5 (scripting.md): `/let` (and `/set`) take the rest of the command, up to the next
@@ -18,11 +18,12 @@ const SEGMENT_SEPARATOR = "%;";
 const ASSIGNMENT_RE = /\/(let|set)\b\s+[^\s=]+\s*=/gi;
 const TRAILING_COMMAND_RE = /\/(?:if|endif)\b/;
 
-export const letSwallowsEndif: Rule = {
+export const letSwallowsEndif: EntryRule = {
   id: "let-swallows-endif",
   severity: "error",
-  check(entry): RuleMatch[] {
-    const matches: RuleMatch[] = [];
+  scope: "entry",
+  check(entry): EntryMatch[] {
+    const matches: EntryMatch[] = [];
     let segmentStart = 0;
 
     while (segmentStart <= entry.text.length) {

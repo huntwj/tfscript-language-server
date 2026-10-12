@@ -1,4 +1,5 @@
-import { continuesToNextLine, isCommentLine } from "../logicalEntries";
+import { continuesToNextLine, isCommentLine, leadingWhitespaceLength } from "../logicalEntries";
+import type { FileRule, LineMatch } from "./types";
 
 /**
  * tf's own warning (tinyfugue/src/command.c, load_file(), lines ~574-600; proven by
@@ -9,20 +10,12 @@ import { continuesToNextLine, isCommentLine } from "../logicalEntries";
  * meant to continue the previous command, but a missing `\` means it didn't.
  *
  * This is a whole-file, line-by-line state machine (new_cmd / last_cmd_line in the source),
- * not a per-LogicalEntry check, so it does not fit the Rule interface the other rules use —
- * it runs directly over the raw lines in diagnostics.ts.
+ * not a per-command check — see the FileRule scope in ./types.
  *
- * Not modelled: tf's separate "whitespace following final '\'" warning (a trailing `\`
- * followed by whitespace, so it does NOT continue) — not yet backed by a proven case.
+ * Not modelled: tf's separate "whitespace following final '\'" warning is its own rule,
+ * trailingSpaceAfterBackslash.ts.
  */
-export interface LineMatch {
-  line: number;
-  startChar: number;
-  endChar: number;
-  message: string;
-}
-
-export function indentedLineAfterCommand(text: string): LineMatch[] {
+function check(text: string): LineMatch[] {
   const lines = text.split(/\r\n|\r|\n/);
   const matches: LineMatch[] = [];
 
@@ -34,8 +27,7 @@ export function indentedLineAfterCommand(text: string): LineMatch[] {
 
     if (isCommentLine(line)) continue; // comments never touch newCmd/lastCmdLine
 
-    let i = 0;
-    while (i < line.length && (line[i] === " " || line[i] === "\t")) i += 1;
+    const i = leadingWhitespaceLength(line);
     const isBlank = i >= line.length;
 
     if (isBlank) {
@@ -57,12 +49,15 @@ export function indentedLineAfterCommand(text: string): LineMatch[] {
     }
     lastCmdLine = idx + 1;
 
-    if (continuesToNextLine(line)) {
-      newCmd = false;
-    } else {
-      newCmd = true;
-    }
+    newCmd = !continuesToNextLine(line);
   }
 
   return matches;
 }
+
+export const indentedLineAfterCommand: FileRule = {
+  id: "indented-line-after-command",
+  severity: "warning",
+  scope: "file",
+  check,
+};

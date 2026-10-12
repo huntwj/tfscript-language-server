@@ -95,10 +95,11 @@ so the server itself never needs that checkout at runtime. `test/commandsData.te
 re-parses the same sources, when present, and fails on drift — the same sync-check shape as
 ~/ai/mud's own `tinyfugue.pin.json`.
 
-Not done yet: wiring this into the LSP server's `onCompletion`/`onHover`, and a fourth source
-— the function table for `expr.c`'s expression functions (`strlen()`, `echo()`, and the rest)
-and tf's special variables (`variable.c`) — both still needed before completion covers
-anything beyond command names.
+`src/completions.ts` wires this into `onCompletion`: right after typing `/` and an optional
+partial word, the server offers every known command name (lowercase, matching how every real
+script actually writes them, even though the source tables store uppercase). No `onHover` yet,
+and no completion for anything other than command names — a fourth data source (`expr.c`'s
+expression functions and `variable.c`'s special variables) is still needed for that.
 
 ## Layout
 
@@ -107,7 +108,9 @@ src/
   logicalEntries.ts   splits a document into tf's "one command per (joined) line" units
   rules/              one file per diagnostic rule, plus the shared Rule type
   diagnostics.ts       runs every rule over every entry, maps offsets back to positions
-  server.ts            LSP server entry point (stdio), wires diagnostics to didOpen/didChange
+  server.ts            LSP server entry point (stdio): diagnostics on didOpen/didChange,
+                        command-name completion on onCompletion
+  completions.ts        pure getCommandCompletions(linePrefix), used by server.ts
   data/                command names for completion/hover — see "Command data" above
 test/
   diagnostics.test.ts   unit tests per rule
@@ -157,10 +160,11 @@ Two layers, matching ~/ai/mud's own fast-loop/slow-run split:
   how the `/for`-body false positive below was found, and how the fix was confirmed against
   all 46 tinyfugue/lib/tf files plus the 3 WoTMUD ones.
 
-Nothing wires this into an editor yet. `dist/server.js` speaks LSP over stdio
-(`textDocument/didOpen`, `didChange` -> `textDocument/publishDiagnostics`); a client config
-(VS Code extension, Neovim, etc.) is future work, in the order scripting.md's roadmap entry
-lays out: diagnostics first (here), then completion/hover from tf's own command/function/
-variable tables, then go-to-definition for `/def` across `/load`, then formatting.
+No editor client config yet (VS Code extension, Neovim, etc.) — only the server side.
+`dist/server.js` speaks LSP over stdio: diagnostics (`didOpen`/`didChange` ->
+`publishDiagnostics`) and command-name completion (`onCompletion`, command names only so
+far). Following scripting.md's roadmap order: diagnostics done, completion started (command
+names; functions and variables still needed), then hover, then go-to-definition for `/def`
+across `/load`, then formatting.
 
 Licence: not decided.

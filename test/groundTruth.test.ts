@@ -15,7 +15,10 @@ const CASES_DIR = join(__dirname, "..", "..", "tests", "tfscript", "cases");
 const describeOrSkip = existsSync(CASES_DIR) ? describe : describe.skip;
 
 describeOrSkip("ground truth (~/ai/mud/tests/tfscript/cases)", () => {
-  const files = readdirSync(CASES_DIR).filter((f) => f.endsWith(".tf"));
+  // describe.skip still runs this callback body to collect the (zero) child tests — only the
+  // it()s inside are actually skipped — so this must not call readdirSync on a directory that
+  // may not exist, or every test file reports a collection-time crash instead of "skipped".
+  const files = existsSync(CASES_DIR) ? readdirSync(CASES_DIR).filter((f) => f.endsWith(".tf")) : [];
 
   it("found at least one case file", () => {
     expect(files.length).toBeGreaterThan(0);

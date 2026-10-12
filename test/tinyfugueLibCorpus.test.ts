@@ -20,7 +20,10 @@ const CORPUS_DIR = join(__dirname, "..", "..", "tinyfugue", "lib", "tf");
 const describeOrSkip = existsSync(CORPUS_DIR) ? describe : describe.skip;
 
 describeOrSkip("tinyfugue lib/tf corpus (read-only)", () => {
-  const files = readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".tf"));
+  // describe.skip still runs this callback body to collect the (zero) child tests — only the
+  // it()s inside are actually skipped — so this must not call readdirSync on a directory that
+  // may not exist, or every test file reports a collection-time crash instead of "skipped".
+  const files = existsSync(CORPUS_DIR) ? readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".tf")) : [];
 
   it("found the expected number of scripts", () => {
     // Not a magic number to preserve exactly — just a floor. If this ever fails because

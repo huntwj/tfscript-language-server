@@ -1,0 +1,75 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "tfscript",
+  "scopeName": "source.tf",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#substitutions" },
+    { "include": "#commands" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "comment": "A line is a comment when its first non-whitespace character is ; or # (tf's own load_file() rule, not just the ;; convention test-case headers use).",
+          "name": "comment.line.semicolon.tf",
+          "match": "^\\s*;.*$"
+        },
+        {
+          "name": "comment.line.number-sign.tf",
+          "match": "^\\s*#.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.tf",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "name": "constant.character.escape.tf", "match": "\\\\." }]
+        },
+        {
+          "name": "string.quoted.single.tf",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "name": "constant.character.escape.tf", "match": "\\\\." }]
+        }
+      ]
+    },
+    "substitutions": {
+      "patterns": [
+        {
+          "comment": "%{var} — not expanded in a top-level command (load-no-expansion); deferred inside /def, /for, /bind, /hook and /trig-family bodies.",
+          "name": "variable.other.tf",
+          "match": "%\\{[^}]*\\}"
+        },
+        {
+          "comment": "%0-%9 positional argument, %* the rest, %-1 etc. a relative positional range.",
+          "name": "variable.parameter.tf",
+          "match": "%(\\*|-?[0-9]+(-[0-9]*)?)"
+        },
+        {
+          "comment": "%; separates commands on one logical line.",
+          "name": "keyword.operator.separator.tf",
+          "match": "%;"
+        },
+        {
+          "comment": "$[...] — a redundant-inside-/if expression substitution (dollar-bracket-in-if); legal anywhere an expression is read.",
+          "name": "variable.other.expression.tf",
+          "match": "\\$\\[[^\\]]*\\]"
+        }
+      ]
+    },
+    "commands": {
+      "patterns": [
+        {
+          "comment": "A top-level /word: tf's control-flow keywords, C builtins, and stdlib.tf macros are all written the same way.",
+          "name": "keyword.control.tf",
+          "match": "/[A-Za-z_][A-Za-z0-9_]*"
+        }
+      ]
+    }
+  }
+}

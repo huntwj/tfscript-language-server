@@ -1,0 +1,61 @@
+{
+  "name": "tfscript-vscode",
+  "displayName": "tfscript",
+  "description": "Language support for tfscript, TinyFugue's macro language: diagnostics and command-name completion, plus syntax highlighting for .tf files.",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "publisher": "huntwj",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/huntwj/tfscript-language-server.git",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages", "Linters"],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true,
+      "description": "Only reports diagnostics and completions for the open file; runs no workspace-authored code or config."
+    },
+    "virtualWorkspaces": false
+  },
+  "activationEvents": ["onLanguage:tf"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "tf",
+        "aliases": ["tfscript", "TinyFugue Script"],
+        "extensions": [".tf"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tf",
+        "scopeName": "source.tf",
+        "path": "./syntaxes/tf.tmLanguage.json"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p . && node scripts/copy-server.js",
+    "watch": "tsc -p . --watch",
+    "test": "node test/smoke.js",
+    "package": "npm run build && npm test && vsce package -o tfscript-vscode.vsix"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^10.1.2",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "^5.5.3"
+  }
+}

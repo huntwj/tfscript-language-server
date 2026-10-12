@@ -2,6 +2,8 @@ node_modules/
 dist/
 *.log
 .vscode-test/
+*.vsix
+/editors/vscode/server/
 
 # Claude Code tool state, not project content.
 /.claude/

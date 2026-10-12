@@ -5,8 +5,9 @@ tfscript, the macro language of [TinyFugue](https://tinyfugue.sourceforge.net/) 
 terminal MUD client. tf scripts are `.tf` files full of `/def` macros, triggers, and hooks.
 
 This is early, pre-1.0 software: diagnostics for the handful of rules proven so far (below),
-plus command-name completion. No hover yet, no go-to-definition, no formatting, and no editor
-extension — see "Use" for wiring the stdio server into an editor yourself in the meantime.
+plus command-name completion. No hover yet, no go-to-definition, no formatting. There is a
+VS Code extension (`editors/vscode/`) for syntax highlighting, diagnostics, and completion;
+other editors can wire up the stdio server directly — see "Use".
 
 ## Why every rule here is proven against real tf, not taken from the manual
 
@@ -167,11 +168,38 @@ scripts/
 npm install
 npm run build          # tsc -> dist/
 npm test               # vitest, fast, no Docker
-node dist/server.js     # run the server (speaks LSP over stdio)
+node dist/server.js     # run the server directly (speaks LSP over stdio)
 ```
 
-Wire it into an editor by pointing it at that command for `.tf` files. For example, in
-Neovim with the built-in LSP client:
+The server advertises `completionProvider` (triggered on `/`) and publishes diagnostics
+tagged `source: "tfscript"`. Many editors' LSP clients also pass a `--stdio` flag by
+convention — this server doesn't need it (it talks over stdio either way) but accepts and
+ignores it.
+
+### VS Code
+
+Download `tfscript-vscode.vsix` from the [latest release](https://github.com/huntwj/tfscript-language-server/releases/latest)
+and install it — no Node or npm needed for this path, just VS Code itself:
+
+```sh
+code --install-extension tfscript-vscode.vsix
+```
+
+To build it from source instead (needs Node/npm only for this build step, not to run the
+result — see `editors/vscode/README.md` for why):
+
+```sh
+npm install && npm run build       # the root server, first
+cd editors/vscode
+npm install
+npm run package   # -> tfscript-vscode.vsix (bundles its own copy of the server)
+code --install-extension tfscript-vscode.vsix
+```
+
+### Other editors
+
+Point your LSP client at `node dist/server.js` for `.tf` files. For example, in Neovim with
+the built-in LSP client:
 
 ```lua
 vim.lsp.start({
@@ -180,11 +208,6 @@ vim.lsp.start({
   filetypes = { "tf" },
 })
 ```
-
-The server advertises `completionProvider` (triggered on `/`) and publishes diagnostics
-tagged `source: "tfscript"`; there is no editor extension yet (VS Code, Neovim plugin, etc.),
-just the server. Many editors' LSP clients also pass a `--stdio` flag by convention — this
-server doesn't need it (it talks over stdio either way) but accepts and ignores it.
 
 ### Testing against real scripts
 

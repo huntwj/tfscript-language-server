@@ -12,4 +12,7 @@ First release.
   tf), as is a trailing `\` at the true end of a file (dropped silently, not an abort).
 - Command-name completion (`onCompletion`), sourced from tf's keyword, builtin, and stdlib
   macro tables.
-- No hover, go-to-definition, or formatting yet; no editor extension, just the LSP server.
+- A VS Code extension (`editors/vscode/`): `.tf` file association, basic syntax highlighting,
+  and the diagnostics/completion above, with no Node or npm needed to run it — download
+  `tfscript-vscode.vsix` from this release and `code --install-extension` it.
+- No hover, go-to-definition, or formatting yet.

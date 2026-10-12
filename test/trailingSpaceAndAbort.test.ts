@@ -78,4 +78,18 @@ describe("bare-line-after-command", () => {
     // Nothing on or after the never-read third line should be flagged.
     expect(found).not.toContain("if-multiline-top-level");
   });
+
+  // Confirmed live: a trailing `\` at the true end of the file never reaches tf's
+  // invalid-command check at all — load_file()'s abort check only runs once a command is
+  // *completed* by a non-continuing line, and this one never is. tf just warns "last command
+  // is incomplete because of trailing \" and drops it; it does not abort the file.
+  it("does not abort on a trailing backslash with nothing left to join it to", () => {
+    const text = "/echo a\nfoo \\";
+    expect(codes(text)).not.toContain("bare-line-after-command");
+  });
+
+  it("does still abort when a trailing backslash joins onto more invalid content", () => {
+    const text = ["/echo a", "foo \\", "/echo b", ""].join("\n");
+    expect(codes(text)).toContain("bare-line-after-command");
+  });
 });

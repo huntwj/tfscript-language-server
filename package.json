@@ -11,7 +11,17 @@
   "bugs": {
     "url": "https://github.com/huntwj/tfscript-language-server/issues"
   },
+  "keywords": ["tinyfugue", "tf", "tfscript", "language-server", "lsp", "mud"],
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "main": "dist/server.js",
+  "bin": {
+    "tfscript-language-server": "dist/server.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p .",
     "test": "vitest run",

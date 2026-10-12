@@ -13,7 +13,11 @@ const ITEMS: CompletionItem[] = ALL_COMMANDS.map((c) => ({
   detail: SOURCE_DETAIL[c.source],
 }));
 
-const TRAILING_COMMAND_WORD = /\/(\w*)$/;
+// The `/` must start the line or follow whitespace, `(`, or `;` (as in a `%;` command
+// separator) — not just any `/`, or `/set d=/script` and `/load %{d}/file` would offer every
+// command name while typing an ordinary path-like value. This does mean a command typed as a
+// /def's inline value (`/def x=/echo`) won't get completions; that's an acceptable trade-off.
+const TRAILING_COMMAND_WORD = /(?:^|[\s;(])\/(\w*)$/;
 
 /**
  * Command-name completion: tf commands are conventionally typed lowercase (every example in

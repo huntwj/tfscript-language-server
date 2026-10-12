@@ -1,4 +1,4 @@
-import { isBlankLine, isCommentLine } from "../logicalEntries";
+import { isBlankLine, isCommentLine, isTfSpace, splitRawLines } from "../logicalEntries";
 import type { FileRule, LineMatch } from "./types";
 
 /**
@@ -9,9 +9,13 @@ import type { FileRule, LineMatch } from "./types";
  * continue the line — it is a complete command on its own, same as logicalEntries.ts's
  * continuesToNextLine already treats it (that function requires line.endsWith("\\")), so
  * this rule only adds the warning tf itself prints; it changes no continuation behaviour.
+ *
+ * A CRLF file's trailing `\r` is exactly this case (confirmed live): `\<CR>` is a backslash
+ * followed by whitespace tf's own is_space() recognises, same as a backslash followed by a
+ * space or tab — see isTfSpace.
  */
 function check(text: string): LineMatch[] {
-  const lines = text.split(/\r\n|\r|\n/);
+  const lines = splitRawLines(text);
   const matches: LineMatch[] = [];
 
   for (let idx = 0; idx < lines.length; idx += 1) {
@@ -20,7 +24,7 @@ function check(text: string): LineMatch[] {
     if (line.endsWith("\\")) continue; // a real continuation, not this case
 
     let end = line.length - 1;
-    while (end > 0 && (line[end] === " " || line[end] === "\t")) end -= 1;
+    while (end > 0 && isTfSpace(line[end])) end -= 1;
     if (line[end] !== "\\") continue;
 
     matches.push({

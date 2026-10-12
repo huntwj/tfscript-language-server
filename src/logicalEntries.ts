@@ -13,8 +13,21 @@
  *    on scripting.md undersells this; verified 2026-10-11 with a plain `/if (1) \ ... /endif`
  *    spanning three lines at the top level, no `/def`, which loaded clean.
  *
- * Not modelled (known limitations, low value for v1): a blank line's effect on an in-progress
- * continuation, and the exact "whitespace following final backslash" warning tf prints.
+ *
+ * Every physical line also has its leading whitespace stripped before being appended to the
+ * joined command text — `command.c`'s `load_file()` does this unconditionally for every line
+ * it reads, first line and continuation lines alike (`for (i = 0; is_space(line->data[i]);
+ * i++)` before the `SStringocat` that appends from offset `i`), not only for continuations.
+ * Keeping it would otherwise splice stray indentation into the middle of a joined command.
+ *
+ * CRLF: tf's own line reader (`tfio.c`'s `tfgetS()`) only breaks a line on `\n` — every other
+ * byte, `\r` included, stays part of the line. So this module splits on `\n` only and keeps
+ * any trailing `\r`, which has two consequences, both confirmed live against real tf:
+ *  - a line ending `\<CR>` does not continue (its literal last character is `\r`, not `\`) —
+ *    tf warns "whitespace following final '\'", same as `\` followed by a space (see
+ *    trailingSpaceAfterBackslash.ts, and isTfSpace below);
+ *  - a line that *isn't* a failed continuation keeps its trailing `\r` as part of the command
+ *    text tf actually runs. This module does the same: nothing strips it back out.
  */
 
 export interface EntryPart {
@@ -36,16 +49,36 @@ export interface LogicalEntry {
    * named "no such command" errors — nosuchcmd_0, nosuchcmd_1, nosuchcmd_2 — not one). So a
    * `/for` body is exempt from the same rule a `/def` body is, just for a different reason:
    * a `/def` body is deferred (rule 1), a `/for` body is substituted eagerly but per
-   * iteration, not by load_file()'s single top-level pass. Not yet checked the same way for
-   * `/while` or `/repeat` — two ad hoc tries at it gave confusing results that looked like
-   * mistakes in the test script rather than evidence either way, so they are left alone
-   * rather than guessed at.
+   * iteration, not by load_file()'s single top-level pass. `/while` and `/repeat` are not
+   * exempted because they haven't been pinned down the same way; a false positive on a real
+   * script is the signal to do so.
    */
   isForLoop: boolean;
+  /**
+   * True when this entry creates a macro body the same way `/def` does, just under a
+   * different command: `/bind`, `/hook`, and `/trig`/`/trigc`/`/trigp` (stdlib macros that
+   * just reorder arguments onto the real builtin, `/trigpc` — see lib/tf/stdlib.tf). Confirmed
+   * live for `/bind`, `/hook` and `/trig` directly: a `%{var}` in each one's body is accepted
+   * with no "not expanded" complaint, same deferred-substitution behaviour as a `/def` body.
+   * Checked and deliberately NOT included: `/trigger` (runs existing triggers, does not define
+   * one) and `/redef` (a `/set redef` toggle, nothing to do with macro bodies) — both looked
+   * plausible by name alone, which is exactly why they were checked instead of assumed.
+   */
+  isOtherMacroBody: boolean;
   /** 0-based line number of the entry's first physical line. */
   startLine: number;
   /** 0-based line number of the entry's last physical line. */
   endLine: number;
+  /**
+   * True when the entry's last physical line still ended in a continuing `\` but the file
+   * ended before another line arrived to join onto it. tf's load_file() only runs the
+   * invalid-command / abort check once a command is completed by a *non*-continuing line
+   * (confirmed live: a trailing `\` at true EOF just prints "last command is incomplete
+   * because of trailing \" at the very end and is silently dropped — never aborts, never
+   * runs). Such an entry must be excluded from every rule, including the abort check itself,
+   * the same way nothing after a real abort is checked: tf never executes it either way.
+   */
+  incomplete: boolean;
   parts: EntryPart[];
   /** Maps each character offset in `text` back to a position in the original document. */
   offsetMap: { line: number; character: number }[];
@@ -53,17 +86,28 @@ export interface LogicalEntry {
 
 const DEF_RE = /^\s*\/def\b/i;
 const FOR_RE = /^\s*\/for\b/i;
+const OTHER_MACRO_BODY_RE = /^\s*\/(?:bind|hook|trigpc|trigc|trigp|trig)\b/i;
 
-export function isCommentLine(line: string): boolean {
-  const first = /\S/.exec(line);
-  return first !== null && (first[0] === ";" || first[0] === "#");
+/**
+ * Matches tf's own `is_space()` (`port.h`: `isspace((unsigned char)c)`), minus `\n` — already
+ * consumed by splitting the file into lines, so it never appears within one. A byte like the
+ * UTF-8 BOM is deliberately NOT included: it isn't ASCII whitespace to tf either, even though
+ * JavaScript's own `\s` regex class (confusingly) treats U+FEFF as whitespace.
+ */
+export function isTfSpace(ch: string | undefined): boolean {
+  return ch === " " || ch === "\t" || ch === "\r" || ch === "\f" || ch === "\v";
 }
 
-/** Index of the first non-space-or-tab character, or `line.length` if there is none. */
+/** Index of the first character that is not `isTfSpace`, or `line.length` if there is none. */
 export function leadingWhitespaceLength(line: string): number {
   let i = 0;
-  while (i < line.length && (line[i] === " " || line[i] === "\t")) i += 1;
+  while (i < line.length && isTfSpace(line[i])) i += 1;
   return i;
+}
+
+export function isCommentLine(line: string): boolean {
+  const first = line[leadingWhitespaceLength(line)];
+  return first === ";" || first === "#";
 }
 
 export function isBlankLine(line: string): boolean {
@@ -76,8 +120,12 @@ export function continuesToNextLine(line: string): boolean {
   return !(line.length >= 2 && line[line.length - 2] === "%");
 }
 
+export function splitRawLines(text: string): string[] {
+  return text.split("\n");
+}
+
 export function splitLogicalEntries(text: string): LogicalEntry[] {
-  const lines = text.split(/\r\n|\r|\n/);
+  const lines = splitRawLines(text);
   const entries: LogicalEntry[] = [];
 
   let i = 0;
@@ -90,36 +138,46 @@ export function splitLogicalEntries(text: string): LogicalEntry[] {
 
     const startLine = i;
     const parts: EntryPart[] = [];
+    const partLeadingLens: number[] = [];
     let lineIdx = i;
+    let incomplete = false;
     while (true) {
       const line = lines[lineIdx] ?? "";
       const continues = continuesToNextLine(line);
-      const partText = continues ? line.slice(0, -1) : line;
-      parts.push({ line: lineIdx, text: partText });
+      const sliced = continues ? line.slice(0, -1) : line;
+      const leadingLen = leadingWhitespaceLength(sliced);
+      parts.push({ line: lineIdx, text: sliced.slice(leadingLen) });
+      partLeadingLens.push(leadingLen);
       if (!continues) break;
 
       let nextIdx = lineIdx + 1;
       while (nextIdx < lines.length && isCommentLine(lines[nextIdx] ?? "")) {
         nextIdx += 1;
       }
-      if (nextIdx >= lines.length) break;
+      if (nextIdx >= lines.length) {
+        incomplete = true;
+        break;
+      }
       lineIdx = nextIdx;
     }
 
     const joinedText = parts.map((p) => p.text).join("");
     const offsetMap: { line: number; character: number }[] = [];
-    for (const part of parts) {
+    parts.forEach((part, idx) => {
+      const leadingLen = partLeadingLens[idx] ?? 0;
       for (let c = 0; c < part.text.length; c += 1) {
-        offsetMap.push({ line: part.line, character: c });
+        offsetMap.push({ line: part.line, character: leadingLen + c });
       }
-    }
+    });
 
     entries.push({
       text: joinedText,
-      isDefBody: DEF_RE.test(parts[0]?.text ?? ""),
-      isForLoop: FOR_RE.test(parts[0]?.text ?? ""),
+      isDefBody: DEF_RE.test(joinedText),
+      isForLoop: FOR_RE.test(joinedText),
+      isOtherMacroBody: OTHER_MACRO_BODY_RE.test(joinedText),
       startLine,
       endLine: lineIdx,
+      incomplete,
       parts,
       offsetMap,
     });

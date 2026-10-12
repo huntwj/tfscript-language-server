@@ -5,6 +5,7 @@ import { BUILTIN_COMMANDS } from "../src/data/builtinCommands.generated";
 import { KEYWORD_COMMANDS } from "../src/data/keywordCommands.generated";
 import { STDLIB_COMMANDS } from "../src/data/stdlibCommands.generated";
 import { ALL_COMMANDS } from "../src/data/commands";
+import { splitLogicalEntries } from "../src/logicalEntries";
 
 // Plain JS, required rather than imported: test files aren't in tsconfig's `include`, so
 // this isn't type-checked by `npm run build` either way.
@@ -17,6 +18,11 @@ const extractor = require("../scripts/extract-command-tables");
  * module, not reimplemented here) and fail if it disagrees with what's checked in — a silent
  * drift after a tinyfugue update is exactly the kind of thing this project does not want to
  * find out about by accident.
+ *
+ * extractStdlibMacros takes src/logicalEntries's own splitLogicalEntries explicitly, rather
+ * than letting it fall back to its default (dist/logicalEntries): otherwise this test would
+ * silently need `npm run build` to have already run, and could validate against a stale
+ * dist/ build without noticing.
  */
 const TINYFUGUE_DIR = join(__dirname, "..", "..", "tinyfugue");
 const describeOrSkip = existsSync(TINYFUGUE_DIR) ? describe : describe.skip;
@@ -34,7 +40,7 @@ describeOrSkip("command tables (vs. the sibling tinyfugue checkout)", () => {
 
   it("matches lib/tf/stdlib.tf's top-level /def macros", () => {
     const text = readFileSync(join(TINYFUGUE_DIR, "lib", "tf", "stdlib.tf"), "utf8");
-    expect([...STDLIB_COMMANDS]).toEqual(extractor.extractStdlibMacros(text));
+    expect([...STDLIB_COMMANDS]).toEqual(extractor.extractStdlibMacros(text, splitLogicalEntries));
   });
 });
 

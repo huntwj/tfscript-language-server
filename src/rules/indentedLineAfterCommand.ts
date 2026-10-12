@@ -1,4 +1,9 @@
-import { continuesToNextLine, isCommentLine, leadingWhitespaceLength } from "../logicalEntries";
+import {
+  continuesToNextLine,
+  isCommentLine,
+  leadingWhitespaceLength,
+  splitRawLines,
+} from "../logicalEntries";
 import type { FileRule, LineMatch } from "./types";
 
 /**
@@ -16,7 +21,7 @@ import type { FileRule, LineMatch } from "./types";
  * trailingSpaceAfterBackslash.ts.
  */
 function check(text: string): LineMatch[] {
-  const lines = text.split(/\r\n|\r|\n/);
+  const lines = splitRawLines(text);
   const matches: LineMatch[] = [];
 
   let newCmd = true;
@@ -36,7 +41,7 @@ function check(text: string): LineMatch[] {
       continue;
     }
 
-    const startsIndented = line[0] === " " || line[0] === "\t";
+    const startsIndented = i > 0;
     if (newCmd && startsIndented && lastCmdLine > 0) {
       matches.push({
         line: idx,

@@ -65,8 +65,11 @@ function tokenize(text) {
   return tokens;
 }
 
-function extractStdlibMacros(stdlibText) {
-  const { splitLogicalEntries } = require("../dist/logicalEntries");
+// `splitLogicalEntries` defaults to the built dist/ output (for the CLI path below), but
+// takes a parameter so test/commandsData.test.ts can pass src/logicalEntries's own export
+// directly instead — otherwise that test would silently depend on `npm run build` having
+// already been run, and could validate against a stale dist/ build without noticing.
+function extractStdlibMacros(stdlibText, splitLogicalEntries = require("../dist/logicalEntries").splitLogicalEntries) {
   const names = new Set();
   for (const entry of splitLogicalEntries(stdlibText)) {
     if (!entry.isDefBody) continue;

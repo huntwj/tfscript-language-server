@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import {
   createConnection,
   ProposedFeatures,
@@ -13,7 +14,9 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import { getDiagnostics } from "./diagnostics";
 import { getCommandCompletions } from "./completions";
 
-const connection = createConnection(ProposedFeatures.all);
+// Explicit streams rather than relying on a `--stdio`/`--node-ipc`/`--socket` command-line
+// flag: createConnection() alone throws "Connection input stream is not set" without one.
+const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
 
 connection.onInitialize((): InitializeResult => ({
@@ -23,8 +26,12 @@ connection.onInitialize((): InitializeResult => ({
   },
 }));
 
+// Not onDidOpen too: TextDocuments fires onDidChangeContent for the initial open as well
+// (vscode-languageserver's didOpen handler fires both), so that alone already covers it.
 documents.onDidChangeContent((change) => validate(change.document));
-documents.onDidOpen((event) => validate(event.document));
+documents.onDidClose((event) =>
+  connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] }),
+);
 
 function validate(document: TextDocument): void {
   const diagnostics: Diagnostic[] = getDiagnostics(document.getText()).map((d) => ({

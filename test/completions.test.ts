@@ -32,6 +32,13 @@ describe("getCommandCompletions", () => {
     expect(items.every((i) => i.label === i.label.toLowerCase())).toBe(true);
   });
 
+  it("does not offer completions for a / that's part of a path-like value, not a command", () => {
+    // Previously any "/" at all triggered completion, even mid-value — noisy for ordinary
+    // path-shaped assignments and %{var}-built /load paths.
+    expect(getCommandCompletions("/set d=/scr")).toBeNull();
+    expect(getCommandCompletions("/load %{d}/ok")).toBeNull();
+  });
+
   it("tags /echo, /for and /addworld as stdlib macros in their detail", () => {
     const items = getCommandCompletions("/")!;
     const byLabel = new Map(items.map((i) => [i.label, i.detail]));

@@ -1,4 +1,4 @@
-import { splitLogicalEntries } from "./logicalEntries";
+import { splitLogicalEntries, splitRawLines } from "./logicalEntries";
 import { RULES, type Severity } from "./rules";
 import { findAbortEntry } from "./rules/bareLineAfterCommand";
 
@@ -23,11 +23,15 @@ export function getDiagnostics(text: string): TfDiagnostic[] {
   // abort check only runs once the whole, possibly backslash-joined, command is assembled),
   // so the cut is after that entry's last line (endLine), not its first.
   const abort = findAbortEntry(entries);
-  const usableEntries = abort ? entries.slice(0, abort.entryIndex) : entries;
+  // An incomplete trailing entry (file ended mid-continuation) is excluded the same way as
+  // everything after an abort: tf never executes it, so no rule should look inside it either.
+  const usableEntries = (abort ? entries.slice(0, abort.entryIndex) : entries).filter(
+    (entry) => !entry.incomplete,
+  );
   const readableLineCount = abort ? (entries[abort.entryIndex]?.endLine ?? abort.line) + 1 : undefined;
   const textForFileRules =
     readableLineCount !== undefined
-      ? text.split(/\r\n|\r|\n/).slice(0, readableLineCount).join("\n")
+      ? splitRawLines(text).slice(0, readableLineCount).join("\n")
       : text;
 
   for (const rule of RULES) {

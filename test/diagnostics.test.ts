@@ -3,9 +3,9 @@ import { getDiagnostics } from "../src/diagnostics";
 
 /**
  * Fixtures below mirror the proven cases in ~/ai/mud/tests/tfscript/cases/ (ground truth is
- * `just tf-script-check` against real tf; see scripting.md). Keep them in sync by hand — this
- * repo does not read that directory at test time, so there is nothing to keep itself honest
- * beyond "do these still look like the real cases".
+ * `just tf-script-check` against real tf; see scripting.md). They're kept in sync by hand;
+ * groundTruth.test.ts separately runs the real cases directly, when that sibling checkout is
+ * present, so drift between the two doesn't go unnoticed for long.
  */
 
 function codes(text: string): string[] {
@@ -58,6 +58,16 @@ describe("load-no-expansion (rule 4)", () => {
     const text = "/for i 0 2 /set x%{i}=hello\n";
     expect(codes(text)).not.toContain("load-no-expansion");
   });
+
+  // Confirmed live: /bind, /hook and /trig (and its stdlib siblings /trigc, /trigp, /trigpc)
+  // all defer %{var} substitution into the macro body exactly like /def — an undefined %{x}
+  // in any of these loads with no complaint.
+  it.each(["/bind ^[a = /echo %{x}", "/hook CONNECT = /echo %{x}", "/trig '*' = /echo %{x}"])(
+    "does not flag %{var} inside a macro-body command (%s)",
+    (line) => {
+      expect(codes(`${line}\n`)).not.toContain("load-no-expansion");
+    },
+  );
 });
 
 describe("let-swallows-endif (rule 5)", () => {
@@ -89,6 +99,18 @@ describe("dollar-bracket-in-if (rule 6)", () => {
   it("is clean with a plain expression", () => {
     const text = "/def tfsc_e = /if (1+1 > 0) /echo yes%; /endif\n";
     expect(codes(text)).not.toContain("dollar-bracket-in-if");
+  });
+
+  // Confirmed live: /elseif and /while conditions get the same "legal, but redundant"
+  // warning as /if — same expression-evaluation mechanism, not special-cased to /if alone.
+  it("flags $[...] inside an /elseif condition", () => {
+    const text = "/if (0) /elseif ($[1]) /echo hi%; /endif\n";
+    expect(codes(text)).toContain("dollar-bracket-in-if");
+  });
+
+  it("flags $[...] inside a /while condition", () => {
+    const text = "/while ($[1]) /break%; /done\n";
+    expect(codes(text)).toContain("dollar-bracket-in-if");
   });
 });
 

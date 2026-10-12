@@ -14,7 +14,7 @@
  * files to not have to bisect by hand.
  */
 const { spawnSync } = require("node:child_process");
-const { readFileSync, readdirSync } = require("node:fs");
+const { existsSync, readFileSync, readdirSync } = require("node:fs");
 const path = require("node:path");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -73,6 +73,12 @@ function runTfScriptCheck(mountHostDir, mountContainerDir, entry) {
     ],
     { encoding: "utf8", env: { ...process.env, MSYS_NO_PATHCONV: "1" } },
   );
+  // A failed spawn (uv missing, Docker not running, ...) must not look like a real tf
+  // mismatch: result.status would be null and every target would misreport as "problem"
+  // with no useful output, hiding the actual cause.
+  if (result.error) {
+    throw new Error(`failed to run tf-script-check: ${result.error.message}`);
+  }
   return {
     verdict: result.status === 0 ? "clean" : "problem",
     output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
@@ -95,6 +101,11 @@ let total = 0;
 let mismatches = 0;
 
 for (const corpus of CORPORA) {
+  if (!existsSync(corpus.filesDir)) {
+    console.log(`=== ${corpus.name}: skipped, ${corpus.filesDir} does not exist ===`);
+    continue;
+  }
+
   const targets = corpus.targets(corpus.filesDir);
   console.log(`=== ${corpus.name} (${targets.length} target(s)) ===`);
 

@@ -1,9 +1,14 @@
 # tfscript-language-server
 
-A language server for tfscript, TinyFugue's macro language. Early days: diagnostics for the
-handful of rules proven so far, command-name completion, nothing else yet.
+A language server ([LSP](https://microsoft.github.io/language-server-protocol/)) for
+tfscript, the macro language of [TinyFugue](https://tinyfugue.sourceforge.net/) (`tf`), a
+terminal MUD client. tf scripts are `.tf` files full of `/def` macros, triggers, and hooks.
 
-## Why this needs its own parser
+This is early, pre-1.0 software: diagnostics for the handful of rules proven so far (below),
+plus command-name completion. No hover yet, no go-to-definition, no formatting, and no editor
+extension — see "Use" for wiring the stdio server into an editor yourself in the meantime.
+
+## Why every rule here is proven against real tf, not taken from the manual
 
 tf only parses a macro body when it *runs*, not when it is defined (`/def` happily accepts a
 body with a syntax error, which only shows up the first time the macro fires). A clean
@@ -38,45 +43,63 @@ file gets truncated, since tf never reads past the line it aborts on.
 | Rule | id | What it catches |
 | --- | --- | --- |
 | 2 | `if-multiline-top-level` | `/if` with no matching `/endif` in the same top-level command |
-| 4 | `load-no-expansion` | `%{var}` in a top-level command (not expanded; needs `/eval`, or being inside a `/def`/`/for` body) |
+| 4 | `load-no-expansion` | `%{var}` in a top-level command (not expanded; needs `/eval`, or being inside a `/def`/`/for`/`/bind`/`/hook`/`/trig`-family body) |
 | 5 | `let-swallows-endif` | `/let`/`/set` swallowing a following `/if` or `/endif` into its value |
-| 6 | `dollar-bracket-in-if` | redundant `$[...]` inside an `/if (...)` condition |
+| 6 | `dollar-bracket-in-if` | redundant `$[...]` inside an `/if`/`/elseif`/`/while` condition |
 | — | `indented-line-after-command` | an indented line starting a new command right after one that didn't end in `\` — tf's own "possibly missing trailing \\" warning |
-| — | `trailing-space-after-backslash` | a final `\` followed by whitespace — not a continuation, tf warns and runs the line as-is |
+| — | `trailing-space-after-backslash` | a final `\` followed by whitespace (including a CRLF file's trailing `\r`) — not a continuation, tf warns and runs the line as-is |
 | — | `bare-line-after-command` | a line that is not blank, a comment, or a `/command` — tf aborts the rest of the file's load; everything after it is suppressed from the other rules, since tf never reads it either |
 
-`src/logicalEntries.ts` is the part worth reading first: it models the two facts about tf's
-file loader (`tinyfugue/src/command.c`'s `load_file()`) that the rules above depend on,
-confirmed by reading that function and then checking live with `tf-script-check`, not from
-scripting.md alone:
+The numbered rules are the case numbers in the private notes repo's `scripting.md` (below);
+they're kept only so the rule files, their tests, and that document stay cross-referenceable —
+nothing reads them back out of this table.
+
+`src/logicalEntries.ts` is the part worth reading first: it models tf's file loader
+(`tinyfugue/src/command.c`'s `load_file()`), confirmed by reading that function and then
+checking live with `tf-script-check`, not from scripting.md alone:
 
 - a line is a comment, contributing nothing, when its first non-whitespace character is `;`
   or `#` — not only the `;;` convention the test-case headers use;
 - a trailing `\` continues a top-level line onto the next one **generally**, not only inside
   `/def` bodies as scripting.md's rule 3 implies. A plain `/if (1) \` / `/echo yes%; \` /
-  `/endif`, no `/def`, three physical lines, loads clean.
+  `/endif`, no `/def`, three physical lines, loads clean;
+- every physical line has its leading whitespace stripped before joining, first line
+  included — `load_file()` does this unconditionally, not only for continuation lines;
+- a file's line reader only breaks on `\n`; a `\r` left over from a CRLF line stays on as the
+  line's literal last byte, so `\<CR>` does not continue (confirmed live: a CRLF-encoded
+  version of the three-line `/if` example above produced 4 problem lines from real tf, where
+  the LF version is clean);
+- a trailing `\` at the true end of the file never reaches tf's abort check at all — tf just
+  warns "last command is incomplete" and silently drops that command.
 
-`LogicalEntry.isForLoop` is the other exemption found the same way, but by running the
-tinyfugue/lib/tf corpus check rather than a hand-written case: a top-level `/for` body gets
-`%{var}` substituted on every iteration (`/for i 0 2 /nosuchcmd_%{i}` raised three distinctly
-named errors, not one), so it's exempt from rule 4 same as a `/def` body, for a different
-reason (eager per-iteration substitution, not deferred execution). `/while` and `/repeat`
-are NOT exempted — two ad hoc tries at testing them the same way gave confusing results that
-looked like mistakes in the test script rather than real evidence, so they're left alone
-rather than guessed at; if either ever produces a false positive against a real script, that's
-the next one to actually pin down.
+`LogicalEntry.isForLoop` and `isOtherMacroBody` are further exemptions from rule 4 found the
+same way: a top-level `/for` body gets `%{var}` substituted on every iteration
+(`/for i 0 2 /nosuchcmd_%{i}` raised three distinctly named errors, not one — found by running
+the tinyfugue/lib/tf corpus check, not a hand-written case), and `/bind`, `/hook`, and
+`/trig`/`/trigc`/`/trigp`/`/trigpc` bodies defer substitution exactly like a `/def` body does
+(confirmed directly: an undefined `%{x}` in any of their bodies loads with no complaint).
+`/while` and `/repeat` are NOT exempted from rule 4 — two ad hoc tries at testing them the same
+way gave confusing results that looked like mistakes in the test script rather than real
+evidence, so they're left alone rather than guessed at; if either ever produces a false
+positive against a real script, that's the next one to actually pin down.
 
 Rules 1 and 3 aren't diagnostics by themselves — rule 1 (parsed at run time) is why rule 2
 can still fire usefully inside a `/def` body, and rule 3 is folded into the general
 continuation handling above rather than kept as a `/def`-only exemption.
 
 Known limitations: rule matching is heuristic (token/paren scanning, not a real grammar), the
-`%;` command separator is split on literally (not quote- or brace-aware), and nested `/if`
-ordering inside one entry isn't tracked, only counted.
+`%;` command separator is split on literally (not quote- or brace-aware), nested `/if`
+ordering inside one entry isn't tracked, only counted, and the macro-body exemption above
+covers only the commands actually checked against real tf (`/def`, `/for`, `/bind`, `/hook`,
+`/trig`-family) — a command like `/at` that plausibly also defers substitution hasn't been
+checked and is not exempted. `BUILTIN_COMMANDS` also doesn't distinguish commands that only
+exist in a Lua- or Python-enabled tf build (`/calllua`, `/python*`, ...; see
+`tinyfugue/src/cmdlist.h`'s `#if LUA_ENABLED`/`#ifdef TFPYTHON` guards) — completion offers
+them unconditionally.
 
-## Command data (for completion/hover, not wired up yet)
+## Command data (drives completion; hover not wired up yet)
 
-`src/data/` is the start of completion data: `ALL_COMMANDS` (`commands.ts`) lists every
+`src/data/` is the completion data: `ALL_COMMANDS` (`commands.ts`) lists every
 top-level command name this engine knows, each tagged with where it came from. tf's
 "commands" are not one table — found while starting this:
 
@@ -91,10 +114,12 @@ top-level command name this engine knows, each tagged with where it came from. t
   builtins.** A command list built only from the C tables would be missing them.
 
 The three `src/data/*.generated.ts` files are produced by `scripts/extract-command-tables.js`
-from a sibling `tinyfugue/` checkout (run it by hand after a tinyfugue update) and checked in,
+from a sibling `tinyfugue/` checkout (run `npm run build` first, then
+`node scripts/extract-command-tables.js`, by hand after a tinyfugue update) and checked in,
 so the server itself never needs that checkout at runtime. `test/commandsData.test.ts`
-re-parses the same sources, when present, and fails on drift — the same sync-check shape as
-~/ai/mud's own `tinyfugue.pin.json`.
+re-parses the same sources directly (not through `dist/`, so it never needs a prior build),
+when present, and fails on drift — the same sync-check shape as the private notes repo's own
+`tinyfugue.pin.json`.
 
 `src/completions.ts` wires this into `onCompletion`: right after typing `/` and an optional
 partial word, the server offers every known command name (lowercase, matching how every real
@@ -115,9 +140,12 @@ src/
   data/                command names for completion/hover — see "Command data" above
 test/
   diagnostics.test.ts   unit tests per rule
-  logicalEntries.test.ts  regression tests for comment lines and backslash continuation
-  indentedLineAfterCommand.test.ts, trailingSpaceAndAbort.test.ts  unit tests for the three
-                        whole-file rules, including the abort-truncation behaviour
+  logicalEntries.test.ts  regression tests for comment lines, backslash continuation, and CRLF
+  completions.test.ts   unit tests for getCommandCompletions
+  tokenize.test.ts       unit tests for extract-command-tables.js's shell-style tokenizer
+  indentedLineAfterCommand.test.ts, trailingSpaceAndAbort.test.ts  unit tests for the two
+                        whole-file rules plus bare-line-after-command's abort/truncation
+                        behaviour (the third FileRule-shaped case, hand-wired — see above)
   groundTruth.test.ts   runs every case in ~/ai/mud/tests/tfscript/cases/ through this
                         engine and checks it against that file's own ;; expect: header
   tinyfugueLibCorpus.test.ts  regression guard over tinyfugue/lib/tf/*.tf — the primary real-
@@ -139,34 +167,57 @@ scripts/
 npm install
 npm run build          # tsc -> dist/
 npm test               # vitest, fast, no Docker
-npm run test:corpus-live  # slow: needs Docker, cross-checks real tf scripts against real tf
+node dist/server.js     # run the server (speaks LSP over stdio)
 ```
+
+Wire it into an editor by pointing it at that command for `.tf` files. For example, in
+Neovim with the built-in LSP client:
+
+```lua
+vim.lsp.start({
+  name = "tfscript",
+  cmd = { "node", "/absolute/path/to/tfscript-language-server/dist/server.js" },
+  filetypes = { "tf" },
+})
+```
+
+The server advertises `completionProvider` (triggered on `/`) and publishes diagnostics
+tagged `source: "tfscript"`; there is no editor extension yet (VS Code, Neovim plugin, etc.),
+just the server. Many editors' LSP clients also pass a `--stdio` flag by convention — this
+server doesn't need it (it talks over stdio either way) but accepts and ignores it.
 
 ### Testing against real scripts
 
-Two layers, matching ~/ai/mud's own fast-loop/slow-run split:
+Two layers, matching the private notes repo's own fast-loop/slow-run split:
 
 - **Fast (`npm test`):** a regression guard per corpus — `tinyfugueLibCorpus.test.ts` (primary;
   the 46 scripts bundled with tf itself: stdlib, color, keybinding sets, and the rest) and
-  `wotmudCorpus.test.ts` (real, in-use WoTMUD scripts, added afterwards per the user's call
-  2026-10-11 to prioritize tf's own scripts first). Both are read-only over sibling repos this
-  project doesn't own. Each asserts the engine doesn't crash and stays clean, matching what
-  real tf says today. This is a regression guard, not an oracle: it can't ask tf anything new,
-  it just catches a rule that starts misfiring on real scripts.
+  `wotmudCorpus.test.ts` (real, in-use WoTMUD scripts — a Wheel of Time MUD — added afterwards
+  to prioritize tf's own scripts first). Both are read-only over sibling repos this project
+  doesn't own, and both skip gracefully when that sibling checkout isn't present (for example,
+  this repo cloned on its own). Each asserts the engine doesn't crash and stays clean, matching
+  what real tf says today. This is a regression guard, not an oracle: it can't ask tf anything
+  new, it just catches a rule that starts misfiring on real scripts.
 - **Slow (`npm run test:corpus-live`):** `scripts/check-corpus-live.js` actually asks real tf,
   via `tf-script-check`, mounting each corpus's repo read-only and loading its real entry
   point(s) (so `/load` chains and `%{var}`-built paths resolve exactly as they do for a real
-  user), then compares that verdict against this engine's own, per file. Needs Docker; add a
-  corpus to the `CORPORA` list in that script for another sibling project's scripts. This is
-  how the `/for`-body false positive below was found, and how the fix was confirmed against
-  all 46 tinyfugue/lib/tf files plus the 3 WoTMUD ones.
+  user), then compares that verdict against this engine's own, per file. This script — and
+  `extract-command-tables.js` above — only run inside the author's own workspace layout (this
+  repo cloned as a sibling of a private `~/ai/mud` notes checkout, with `uv` and Docker
+  installed); they're documented so the verification method is visible, not because a
+  contributor is expected to run them. This is how the `/for`-body false positive described
+  above was found, and how that fix (and several others) was confirmed against all 46
+  tinyfugue/lib/tf files plus the 3 WoTMUD ones.
 
-No editor client config yet (VS Code extension, Neovim, etc.) — only the server side.
-`dist/server.js` speaks LSP over stdio: diagnostics (`didOpen`/`didChange` ->
-`publishDiagnostics`) and command-name completion (`onCompletion`, command names only so
-far). Following scripting.md's roadmap order: diagnostics done, completion started (command
-names; functions and variables still needed), then hover, then go-to-definition for `/def`
-across `/load`, then formatting.
+Following scripting.md's roadmap order: diagnostics done, completion started (command names;
+expression functions and special variables still needed), then hover, then go-to-definition
+for `/def` across `/load`, then formatting.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) — short version: a new diagnostic needs a case run
+against real tf first, and that harness is a private, sibling project, so open an issue with
+your script and tf's actual output rather than a PR straight to a new rule.
 
 ## Licence
 

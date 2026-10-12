@@ -28,6 +28,9 @@ export function findAbortEntry(entries: LogicalEntry[]): AbortMatch | null {
   for (let idx = 0; idx < entries.length; idx += 1) {
     const entry = entries[idx];
     if (!entry) continue;
+    // An incomplete trailing entry (file ended mid-continuation) never reaches tf's
+    // invalid-command check at all — see LogicalEntry.incomplete.
+    if (entry.incomplete) continue;
 
     const leadingLen = leadingWhitespaceLength(entry.text);
     const firstChar = entry.text[leadingLen];

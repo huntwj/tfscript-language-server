@@ -3,9 +3,10 @@ import type { EntryRule, EntryMatch } from "./types";
 /**
  * Rule 6 (scripting.md): writing `$[...]` inside an `/if (...)` condition is legal but
  * redundant (the condition is already an expression). Applies everywhere, top level and
- * inside /def bodies alike.
+ * inside /def bodies alike. Confirmed live that `/elseif` and `/while` conditions get the
+ * same "legal, but redundant" warning as `/if` — same expression-evaluation mechanism.
  */
-const IF_OPEN_RE = /\/if\s*\(/gi;
+const IF_OPEN_RE = /\/(?:if|elseif|while)\b\s*\(/gi;
 const DOLLAR_BRACKET = "$[";
 
 export const dollarBracketInIf: EntryRule = {
@@ -30,7 +31,7 @@ export const dollarBracketInIf: EntryRule = {
         start,
         end: start + DOLLAR_BRACKET.length,
         message:
-          "$[...] inside an /if condition is legal but redundant — the condition is " +
+          "$[...] inside a condition is legal but redundant — the condition is " +
           "already an expression. Use the plain expression instead.",
       });
     }

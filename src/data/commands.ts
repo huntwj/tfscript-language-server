@@ -16,10 +16,14 @@ export interface CommandInfo {
   source: CommandSource;
 }
 
+// Keyed by lowercase name: completions.ts lowercases every label regardless of how the
+// source table cased it, so two tables disagreeing only on case would otherwise still
+// produce two distinct completion items for what is, in practice, the same command.
 function dedupe(infos: CommandInfo[]): CommandInfo[] {
   const seen = new Map<string, CommandInfo>();
   for (const info of infos) {
-    if (!seen.has(info.name)) seen.set(info.name, info);
+    const key = info.name.toLowerCase();
+    if (!seen.has(key)) seen.set(key, info);
   }
   return [...seen.values()];
 }

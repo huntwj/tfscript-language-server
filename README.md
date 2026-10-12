@@ -24,9 +24,11 @@ message to that session).
 
 ## What's implemented
 
-Diagnostics for five of the proven rules, each a pure function in `src/rules/` (four take a
-`LogicalEntry`; `indented-line-after-command` needs the whole file's raw lines, since it is a
-line-by-line state machine, not a per-command check):
+Diagnostics for seven of the proven rules, each a pure function in `src/rules/`. Four take a
+`LogicalEntry`; three (`indented-line-after-command`, `trailing-space-after-backslash`,
+`bare-line-after-command`) need the whole file's raw lines or entry sequence, since they are
+line-by-line state machines (mirroring `load_file()`'s own `new_cmd`/`last_cmd_line`), not
+per-command checks:
 
 | Rule | id | What it catches |
 | --- | --- | --- |
@@ -35,6 +37,8 @@ line-by-line state machine, not a per-command check):
 | 5 | `let-swallows-endif` | `/let`/`/set` swallowing a following `/if` or `/endif` into its value |
 | 6 | `dollar-bracket-in-if` | redundant `$[...]` inside an `/if (...)` condition |
 | — | `indented-line-after-command` | an indented line starting a new command right after one that didn't end in `\` — tf's own "possibly missing trailing \\" warning |
+| — | `trailing-space-after-backslash` | a final `\` followed by whitespace — not a continuation, tf warns and runs the line as-is |
+| — | `bare-line-after-command` | a line that is not blank, a comment, or a `/command` — tf aborts the rest of the file's load; everything after it is suppressed from the other rules, since tf never reads it either |
 
 `src/logicalEntries.ts` is the part worth reading first: it models the two facts about tf's
 file loader (`tinyfugue/src/command.c`'s `load_file()`) that the rules above depend on,
@@ -66,17 +70,40 @@ src/
 test/
   diagnostics.test.ts   unit tests per rule
   logicalEntries.test.ts  regression tests for comment lines and backslash continuation
+  indentedLineAfterCommand.test.ts, trailingSpaceAndAbort.test.ts  unit tests for the three
+                        whole-file rules, including the abort-truncation behaviour
   groundTruth.test.ts   runs every case in ~/ai/mud/tests/tfscript/cases/ through this
                         engine and checks it against that file's own ;; expect: header
+  wotmudCorpus.test.ts  regression guard over ~/ai/wotmud/tf/*.tf (real, in-use scripts from
+                        a sibling project; read-only, never edit that repo from here)
+scripts/
+  check-corpus-live.js  slow, Docker-backed: cross-checks this engine against real tf
+                        (tf-script-check) for each configured corpus. Not part of `npm test`.
 ```
 
 ## Use
 
 ```sh
 npm install
-npm run build   # tsc -> dist/
-npm test        # vitest
+npm run build          # tsc -> dist/
+npm test               # vitest, fast, no Docker
+npm run test:corpus-live  # slow: needs Docker, cross-checks real tf scripts against real tf
 ```
+
+### Testing against real scripts
+
+Two layers, matching ~/ai/mud's own fast-loop/slow-run split:
+
+- **Fast (`npm test`):** `wotmudCorpus.test.ts` runs this engine over `~/ai/wotmud/tf/*.tf`
+  (a sibling repo of real, in-use WoTMUD scripts — read-only, owned by the WoTMUD session)
+  and asserts it doesn't crash and stays clean, matching what real tf says today. This is a
+  regression guard, not an oracle: it can't ask tf anything new, it just catches a rule that
+  starts misfiring on real scripts.
+- **Slow (`npm run test:corpus-live`):** `scripts/check-corpus-live.js` actually asks real tf,
+  via `tf-script-check`, mounting the corpus's repo read-only and loading its real entry
+  point (so `/load` chains and `%{var}`-built paths resolve exactly as they do for a real
+  user), then compares that verdict against this engine's own. Needs Docker; add a corpus to
+  the `CORPORA` list in that script for another sibling project's scripts.
 
 Nothing wires this into an editor yet. `dist/server.js` speaks LSP over stdio
 (`textDocument/didOpen`, `didChange` -> `textDocument/publishDiagnostics`); a client config

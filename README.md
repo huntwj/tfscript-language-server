@@ -73,6 +73,33 @@ Known limitations: rule matching is heuristic (token/paren scanning, not a real 
 `%;` command separator is split on literally (not quote- or brace-aware), and nested `/if`
 ordering inside one entry isn't tracked, only counted.
 
+## Command data (for completion/hover, not wired up yet)
+
+`src/data/` is the start of completion data: `ALL_COMMANDS` (`commands.ts`) lists every
+top-level command name this engine knows, each tagged with where it came from. tf's
+"commands" are not one table — found while starting this:
+
+- **`keyword`** — the bytecode compiler's own keyword table (`tinyfugue/src/expand.c`):
+  control-flow syntax (`/if`, `/while`, `/let`, `/endif`, ...) compiled specially, not
+  dispatched like an ordinary command.
+- **`builtin`** — the `BuiltinCmd` dispatch table (`tinyfugue/src/cmdlist.h`): the actual C
+  command handlers (`/bind`, `/connect`, `/load`, ...).
+- **`stdlib`** — `tinyfugue/lib/tf/stdlib.tf`'s own top-level `/def` macros. Not C code, but
+  always available, since stdlib.tf loads automatically on startup — and this is most of
+  what a user actually types: **`/echo`, `/for` and `/addworld` are stdlib macros, not
+  builtins.** A command list built only from the C tables would be missing them.
+
+The three `src/data/*.generated.ts` files are produced by `scripts/extract-command-tables.js`
+from a sibling `tinyfugue/` checkout (run it by hand after a tinyfugue update) and checked in,
+so the server itself never needs that checkout at runtime. `test/commandsData.test.ts`
+re-parses the same sources, when present, and fails on drift — the same sync-check shape as
+~/ai/mud's own `tinyfugue.pin.json`.
+
+Not done yet: wiring this into the LSP server's `onCompletion`/`onHover`, and a fourth source
+— the function table for `expr.c`'s expression functions (`strlen()`, `echo()`, and the rest)
+and tf's special variables (`variable.c`) — both still needed before completion covers
+anything beyond command names.
+
 ## Layout
 
 ```
@@ -81,6 +108,7 @@ src/
   rules/              one file per diagnostic rule, plus the shared Rule type
   diagnostics.ts       runs every rule over every entry, maps offsets back to positions
   server.ts            LSP server entry point (stdio), wires diagnostics to didOpen/didChange
+  data/                command names for completion/hover — see "Command data" above
 test/
   diagnostics.test.ts   unit tests per rule
   logicalEntries.test.ts  regression tests for comment lines and backslash continuation
@@ -92,9 +120,13 @@ test/
                         script corpus (tf's own bundled scripts; read-only, upstream's)
   wotmudCorpus.test.ts  regression guard over ~/ai/wotmud/tf/*.tf (real, in-use scripts from
                         a sibling project; read-only, never edit that repo from here)
+  commandsData.test.ts  sync-checks src/data/*.generated.ts against a sibling tinyfugue/
+                        checkout, when present
 scripts/
   check-corpus-live.js  slow, Docker-backed: cross-checks this engine against real tf
                         (tf-script-check) for each configured corpus. Not part of `npm test`.
+  extract-command-tables.js  regenerates src/data/*.generated.ts from tinyfugue/; run by
+                        hand after a tinyfugue update.
 ```
 
 ## Use

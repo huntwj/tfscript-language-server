@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { getDiagnostics } from "../src/diagnostics";
 
 /**
- * Mirrors tests/tfscript/cases/indented-line-after-command.tf (added by the tf dev session,
- * 2026-10-11): tf warns "possibly missing trailing \" when an indented line starts a new
+ * Mirrors tests/tfscript/cases/indented-line-after-command.tf (added 2026-10-11): tf warns
+ * "possibly missing trailing \" when an indented line starts a new
  * top-level command right after one that did not continue.
  */
 function codes(text: string): string[] {

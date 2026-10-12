@@ -5,10 +5,10 @@ import { getDiagnostics } from "../src/diagnostics";
 
 /**
  * tinyfugue/lib/tf/*.tf are the scripts bundled with tf itself (stdlib.tf, color.tf, the
- * keybinding sets, and the rest) — tinyfugue/ is a sibling private fork another session
- * owns, so this is read-only, same as the WoTMUD corpus. This is the primary real-script
- * corpus (the user's call, 2026-10-11): bigger and more varied than any user-land script,
- * and worth trusting first since it's tf's own code.
+ * keybinding sets, and the rest) — tinyfugue/ is a sibling, private checkout of upstream
+ * TinyFugue, so this is read-only, same as the WoTMUD corpus. This is the primary
+ * real-script corpus: bigger and more varied than any user-land script, and worth trusting
+ * first since it's tf's own code.
  *
  * Fast regression guard, not a correctness oracle — see scripts/check-corpus-live.js for
  * the slow, Docker-backed version that actually asks real tf. Cross-checked against it

@@ -3,8 +3,8 @@ import type { FileRule, LineMatch } from "./types";
 
 /**
  * tf's warning (tinyfugue/src/command.c, load_file(); proven by
- * tests/tfscript/cases/trailing-space-after-backslash.tf, added by the tf dev session
- * 2026-10-11): a line is only a continuation if `\` is its literal last character. If `\` is
+ * tests/tfscript/cases/trailing-space-after-backslash.tf, added 2026-10-11): a line is only
+ * a continuation if `\` is its literal last character. If `\` is
  * followed by whitespace, tf warns "whitespace following final '\'" and does **not**
  * continue the line — it is a complete command on its own, same as logicalEntries.ts's
  * continuesToNextLine already treats it (that function requires line.endsWith("\\")), so

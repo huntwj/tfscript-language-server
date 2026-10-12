@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { getDiagnostics } from "../src/diagnostics";
 
 /**
- * ~/ai/wotmud/tf/*.tf are real, in-use tf scripts from a sibling project (the WoTMUD
- * session owns that repo — read-only here, never edit). This is a fast regression guard,
+ * ~/ai/wotmud/tf/*.tf are real, in-use tf scripts from a separate, sibling project
+ * (read-only here, never edit). This is a fast regression guard,
  * not a correctness oracle: no Docker, so it can't ask real tf anything new. It records
  * today's diagnostic output (cross-checked once against real tf via tf-script-check,
  * mounting the repo read-only at /wotmud — see scripts/check-corpus-live.js for the repeatable

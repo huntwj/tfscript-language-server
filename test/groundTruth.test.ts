@@ -6,8 +6,8 @@ import { getDiagnostics } from "../src/diagnostics";
 /**
  * Runs the diagnostics engine over every case in ~/ai/mud/tests/tfscript/cases/ — the
  * project's ground truth, each file proven clean or problem by running real tf
- * (`just tf-script-check`). This repo does not own that directory (the tf dev session does;
- * see ~/ai/mud/CLAUDE.md), so it is read-only here and the test skips gracefully if the
+ * (`just tf-script-check`). This repo does not own that directory — it belongs to a
+ * separate, private project — so it is read-only here and the test skips gracefully if the
  * sibling checkout is not present (e.g. this repo cloned on its own elsewhere).
  */
 const CASES_DIR = join(__dirname, "..", "..", "tests", "tfscript", "cases");

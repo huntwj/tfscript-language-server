@@ -3,8 +3,8 @@ import type { FileRule, LineMatch } from "./types";
 
 /**
  * tf's own warning (tinyfugue/src/command.c, load_file(), lines ~574-600; proven by
- * tests/tfscript/cases/indented-line-after-command.tf, added by the tf dev session
- * 2026-10-11): when a line starts a new top-level command (the previous line did not end in
+ * tests/tfscript/cases/indented-line-after-command.tf, added 2026-10-11): when a line starts
+ * a new top-level command (the previous line did not end in
  * a continuing `\`) and that line is itself indented, and there was already a prior command
  * in the file, tf warns "possibly missing trailing \" — the indentation looks like it was
  * meant to continue the previous command, but a missing `\` means it didn't.

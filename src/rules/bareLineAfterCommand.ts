@@ -12,11 +12,11 @@ export interface AbortMatch {
 /**
  * tf's load_file() aborts the WHOLE load when a (joined) command's first character is not
  * `/` and the line wasn't already filtered out as blank or a comment: "Invalid command.
- * Aborting." — confirmed by the tf dev session with
- * tests/tfscript/cases/bare-line-after-command.tf and by reading command.c directly. The
- * implicit-/addworld fallback for such lines is NOT available to /load-ed files: `tinytalk`
- * is a do_file_load() parameter only main.c's startup read of ~/.tinytalk sets to TRUE (tf
- * dev verified this by trying a bare line in a /load-ed file and getting the abort).
+ * Aborting." — confirmed with tests/tfscript/cases/bare-line-after-command.tf (run against
+ * real tf) and by reading command.c directly. The implicit-/addworld fallback for such lines
+ * is NOT available to /load-ed files: `tinytalk` is a do_file_load() parameter only main.c's
+ * startup read of ~/.tinytalk sets to TRUE, confirmed by trying a bare line in a /load-ed
+ * file and getting the abort.
  *
  * Looks at the entry's full joined `text`, not just its first physical part: a backslash
  * continuation whose first line is itself blank (e.g. a lone `\`) still joins onto the next

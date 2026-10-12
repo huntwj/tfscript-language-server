@@ -47,7 +47,7 @@ const CORPORA = [
   },
   {
     name: "tinyfugue-lib",
-    // tinyfugue/ is upstream's private fork (another session owns it) — read-only here.
+    // tinyfugue/ is a separate, private checkout of upstream TinyFugue — read-only here.
     mountHostDir: path.resolve(MUD_DIR, "tinyfugue", "lib", "tf"),
     mountContainerDir: "/corpus",
     filesDir: path.resolve(MUD_DIR, "tinyfugue", "lib", "tf"),

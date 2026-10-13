@@ -38,7 +38,7 @@ export interface NameUsage {
 const NAME ="[^\\s%;=()\\[\\]{}\"'`$\\\\]+";
 // `/!name` runs /name and negates its result (stdlib.tf: `/if /!purge ...`), so the `!` is
 // not part of the name.
-const CALL_RE = new RegExp(`(^|[\\s;|(])\\/(@?)(!?)(${NAME})`, "g");
+export const CALL_RE = new RegExp(`(^|[\\s;|(])\\/(@?)(!?)(${NAME})`, "g");
 const BRACED_SUBST_RE = /(?<!\$)\$\{([^}\s]+)\}/g;
 const BARE_SUBST_RE = /(?<!\$)\$([A-Za-z_][A-Za-z0-9_]*)/g;
 
@@ -117,7 +117,7 @@ export interface NavContext {
   help?: ReadonlyMap<string, HelpEntry>;
 }
 
-interface Def {
+export interface Def {
   uri: string;
   label?: string;
   symbol: TfSymbol;
@@ -126,7 +126,7 @@ interface Def {
   loaded: boolean;
 }
 
-function definitionsOf(name: string, text: string, symbols: TfSymbol[], ctx: NavContext | undefined): Def[] {
+export function definitionsOf(name: string, text: string, symbols: TfSymbol[], ctx: NavContext | undefined): Def[] {
   const lines = splitRawLines(text);
   const local: Def[] = symbols
     .filter((s) => s.kind === "def" && same(s.name, name))
@@ -151,7 +151,7 @@ function targetAt(text: string, pos: Position, symbols: TfSymbol[]): Target | un
   return def && { name: def.name, range: def.selectionRange };
 }
 
-const COMMANDS = new Map(ALL_COMMANDS.map((c) => [c.name.toLowerCase(), c.source]));
+export const COMMANDS = new Map(ALL_COMMANDS.map((c) => [c.name.toLowerCase(), c.source]));
 
 const SOURCE_LABEL: Record<CommandSource, string> = {
   keyword: "tf control-flow keyword",

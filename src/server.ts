@@ -23,6 +23,7 @@ import {
   MarkupKind,
   type PrepareRenameParams,
   type ReferenceParams,
+  type SignatureHelp,
   type RenameParams,
   ResponseError,
   ErrorCodes,
@@ -43,6 +44,7 @@ import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
 import { getCodeActions } from "./codeActions";
 import { getDefinition, getHover, getReferences, getRenameEdits, prepareRename, type NavContext } from "./navigation";
+import { getSignatureHelp } from "./signatureHelp";
 import type { RawSettings } from "./workspace/settings";
 import { fileKey } from "./workspace/loadGraph";
 import { WorkspaceIndex } from "./workspace/workspaceIndex";
@@ -157,6 +159,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       referencesProvider: true,
       workspaceSymbolProvider: true,
       renameProvider: { prepareProvider: true },
+      signatureHelpProvider: { triggerCharacters: [" "], retriggerCharacters: ["=", "-"] },
     },
   };
 });
@@ -279,6 +282,22 @@ connection.onHover((params: TextDocumentPositionParams): Hover | null => {
   const document = documents.get(params.textDocument.uri);
   const hover = document && getHover(document.getText(), params.position, contextFor(document));
   return hover ? { contents: { kind: MarkupKind.Markdown, value: hover.markdown }, range: hover.range } : null;
+});
+
+connection.onSignatureHelp((params: TextDocumentPositionParams): SignatureHelp | null => {
+  const document = documents.get(params.textDocument.uri);
+  const help = document && getSignatureHelp(document.getText(), params.position, contextFor(document));
+  if (!help) return null;
+  return {
+    signatures: help.signatures.map((s) => ({
+      label: s.label,
+      parameters: s.parameters.map((label) => ({ label })),
+      ...(s.documentation ? { documentation: s.documentation } : {}),
+    })),
+    activeSignature: help.activeSignature,
+    // -1 (no parameter, e.g. after `--`) is sent out of range so nothing is highlighted.
+    activeParameter: help.activeParameter >= 0 ? help.activeParameter : (help.signatures[help.activeSignature]?.parameters.length ?? 0),
+  };
 });
 
 connection.onDefinition((params: TextDocumentPositionParams): Location[] => {

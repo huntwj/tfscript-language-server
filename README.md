@@ -128,6 +128,8 @@ under `tfscript`):
 | Setting | Meaning | When unset |
 |---|---|---|
 | `entryFiles` | files tf loads after `stdlib.tf`, in order | `.tfrc`, `tfrc` or `tfrc.tf` at the folder root, else `~/.tfrc`, else `~/tfrc` |
+| `contexts` | named alternatives to `entryFiles`, one per way tf is started: `{ "wotmud": ["wot.tfrc"], "diku": ["diku.tfrc"] }` | one context, `default`, from `entryFiles` |
+| `activeContext` | which of `contexts` files are seen through | the first |
 | `libraryPath` | `TFLIBDIR`, holding `stdlib.tf` | the `TFLIBDIR` environment variable |
 | `tfPath` | `TFPATH` as tf starts with it | the `TFPATH` environment variable |
 | `workingDirectory` | tf's current directory | the workspace folder |
@@ -135,6 +137,15 @@ under `tfscript`):
 | `diagnostics.unresolvedLoads` | warn on a `/load`/`/require` tf wouldn't find (`unresolved-load`) | on |
 | `diagnostics.undefinedMacros` | note `/name` calls defined nowhere on the path (`undefined-macro`) | off |
 | `format.splitStatements` | when formatting, put each `%;` statement of a macro body on its own line | on |
+
+tf may be started more than one way — a tfrc per MUD or per character — and the same file can be
+loaded by several of them, seeing different macros in each. Each entry of `contexts` gets its own
+load path, and a file is seen through `activeContext` when that context loads it, else through
+the first context that does. In VS Code a status bar item on tf files shows the context in use
+and, in its tooltip, the chain of loads that reaches the file; clicking it (or **tfscript: Choose
+Load Context**) lists every context, whether and how each loads the file, and sets
+`activeContext` for the folder. Other clients can ask the server the same with the
+`tfscript/contextInfo` request (`{ uri }`).
 
 Two diagnostics need the whole load path, so they only appear in files a load path reaches:
 

@@ -49,6 +49,10 @@
   `/if`/`/while` children indented a level, and continuation lines re-indented. Only whitespace
   tf ignores is changed, and each entry is checked by joining it again. New setting
   `tfscript.format.splitStatements` (default on) turns the splitting off.
+- Load contexts: new settings `tfscript.contexts` (named entry-file lists, one per way tf is
+  started) and `tfscript.activeContext`. Each context has its own load path; a file is seen
+  through the active context when it loads the file, else the first that does. VS Code shows the
+  context and its load chain in the status bar, and **tfscript: Choose Load Context** switches it.
 - New `reserved-macro-name` diagnostic: tf refuses `/def` of a keyword or `eval` ("is a reserved
   word"). Navigation, hover, signature help and highlighting no longer treat such a `/def` as
   defining anything, and hover no longer claims a macro can shadow a keyword.

@@ -1,6 +1,7 @@
 import { ALL_COMMANDS, RESERVED_MACRO_NAMES, type CommandSource } from "./data/commands";
 import { COMMAND_DESCRIPTIONS } from "./data/commandDescriptions";
 import { COMMAND_USAGES } from "./data/commandUsages.generated";
+import { getExpressionHover } from "./expressionHover";
 import { isCommentLine, splitRawLines } from "./logicalEntries";
 import { getDocumentSymbols, type Position, type Range, type TfSymbol } from "./symbols";
 import type { HelpEntry } from "./workspace/tfHelp";
@@ -227,7 +228,8 @@ function describeDefs(defs: Def[]): string {
 export function getHover(text: string, pos: Position, ctx?: NavContext): TfHover | undefined {
   const symbols = getDocumentSymbols(text);
   const target = targetAt(text, pos, symbols);
-  if (!target) return undefined;
+  // Not a macro name: perhaps a function, a special variable or a %{...} selector.
+  if (!target) return getExpressionHover(text, pos, ctx?.help);
   const key = target.name.toLowerCase();
   const source = COMMANDS.get(key);
 

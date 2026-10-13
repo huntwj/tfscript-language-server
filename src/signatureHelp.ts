@@ -1,4 +1,8 @@
+import { functionSynopses } from "./completions";
 import { COMMAND_DESCRIPTIONS } from "./data/commandDescriptions";
+import { FUNCTIONS } from "./data/functions.generated";
+import { functionHelpEntry } from "./expressionHover";
+import { cursorContext, textBefore } from "./expressions";
 import { COMMAND_USAGES } from "./data/commandUsages.generated";
 import { isCommentLine, splitLogicalEntries, splitRawLines } from "./logicalEntries";
 import { CALL_RE, COMMANDS, definitionsOf, docCommentAbove, type Def, type NavContext } from "./navigation";
@@ -247,7 +251,43 @@ function commandSignatures(name: string, ctx?: NavContext): TfSignature[] {
   return usages.map((u) => toSignature(u, description));
 }
 
+/**
+ * A function call's parameters: the argument names in its synopsis, in order
+ * (`echo(s1 [,attrs [,inline [,dest]]])` gives s1, attrs, inline, dest).
+ */
+function functionSignature(synopsis: string, description?: string): TfSignature {
+  const open = synopsis.indexOf("(");
+  const parameters: [number, number][] = [];
+  for (const m of synopsis.slice(open + 1).matchAll(/[A-Za-z_][A-Za-z0-9_]*(?:\.\.\.)?/g)) {
+    const start = open + 1 + (m.index ?? 0);
+    parameters.push([start, start + m[0].length]);
+  }
+  return { label: synopsis, parameters, ...(description ? { documentation: description } : {}) };
+}
+
+function functionHelp(name: string, argument: number, ctx?: NavContext): TfSignatureHelp | undefined {
+  const f = FUNCTIONS.find((fn) => fn.name === name.toLowerCase());
+  if (!f) return undefined;
+  const summary = functionHelpEntry(f.name, ctx?.help)?.summary;
+  const signatures = functionSynopses(f).map((s) => functionSignature(s, summary));
+  // The first form with room for this many arguments (substr(s, i1) vs substr(s, i1, i2)).
+  let active = signatures.findIndex((s) => s.parameters.length > argument);
+  if (active < 0) active = signatures.length - 1;
+  const params = (signatures[active] as TfSignature).parameters.length;
+  // A repeated last argument (`strcat(s...)`, `pad([s, i]...)`) takes every later one too.
+  const last = (signatures[active] as TfSignature).label.includes("...") ? params - 1 : params;
+  return { signatures, activeSignature: active, activeParameter: Math.min(argument, Math.max(last, 0)) };
+}
+
 export function getSignatureHelp(text: string, pos: Position, ctx?: NavContext): TfSignatureHelp | undefined {
+  const before = textBefore(text, pos);
+  if (before === undefined) return undefined;
+  const where = cursorContext(before);
+  if (where.kind === "expression" && where.call) {
+    const fn = functionHelp(where.call.name, where.call.argument, ctx);
+    if (fn) return fn;
+  }
+
   const call = commandAt(text, pos);
   if (!call) return undefined;
 

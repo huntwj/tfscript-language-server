@@ -43,7 +43,7 @@ import { homedir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { getDiagnostics, type TfDiagnostic } from "./diagnostics";
-import { getCommandCompletions } from "./completions";
+import { getCompletions } from "./completions";
 import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
 import { getCodeActions } from "./codeActions";
@@ -158,7 +158,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
     capabilities: {
       workspace: { workspaceFolders: { supported: true, changeNotifications: true } },
       textDocumentSync: TextDocumentSyncKind.Incremental,
-      completionProvider: { triggerCharacters: ["/"] },
+      completionProvider: { triggerCharacters: ["/", "{"] },
       documentSymbolProvider: true,
       foldingRangeProvider: true,
       codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix] },
@@ -170,7 +170,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       semanticTokensProvider: { legend: { tokenTypes: [...TOKEN_TYPES], tokenModifiers: [...TOKEN_MODIFIERS] }, full: true },
       documentFormattingProvider: true,
       documentRangeFormattingProvider: true,
-      signatureHelpProvider: { triggerCharacters: [" "], retriggerCharacters: ["=", "-"] },
+      signatureHelpProvider: { triggerCharacters: [" ", "(", ","], retriggerCharacters: ["=", "-", ")"] },
     },
   };
 });
@@ -251,14 +251,7 @@ function validate(document: TextDocument): void {
 
 connection.onCompletion((params: CompletionParams): CompletionItem[] => {
   const document = documents.get(params.textDocument.uri);
-  if (!document) return [];
-
-  const { line, character } = params.position;
-  const linePrefix = document.getText({
-    start: { line, character: 0 },
-    end: { line, character },
-  });
-  return getCommandCompletions(linePrefix) ?? [];
+  return document ? getCompletions(document.getText(), params.position, contextFor(document)) : [];
 });
 
 connection.onDocumentSymbol((params: DocumentSymbolParams): DocumentSymbol[] => {

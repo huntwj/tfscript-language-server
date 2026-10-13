@@ -73,3 +73,23 @@ describe("getSignatureHelp", () => {
     expect(at("/nosuch |")).toBeUndefined();
   });
 });
+
+describe("getSignatureHelp in a function call", () => {
+  it("highlights the argument by counting commas, outside strings and nested calls", () => {
+    expect(at("/test regmatch(|")).toBe("regmatch(s1, s2) → s1");
+    expect(at('/test regmatch("a,b", |')).toBe("regmatch(s1, s2) → s2");
+    expect(at("/test regmatch(strcat(a, b), |")).toBe("regmatch(s1, s2) → s2");
+    expect(at("/test regmatch(strcat(a, |")).toBe("strcat(s...) → s...");
+  });
+
+  it("picks the form with room for the argument, and wins over the command around it", () => {
+    expect(at("/def x = /echo $[substr(s, 1|")).toBe("substr(s, i1) → i1");
+    expect(at("/def x = /echo $[substr(s, 1, |")).toBe("substr(s, i1, i2) → i2");
+    expect(at("/if (strlen(|")).toBe("strlen(s) → s");
+  });
+
+  it("shows nothing past a function's last argument, and falls back to the command outside calls", () => {
+    expect(at("/test strlen(a, |")).toBe("strlen(s) → (none)");
+    expect(at("/test (1 + |")).toBe("/test expression → expression");
+  });
+});

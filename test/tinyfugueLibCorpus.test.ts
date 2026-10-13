@@ -19,6 +19,16 @@ import { getDiagnostics } from "../src/diagnostics";
 const CORPUS_DIR = join(__dirname, "..", "..", "tinyfugue", "lib", "tf");
 const describeOrSkip = existsSync(CORPUS_DIR) ? describe : describe.skip;
 
+/**
+ * Real bugs in tf's own scripts, each proven by running it in real tf. Everything else must stay
+ * clean: a new entry here needs that proof, not just a diagnostic that fires.
+ */
+const KNOWN: Record<string, string[]> = {
+  // /session: the inner "/def %1 = ... %%*%;/else ..." ends at %; in the outer body, so its /else
+  // lands outside any /if: tf prints "session: unexpected /ELSE in outer block" (2026-10-13).
+  "tintin.tf": ["block-structure@59"],
+};
+
 describeOrSkip("tinyfugue lib/tf corpus (read-only)", () => {
   // describe.skip still runs this callback body to collect the (zero) child tests — only the
   // it()s inside are actually skipped — so this must not call readdirSync on a directory that
@@ -37,10 +47,10 @@ describeOrSkip("tinyfugue lib/tf corpus (read-only)", () => {
       expect(() => getDiagnostics(text)).not.toThrow();
     });
 
-    it(`${file} stays clean`, () => {
+    it(`${file} has only its known problems`, () => {
       const text = readFileSync(join(CORPUS_DIR, file), "utf8");
-      const diags = getDiagnostics(text);
-      expect(diags, JSON.stringify(diags, null, 2)).toEqual([]);
+      const diags = getDiagnostics(text).map((d) => `${d.code}@${d.range.start.line + 1}`);
+      expect(diags).toEqual(KNOWN[file] ?? []);
     });
   }
 });

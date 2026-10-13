@@ -124,3 +124,47 @@ describe("getDiagnostics ranges", () => {
     expect(diag!.range.end.character).toBe(3); // "/if"
   });
 });
+
+describe("structural rules (structure.ts)", () => {
+  function found(text: string): string[] {
+    return getDiagnostics(text).map((d) => `${d.code}@${d.range.start.line}:${d.range.start.character}`);
+  }
+
+  it("block-structure points at a keyword swallowed mid-statement, on its own continuation line", () => {
+    const text = ["/def go = \\", "    /if (1) /echo yes \\", "    /else /echo no \\", "    /endif", ""].join("\n");
+    // "/echo yes /else /echo no /endif" is one statement, so the /if is never closed. (With a %;
+    // before /endif it would be valid, if not what was meant: /echo prints "yes /else /echo no".)
+    expect(found(text)).toEqual(["block-structure@2:4"]);
+  });
+
+  it("block-structure reports a stray keyword in a macro body, and at the top level", () => {
+    expect(found("/def go = /echo a%; /endif\n")).toEqual(["block-structure@0:20"]);
+    expect(found("/if (1) /echo a%; /endif\n/endif\n")).toEqual(["block-structure@1:0"]);
+  });
+
+  it("if-multiline-top-level still owns an /if left open at the end of a top-level line", () => {
+    expect(found(["/if (1)", "/echo yes", "/endif", ""].join("\n"))).toEqual([
+      "if-multiline-top-level@0:0",
+      "block-structure@2:0",
+    ]);
+  });
+
+  it("leaves an /endif swallowed by /let to let-swallows-endif", () => {
+    expect(found("/def tfsc_a = /if (1) /let v=1 /endif\n")).toEqual(["let-swallows-endif@0:31"]);
+  });
+
+  it("unclosed-substitution in a body, but not in a plain top-level command, which substitutes nothing", () => {
+    expect(found("/def go = /echo $[1+2\n")).toEqual(["unclosed-substitution@0:16"]);
+    expect(found("/echo $[1+2\n")).toEqual([]);
+    expect(found("/if (1 /echo a%; /endif\n")).toEqual(["unclosed-substitution@0:4"]);
+  });
+
+  it("separator-sends-blank-line warns, and nothing else fires", () => {
+    const diags = getDiagnostics("/def go = /if (1)%; /echo a%; /endif\n");
+    expect(diags.map((d) => `${d.code}:${d.severity}`)).toEqual(["separator-sends-blank-line:warning"]);
+  });
+
+  it("checks /alias bodies", () => {
+    expect(found("/alias tt tell %{target %{*}\n")).toEqual(["unclosed-substitution@0:15"]);
+  });
+});

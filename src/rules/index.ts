@@ -6,6 +6,9 @@ import { indentedLineAfterCommand } from "./indentedLineAfterCommand";
 import { trailingSpaceAfterBackslash } from "./trailingSpaceAfterBackslash";
 import { badSubstitutionSelector } from "./badSubstitutionSelector";
 import { reservedMacroName } from "./reservedMacroName";
+import { blockStructure } from "./blockStructure";
+import { unclosedSubstitution } from "./unclosedSubstitution";
+import { separatorSendsBlankLine } from "./separatorSendsBlankLine";
 import type { Rule } from "./types";
 
 // bareLineAfterCommand.ts is deliberately not in this list: it doesn't just report a
@@ -20,6 +23,9 @@ export const RULES: Rule[] = [
   trailingSpaceAfterBackslash,
   badSubstitutionSelector,
   reservedMacroName,
+  blockStructure,
+  unclosedSubstitution,
+  separatorSendsBlankLine,
 ];
 
 export type { EntryRule, FileRule, Rule, EntryMatch, LineMatch, Severity } from "./types";

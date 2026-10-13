@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Structural checks, from a model of how tf compiles a macro body (`src/structure.ts`):
+  `block-structure` (an `/if` or `/while` left open, a keyword with no block to belong to, text
+  after `/endif` or `/done` with no `%;`, pointing at a keyword stuck mid-statement when that is
+  the cause), `unclosed-substitution` (`$[`, `${`, `$(`, `%{`, strings and conditions that never
+  close, and `%-` naming no selector) and the warning `separator-sends-blank-line` (`%;` right
+  after `/if (...)` or `/else`). Each is proven against real tf; over tf's library and the WoTMUD
+  scripts they found one real bug, `/session` in `tintin.tf`.
+- `if-multiline-top-level` uses the same model, so it follows nesting and no longer counts an
+  `/endif` that is only text (`/if (1) /echo /endif`) as closing the `/if`.
+
 ## 0.2.0
 
 - Document symbols (`onDocumentSymbol`): an outline entry for every top-level `/def`,

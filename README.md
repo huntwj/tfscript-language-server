@@ -35,9 +35,9 @@ proven rule, that's a case to add there first.
 
 ## What's implemented
 
-Diagnostics for seven of the proven rules, each a pure function in `src/rules/`, under one of
+Diagnostics for the proven rules, each a pure function in `src/rules/`, under one of
 two shapes (`src/rules/types.ts`): an `EntryRule` scans one `LogicalEntry` and returns offset
-ranges into its joined text (four rules); a `FileRule` scans the whole file's raw lines and
+ranges into its joined text; a `FileRule` scans the whole file's raw lines and
 returns positions directly, for the two line-by-line state machines that mirror
 `load_file()`'s own `new_cmd`/`last_cmd_line` tracking (`indented-line-after-command`,
 `trailing-space-after-backslash`). `diagnostics.ts` drives both kinds through one loop.
@@ -56,6 +56,15 @@ file gets truncated, since tf never reads past the line it aborts on.
 | — | `bad-substitution-selector` | `%{selector}` followed directly by another `%`/`$` substitution (`%{foo%{bar}}`) — tf errors "unmatched { or illegal character"; nesting only works through the default value, `%{foo-%{bar}}` |
 | — | `reserved-macro-name` | `/def` of a keyword (`if`, `then`, `let`, `set`, `test`, ...) or `eval`, in any case — tf refuses it ("is a reserved word") and defines nothing. Other builtins can be redefined, so they aren't flagged |
 | — | `bare-line-after-command` | a line that is not blank, a comment, or a `/command` — tf aborts the rest of the file's load; everything after it is suppressed from the other rules, since tf never reads it either |
+| 10 | `block-structure` | an `/if` or `/while` with no `/endif`, `/done`, `/then` or `/do`; a keyword with no block to belong to; text after `/endif` or `/done` with no `%;`. Points at a keyword stuck mid-statement (`/echo a /endif`) when that is the cause, since tf only reads keywords at the start of a statement |
+| 11 | `unclosed-substitution` | a `$[`, `${`, `$(`, `%{`, string or `(` that never closes, and a `%-` naming no selector (`50%-off`), where tf substitutes: in a macro body, a top-level condition, `/test` |
+| 12 | `separator-sends-blank-line` | (warning) a `%;` straight after `/if (...)` or `/else`, which sends a blank line to the world |
+
+`if-multiline-top-level`, `block-structure`, `unclosed-substitution` and
+`separator-sends-blank-line` share one model of tf's compiler, `src/structure.ts` (`list()`,
+`statement()` and the substitution scanners in `expand.c`): it reads keywords only at the start of
+a statement, follows nesting, and knows that a top-level line substitutes nothing while a macro
+body does. It reports only the first error in a body, as tf stops compiling there.
 
 The numbered rules are the case numbers in the private notes repo's `scripting.md` (below);
 they're kept only so the rule files, their tests, and that document stay cross-referenceable —

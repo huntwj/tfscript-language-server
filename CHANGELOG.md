@@ -38,6 +38,10 @@
   description paragraph, including library macros such as `/alias`. A hand-written
   `commandDescriptions.ts` entry still takes precedence. Text from tf files and `tf-help` is
   Markdown-escaped, so placeholders like `<name>` are no longer dropped by the editor.
+- Signature help (`onSignatureHelp`, on space): the usage synopsis of the command whose
+  arguments you are typing, with the current argument highlighted. Works after `%;`, on
+  continuation lines, in a `/def` body and after `/then`/`/else`; uses `tf-help` when
+  installed, and a `;;; /name ...` line above your own `/def`s.
 - New `bad-substitution-selector` diagnostic: `%{foo%{bar}}` is an error in tf (nesting only
   works through a `-` default value).
 - `load-no-expansion` no longer flags `/alias` bodies, or a `%{...}` after an `/eval` inside a

@@ -12,6 +12,15 @@
 - Quick fixes (`onCodeAction`): strip the whitespace after a trailing `\`
   (`trailing-space-after-backslash`), and prefix a top-level command with `/eval`
   (`load-no-expansion`).
+- Hover, go-to-definition and find-references for macros within one file. `/name` and
+  `${name}`/`$name` resolve to the file's `/def`s case-insensitively, as tf does; `/@name`
+  always means the built-in. Hover on a known command shows its usage synopsis (extracted from
+  tinyfugue's htmldoc) and an optional description from `src/data/commandDescriptions.ts`;
+  hover on a local macro shows the `;;;` doc-comment lines directly above its `/def`.
+- New `bad-substitution-selector` diagnostic: `%{foo%{bar}}` is an error in tf (nesting only
+  works through a `-` default value).
+- `load-no-expansion` no longer flags `/alias` bodies, or a `%{...}` after an `/eval` inside a
+  joined top-level `/if`.
 
 ## 0.1.0
 

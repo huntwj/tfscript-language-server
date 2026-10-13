@@ -6,8 +6,9 @@ terminal MUD client. tf scripts are `.tf` files full of `/def` macros, triggers,
 
 This is early, pre-1.0 software: diagnostics for the handful of rules proven so far (below),
 command-name completion, document symbols (an outline of every `/def`, `/alias`, `/bind`,
-`/hook` and `/trig*`), folding, and quick fixes for two of the diagnostics. No hover yet, no
-go-to-definition, no formatting. There is a VS Code extension (`editors/vscode/`) for syntax
+`/hook` and `/trig*`), folding, quick fixes for two of the diagnostics, and single-file hover,
+go-to-definition and find-references for macros. Nothing follows `/load` across files yet, and
+there is no formatting. There is a VS Code extension (`editors/vscode/`) for syntax
 highlighting plus everything the server does; other editors can wire up the stdio server
 directly — see "Use".
 
@@ -117,7 +118,15 @@ top-level command name this engine knows, each tagged with where it came from. t
   what a user actually types: **`/echo`, `/for` and `/addworld` are stdlib macros, not
   builtins.** A command list built only from the C tables would be missing them.
 
-The three `src/data/*.generated.ts` files are produced by `scripts/extract-command-tables.js`
+Hover also shows each command's usage synopsis, from `src/data/commandUsages.generated.ts`,
+extracted from `tinyfugue/htmldoc/commands/*.html`. Only the synopses come from there:
+TinyFugue's documentation is GPL and this project is MIT, so the one-line descriptions live
+in the hand-written `src/data/commandDescriptions.ts` instead. Fill in entries there; an
+empty one just shows no description. A macro defined in the file being edited documents
+itself: hover shows the `;;;` comment lines directly above its `/def` (stdlib.tf's own
+convention), so `;;` notes and commented-out `;/` code are left out.
+
+The `src/data/*.generated.ts` files are produced by `scripts/extract-command-tables.js`
 from a sibling `tinyfugue/` checkout (run `npm run build` first, then
 `node scripts/extract-command-tables.js`, by hand after a tinyfugue update) and checked in,
 so the server itself never needs that checkout at runtime. `test/commandsData.test.ts`
@@ -146,12 +155,16 @@ src/
   folding.ts           getFoldingRanges(text): continued entries and comment runs
   codeActions.ts       getCodeActions(text, range): quick fixes for the diagnostics that
                         have a mechanical remedy (recomputed server-side)
-  data/                command names for completion/hover — see "Command data" above
+  navigation.ts        getHover / getDefinition / getReferences: single-file macro lookup
+                        (case-insensitive, like tf); /@name always means the built-in
+  data/                command names, usage synopses and descriptions for completion/hover
+                        — see "Command data" above
 test/
   diagnostics.test.ts   unit tests per rule
   logicalEntries.test.ts  regression tests for comment lines, backslash continuation, and CRLF
   completions.test.ts   unit tests for getCommandCompletions
-  symbols.test.ts, folding.test.ts, codeActions.test.ts  unit tests for the three above
+  symbols.test.ts, folding.test.ts, codeActions.test.ts, navigation.test.ts  unit tests for
+                        the four above
   tokenize.test.ts       unit tests for extract-command-tables.js's shell-style tokenizer
   indentedLineAfterCommand.test.ts, trailingSpaceAndAbort.test.ts  unit tests for the two
                         whole-file rules plus bare-line-after-command's abort/truncation
@@ -181,7 +194,8 @@ node dist/server.js     # run the server directly (speaks LSP over stdio)
 ```
 
 The server advertises `completionProvider` (triggered on `/`), `documentSymbolProvider`,
-`foldingRangeProvider` and `codeActionProvider` (quick fixes only), and publishes diagnostics
+`foldingRangeProvider`, `codeActionProvider` (quick fixes only), `hoverProvider`,
+`definitionProvider` and `referencesProvider`, and publishes diagnostics
 tagged `source: "tfscript"`. Many editors' LSP clients also pass a `--stdio` flag by
 convention — this server doesn't need it (it talks over stdio either way) but accepts and
 ignores it.
@@ -244,9 +258,9 @@ Two layers, matching the private notes repo's own fast-loop/slow-run split:
 
 Following scripting.md's roadmap order: diagnostics done, completion started (command names;
 expression functions and special variables still needed), single-file document symbols,
-folding and quick fixes done, then hover, then go-to-definition for `/def` across `/load`
-(needs a cross-file symbol table the single-file `symbols.ts` doesn't attempt), then
-formatting.
+folding, quick fixes, hover, go-to-definition and find-references done, then following
+`/load`/`/require` for cross-file definitions, references and rename (needs a workspace
+symbol table), then formatting.
 
 ## Contributing
 

@@ -69,6 +69,18 @@
           "scope": "resource",
           "markdownDescription": "The directory tf runs in. Relative `/load` paths are tried here first — not beside the loading file. When empty: the workspace folder."
         },
+        "tfscript.diagnostics.unresolvedLoads": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "Warn about a `/load` or `/require` on the load path whose file tf wouldn't find, listing where it would look."
+        },
+        "tfscript.diagnostics.undefinedMacros": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "markdownDescription": "Note `/name` calls to names defined nowhere on the load path and not tf commands. Off by default: macros created at runtime (`/eval /def`, hooks, files loaded another way) are invisible to it, though optional calls guarded by `ismacro` are skipped."
+        },
         "tfscript.homeDirectory": {
           "type": "string",
           "default": "",

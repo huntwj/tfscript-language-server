@@ -1,6 +1,6 @@
 import type { LogicalEntry } from "../logicalEntries";
 
-export type Severity = "error" | "warning";
+export type Severity = "error" | "warning" | "information";
 
 /** Offset range within `entry.text`, used by entry-scoped rules. */
 export interface EntryMatch {

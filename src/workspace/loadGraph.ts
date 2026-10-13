@@ -57,11 +57,20 @@ export interface LoadedFile {
   stdlib: boolean;
 }
 
+export type UnresolvedKind = "not-found" | "unknown-variable" | "not-substituted";
+
 export interface UnresolvedLoad {
   from: string;
+  /** The entry's first line in `from`. */
   line: number;
+  kind: UnresolvedKind;
+  /** The path as written in the script, before any substitution. */
+  raw: string;
+  /** The path tf would look up (after substitution, for an `/eval` load). */
   file: string;
   reason: string;
+  /** For "not-found": every place tf would have tried, in order. */
+  searched: string[];
 }
 
 export interface LoadGraph {
@@ -136,7 +145,7 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   let seq = 0;
   let inStdlib = false;
 
-  function resolve(file: string): string | undefined {
+  function resolve(file: string): { found?: string; searched: string[] } {
     let target = file;
     if (target === "~" || target.startsWith("~/")) target = (vars.get("HOME") ?? "") + target.slice(1);
     const candidates: string[] = [];
@@ -152,7 +161,7 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
         if (lib && path.isAbsolute(lib)) candidates.push(path.join(lib, target));
       }
     }
-    return candidates.find((c) => options.readFile(c) !== undefined);
+    return { found: candidates.find((c) => options.readFile(c) !== undefined), searched: candidates };
   }
 
   function handleLoads(entryText: string, from: string, line: number): void {
@@ -164,24 +173,21 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     if (!m) return;
     const isEval = Boolean(m[1]);
     const kind = (m[2] as string).toLowerCase() as "load" | "require";
-    let file = stripLoadOptions(m[3] as string);
-    if (!file) return;
+    const raw = stripLoadOptions(m[3] as string);
+    if (!raw) return;
+    let file = raw;
+    const fail = (k: UnresolvedKind, reason: string, searched: string[] = []): void => {
+      unresolved.push({ from, line, kind: k, raw, file, reason, searched });
+    };
     if (isEval) {
-      const expanded = expandVariables(file, vars);
-      if (!expanded.ok) {
-        unresolved.push({ from, line, file, reason: expanded.reason });
-        return;
-      }
+      const expanded = expandVariables(raw, vars);
+      if (!expanded.ok) return fail("unknown-variable", expanded.reason);
       file = expanded.value;
-    } else if (/%\{|%[A-Za-z_]/.test(file)) {
-      unresolved.push({ from, line, file, reason: "a top-level path is not substituted; prefix the line with /eval" });
-      return;
+    } else if (/%\{|%[A-Za-z_]/.test(raw)) {
+      return fail("not-substituted", "a top-level path is not substituted; prefix the line with /eval");
     }
-    const found = resolve(file);
-    if (!found) {
-      unresolved.push({ from, line, file, reason: "file not found" });
-      return;
-    }
+    const { found, searched } = resolve(file);
+    if (!found) return fail("not-found", "file not found", searched);
     walk(found, { kind, from, line });
   }
 

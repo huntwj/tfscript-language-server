@@ -5,6 +5,8 @@ import { getDocumentSymbols, type TfSymbol } from "../symbols";
 import { buildLoadGraph, fileKey as keyOf, type LoadGraph, type LoadedFile } from "./loadGraph";
 import { resolveSettings, type Environment, type RawSettings, type ResolvedSettings } from "./settings";
 import { parseTfHelp, type HelpEntry } from "./tfHelp";
+import { loadPathDiagnostics } from "./loadPathDiagnostics";
+import type { TfDiagnostic } from "../diagnostics";
 
 export interface FileSystem {
   readFile(file: string): string | undefined;
@@ -139,6 +141,16 @@ export class WorkspaceIndex {
    * it, every other file on that path; otherwise just what stdlib.tf loads, which tf always
    * reads first. Plus, as "not loaded" hints, the tf library files the path never reaches.
    */
+  /** unresolved-load and (if enabled) undefined-macro diagnostics for `file`, from its folder's graph. */
+  loadPathDiagnostics(file: string, text: string): TfDiagnostic[] {
+    const folder = this.folderFor(file);
+    const options = this.raw.get(keyOf(folder))?.diagnostics;
+    return loadPathDiagnostics(file, text, this.graphFor(folder).graph, {
+      unresolvedLoads: options?.unresolvedLoads ?? true,
+      undefinedMacros: options?.undefinedMacros ?? false,
+    });
+  }
+
   navContext(file: string, uriOf: (file: string) => string): NavContext {
     const folder = this.folderFor(file);
     const { settings, graph } = this.graphFor(folder);

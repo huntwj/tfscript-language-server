@@ -16,6 +16,12 @@ export interface RawSettings {
   workingDirectory?: string;
   /** What `~` (tf's HOME) means. Defaults to the user's home directory. */
   homeDirectory?: string;
+  diagnostics?: {
+    /** `/load`/`/require` paths tf wouldn't find. Default on. */
+    unresolvedLoads?: boolean;
+    /** Calls to names defined nowhere on the load path. Default off. */
+    undefinedMacros?: boolean;
+  };
 }
 
 export interface ResolvedSettings {

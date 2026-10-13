@@ -133,6 +133,7 @@ async function loadSettings(): Promise<void> {
     })) as RawSettings | null;
     index.setSettings(folder, raw ?? {});
   }
+  revalidateOpenDocuments();
 }
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
@@ -178,7 +179,22 @@ connection.onInitialized(() => {
 });
 
 connection.onDidChangeConfiguration(() => void loadSettings());
-connection.onDidChangeWatchedFiles(() => index.invalidate());
+connection.onDidChangeWatchedFiles(() => {
+  index.invalidate();
+  scheduleRevalidation();
+});
+
+// An edit to one file can change another's load-path diagnostics (a /def added, a /load
+// fixed), so every open document is rechecked — after a pause, not on every keystroke.
+let revalidateTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleRevalidation(): void {
+  if (revalidateTimer) clearTimeout(revalidateTimer);
+  revalidateTimer = setTimeout(revalidateOpenDocuments, 300);
+}
+function revalidateOpenDocuments(): void {
+  revalidateTimer = undefined;
+  for (const document of documents.all()) validate(document);
+}
 
 // Not onDidOpen too: TextDocuments fires onDidChangeContent for the initial open as well
 // (vscode-languageserver's didOpen handler fires both), so that alone already covers it.
@@ -186,11 +202,13 @@ documents.onDidChangeContent((change) => {
   const file = toPath(change.document.uri);
   if (file) index.setOverlay(file, change.document.getText());
   validate(change.document);
+  scheduleRevalidation();
 });
 documents.onDidClose((event) => {
   const file = toPath(event.document.uri);
   if (file) index.setOverlay(file, undefined);
   connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
+  scheduleRevalidation();
 });
 
 function toLspDiagnostic(d: TfDiagnostic): Diagnostic {
@@ -199,13 +217,20 @@ function toLspDiagnostic(d: TfDiagnostic): Diagnostic {
     message: d.message,
     code: d.code,
     source: "tfscript",
-    severity: d.severity === "error" ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
+    severity:
+      d.severity === "error"
+        ? DiagnosticSeverity.Error
+        : d.severity === "warning"
+          ? DiagnosticSeverity.Warning
+          : DiagnosticSeverity.Information,
   };
 }
 
 function validate(document: TextDocument): void {
-  const diagnostics = getDiagnostics(document.getText()).map(toLspDiagnostic);
-  connection.sendDiagnostics({ uri: document.uri, diagnostics });
+  const text = document.getText();
+  const file = toPath(document.uri);
+  const all = [...getDiagnostics(text), ...(file ? index.loadPathDiagnostics(file, text) : [])];
+  connection.sendDiagnostics({ uri: document.uri, diagnostics: all.map(toLspDiagnostic) });
 }
 
 connection.onCompletion((params: CompletionParams): CompletionItem[] => {

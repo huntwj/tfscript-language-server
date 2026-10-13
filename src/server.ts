@@ -23,6 +23,8 @@ import {
   MarkupKind,
   type PrepareRenameParams,
   type ReferenceParams,
+  type SemanticTokens,
+  type SemanticTokensParams,
   type SignatureHelp,
   type RenameParams,
   ResponseError,
@@ -44,6 +46,7 @@ import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
 import { getCodeActions } from "./codeActions";
 import { getDefinition, getHover, getReferences, getRenameEdits, prepareRename, type NavContext } from "./navigation";
+import { encodeSemanticTokens, getSemanticTokens, TOKEN_MODIFIERS, TOKEN_TYPES } from "./semanticTokens";
 import { getSignatureHelp } from "./signatureHelp";
 import type { RawSettings } from "./workspace/settings";
 import { fileKey } from "./workspace/loadGraph";
@@ -99,6 +102,7 @@ function walkTfFiles(dir: string): string[] {
 const index = new WorkspaceIndex({ readFile, listTfFiles, walkTfFiles }, { env: process.env, homedir: homedir(), exists: existsSync });
 let folders: string[] = [];
 let hasConfiguration = false;
+let canRefreshTokens = false;
 
 function toPath(uri: string): string | undefined {
   if (!uri.startsWith("file:")) return undefined;
@@ -146,6 +150,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
   }
   index.setFolders(folders);
   hasConfiguration = Boolean(params.capabilities.workspace?.configuration);
+  canRefreshTokens = Boolean(params.capabilities.workspace?.semanticTokens?.refreshSupport);
   return {
     capabilities: {
       workspace: { workspaceFolders: { supported: true, changeNotifications: true } },
@@ -159,6 +164,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       referencesProvider: true,
       workspaceSymbolProvider: true,
       renameProvider: { prepareProvider: true },
+      semanticTokensProvider: { legend: { tokenTypes: [...TOKEN_TYPES], tokenModifiers: [...TOKEN_MODIFIERS] }, full: true },
       signatureHelpProvider: { triggerCharacters: [" "], retriggerCharacters: ["=", "-"] },
     },
   };
@@ -197,6 +203,8 @@ function scheduleRevalidation(): void {
 function revalidateOpenDocuments(): void {
   revalidateTimer = undefined;
   for (const document of documents.all()) validate(document);
+  // A macro defined or removed in one file changes how calls to it are coloured in the others.
+  if (canRefreshTokens) connection.languages.semanticTokens.refresh();
 }
 
 // Not onDidOpen too: TextDocuments fires onDidChangeContent for the initial open as well
@@ -298,6 +306,11 @@ connection.onSignatureHelp((params: TextDocumentPositionParams): SignatureHelp |
     // -1 (no parameter, e.g. after `--`) is sent out of range so nothing is highlighted.
     activeParameter: help.activeParameter >= 0 ? help.activeParameter : (help.signatures[help.activeSignature]?.parameters.length ?? 0),
   };
+});
+
+connection.languages.semanticTokens.on((params: SemanticTokensParams): SemanticTokens => {
+  const document = documents.get(params.textDocument.uri);
+  return { data: document ? encodeSemanticTokens(getSemanticTokens(document.getText(), contextFor(document))) : [] };
 });
 
 connection.onDefinition((params: TextDocumentPositionParams): Location[] => {

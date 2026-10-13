@@ -1,4 +1,4 @@
-import { isTfSpace } from "./logicalEntries";
+import { isTfSpace, type LogicalEntry } from "./logicalEntries";
 
 /**
  * A model of how tf compiles a command list (`list()`, `statement()`, `expand()` and the
@@ -659,4 +659,25 @@ export function macroBodyStart(text: string): number {
     else if (ch === "=") return i + 1;
   }
   return -1;
+}
+
+const cache = new WeakMap<LogicalEntry, StructureIssue[]>();
+
+/**
+ * Structural problems in a top-level entry, with offsets into `entry.text`: the entry as tf reads
+ * a top-level line, and, for a `/def`, `/bind`, `/hook`, `/trig*` or `/alias`, its macro body.
+ */
+export function entryStructure(entry: LogicalEntry): StructureIssue[] {
+  let issues = cache.get(entry);
+  if (!issues) {
+    issues = checkStructure(entry.text, "top");
+    const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(entry.text) : -1;
+    if (body >= 0) {
+      for (const issue of checkStructure(entry.text.slice(body), "body")) {
+        issues.push({ ...issue, start: issue.start + body, end: issue.end + body });
+      }
+    }
+    cache.set(entry, issues);
+  }
+  return issues;
 }

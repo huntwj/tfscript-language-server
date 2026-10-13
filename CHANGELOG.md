@@ -45,6 +45,10 @@
 - Semantic highlighting (`semanticTokens/full`): keywords, your macros and their `/def`
   names, tf commands and library macros, `${name}` macros, and `%` parameters versus variables,
   resolved along the load path and refreshed when another file changes.
+- Formatting (whole document or a range): a macro body gets one `%;` statement per `%;\` line,
+  `/if`/`/while` children indented a level, and continuation lines re-indented. Only whitespace
+  tf ignores is changed, and each entry is checked by joining it again. New setting
+  `tfscript.format.splitStatements` (default on) turns the splitting off.
 - New `bad-substitution-selector` diagnostic: `%{foo%{bar}}` is an error in tf (nesting only
   works through a `-` default value).
 - `load-no-expansion` no longer flags `/alias` bodies, or a `%{...}` after an `/eval` inside a

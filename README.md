@@ -9,8 +9,8 @@ command-name completion, document symbols (an outline of every `/def`, `/alias`,
 `/hook` and `/trig*`), folding, quick fixes for two of the diagnostics, and hover,
 go-to-definition and find-references for macros across every file your tfrc's `/load` and
 `/require` lines reach (see "Load paths"), signature help, semantic highlighting, workspace-wide
-symbol search, and rename. There is no formatting yet. There is a VS Code extension (`editors/vscode/`) for syntax
-highlighting plus everything the server does; other editors can wire up the stdio server
+symbol search, rename, and formatting that only changes whitespace tf ignores. There is a VS Code
+extension (`editors/vscode/`) for syntax highlighting plus everything the server does; other editors can wire up the stdio server
 directly — see "Use".
 
 ## Why every rule here is proven against real tf, not taken from the manual
@@ -133,6 +133,7 @@ under `tfscript`):
 | `homeDirectory` | what `~` means (tf's `HOME`) | your home directory |
 | `diagnostics.unresolvedLoads` | warn on a `/load`/`/require` tf wouldn't find (`unresolved-load`) | on |
 | `diagnostics.undefinedMacros` | note `/name` calls defined nowhere on the path (`undefined-macro`) | off |
+| `format.splitStatements` | when formatting, put each `%;` statement of a macro body on its own line | on |
 
 Two diagnostics need the whole load path, so they only appear in files a load path reaches:
 
@@ -259,7 +260,7 @@ node dist/server.js     # run the server directly (speaks LSP over stdio)
 The server advertises `completionProvider` (triggered on `/`), `documentSymbolProvider`,
 `foldingRangeProvider`, `codeActionProvider` (quick fixes only), `hoverProvider`,
 `definitionProvider`, `referencesProvider`, `signatureHelpProvider` (triggered on space), `semanticTokensProvider`
-(full documents),
+(full documents), `documentFormattingProvider`, `documentRangeFormattingProvider`,
 `workspaceSymbolProvider` and `renameProvider` (with prepare), and publishes diagnostics
 tagged `source: "tfscript"`. Many editors' LSP clients also pass a `--stdio` flag by
 convention — this server doesn't need it (it talks over stdio either way) but accepts and
@@ -325,8 +326,7 @@ Following scripting.md's roadmap order: diagnostics done, completion started (co
 expression functions and special variables still needed), single-file document symbols,
 folding, quick fixes, and hover, go-to-definition and find-references across the load path
 done, with command descriptions from the installed `tf-help`, plus workspace symbols,
-rename, the load-path diagnostics, signature help and semantic highlighting; then
-formatting.
+rename, the load-path diagnostics, signature help, semantic highlighting and formatting.
 
 Workspace symbols cover every macro-defining entry in every tf script under the workspace
 folders, whether or not a load path reaches it. Rename changes a macro you defined — its
@@ -351,6 +351,32 @@ functions, and `/def` names as their declarations; tf commands and library macro
 default-library functions; `${name}` as a macro; tf's positional selectors (`%1`, `%*`,
 `%{-L}`, `%{P2}`) as parameters, and `%{name}` and the names `/set`, `/let`, `/setenv` and
 `/unset` take as variables. A call to a name defined nowhere keeps the grammar's colour.
+
+### Formatting
+
+Formatting only changes whitespace that tf provably ignores, and checks itself:
+
+- tf strips every line's leading whitespace before joining a `\` continuation, so
+  continuation lines can be re-indented, and a `\` line break can be inserted after
+  whitespace or a `%;` without changing the joined command.
+- Inside a macro body, whitespace on either side of a `%;` separator is dropped when the body
+  runs (`/let v=ab %;` sets `ab`, not `ab `). At the top level `%;` is not a separator at all,
+  so top-level lines are never split.
+- tf turns each tab into spaces as it reads the file, out to the next tab stop of the physical
+  line, so a tab after a line's indentation would change width if the line moved. Entries
+  containing one are left exactly as written.
+
+In a `/def`, `/bind`, `/hook` or `/trig*` body with more than one statement, each statement
+goes on its own line ending `%;\`, and `/if (...)`, `/elseif (...)`, `/while (...)`, `/else`,
+`/then` and `/do` start a block whose children are indented one more level; the condition of
+`/if list /then` and `/while list /do` stays on one line. Your own line breaks are kept, a line
+that continues a statement hangs one level deeper, and `/else`, `/endif` and `/done` line up
+with their `/if` or `/while`. A top-level `/if (x) \` block's children are indented one level;
+other top-level entries, an entry's first line, comment lines and CRLF files are left alone.
+Every rebuilt entry is joined again the way tf does and compared with the original; if anything
+but the whitespace beside a `%;` differs, the entry is only re-indented. Formatting tf's own
+library and the WoTMUD scripts this way and loading both versions into real tf gave the same
+1448 macro definitions.
 
 ## Contributing
 

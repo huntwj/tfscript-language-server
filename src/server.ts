@@ -8,11 +8,14 @@ import {
   type CompletionParams,
   type Diagnostic,
   DiagnosticSeverity,
+  type DocumentSymbol,
+  type DocumentSymbolParams,
   type InitializeResult,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { getDiagnostics } from "./diagnostics";
 import { getCommandCompletions } from "./completions";
+import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 
 // Explicit streams rather than relying on a `--stdio`/`--node-ipc`/`--socket` command-line
 // flag: createConnection() alone throws "Connection input stream is not set" without one.
@@ -23,6 +26,7 @@ connection.onInitialize((): InitializeResult => ({
   capabilities: {
     textDocumentSync: TextDocumentSyncKind.Incremental,
     completionProvider: { triggerCharacters: ["/"] },
+    documentSymbolProvider: true,
   },
 }));
 
@@ -54,6 +58,12 @@ connection.onCompletion((params: CompletionParams): CompletionItem[] => {
     end: { line, character },
   });
   return getCommandCompletions(linePrefix) ?? [];
+});
+
+connection.onDocumentSymbol((params: DocumentSymbolParams): DocumentSymbol[] => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return [];
+  return getDocumentSymbols(document.getText()).map(toDocumentSymbol);
 });
 
 documents.listen(connection);

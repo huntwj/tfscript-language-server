@@ -16,6 +16,15 @@ export interface FileSystem {
   walkTfFiles(dir: string): string[];
 }
 
+export interface ContextInfo {
+  folder: string;
+  /** The active context, from the settings. */
+  active: string;
+  /** The context the file is actually seen in. */
+  used: string;
+  contexts: { name: string; entryFiles: string[]; loadsFile: boolean; chain: string[] }[];
+}
+
 interface LibraryFile {
   path: string;
   text: string;
@@ -36,6 +45,8 @@ export class WorkspaceIndex {
   private folders: string[] = [];
   private raw = new Map<string, RawSettings>();
   private overlay = new Map<string, string>();
+  private resolved = new Map<string, ResolvedSettings>();
+  /** Keyed by folder and context name. */
   private graphs = new Map<string, { settings: ResolvedSettings; graph: LoadGraph }>();
   private libraries = new Map<string, LibraryFile[]>();
   private helps = new Map<string, ReadonlyMap<string, HelpEntry> | undefined>();
@@ -65,6 +76,8 @@ export class WorkspaceIndex {
 
   invalidate(): void {
     this.graphs.clear();
+    // A tfrc appearing or disappearing changes which entry file the default context finds.
+    this.resolved.clear();
   }
 
   private read = (file: string): string | undefined => this.overlay.get(keyOf(file)) ?? this.fs.readFile(file);
@@ -103,13 +116,25 @@ export class WorkspaceIndex {
     return inside.sort((a, b) => b.length - a.length)[0] ?? path.dirname(path.resolve(file));
   }
 
-  graphFor(folder: string): { settings: ResolvedSettings; graph: LoadGraph } {
+  settingsFor(folder: string): ResolvedSettings {
     const key = keyOf(folder);
+    let settings = this.resolved.get(key);
+    if (!settings) {
+      settings = resolveSettings(this.raw.get(key) ?? {}, folder, this.environment);
+      this.resolved.set(key, settings);
+    }
+    return settings;
+  }
+
+  /** The load graph of one context in `folder` (the active one if unnamed). */
+  graphFor(folder: string, contextName?: string): { settings: ResolvedSettings; graph: LoadGraph } {
+    const settings = this.settingsFor(folder);
+    const context = settings.contexts.find((c) => c.name === (contextName ?? settings.activeContext)) ?? settings.contexts[0];
+    const key = `${keyOf(folder)}\0${context?.name ?? ""}`;
     const cached = this.graphs.get(key);
     if (cached) return cached;
-    const settings = resolveSettings(this.raw.get(key) ?? {}, folder, this.environment);
     const graph = buildLoadGraph({
-      entryFiles: settings.entryFiles,
+      entryFiles: context?.entryFiles ?? [],
       libraryDir: settings.libraryDir,
       tfPath: settings.tfPath,
       workingDir: settings.workingDir,
@@ -137,33 +162,71 @@ export class WorkspaceIndex {
   }
 
   /**
-   * What the rest of the workspace knows about `file`. If an entry file's load path reaches
-   * it, every other file on that path; otherwise just what stdlib.tf loads, which tf always
-   * reads first. Plus, as "not loaded" hints, the tf library files the path never reaches.
+   * The context `file` is seen in: the active one if its load path reaches the file, else the
+   * first context that does (tf can only have read the file that way), else the active one.
    */
-  /** unresolved-load and (if enabled) undefined-macro diagnostics for `file`, from its folder's graph. */
-  loadPathDiagnostics(file: string, text: string): TfDiagnostic[] {
+  contextFor(file: string): { folder: string; name: string; graph: LoadGraph; settings: ResolvedSettings } {
     const folder = this.folderFor(file);
+    const settings = this.settingsFor(folder);
+    const self = keyOf(file);
+    const reaches = (name: string): boolean => this.graphFor(folder, name).graph.files.some((f) => keyOf(f.path) === self);
+    const name = [settings.activeContext, ...settings.contexts.map((c) => c.name)].find(reaches) ?? settings.activeContext;
+    return { folder, name, settings, graph: this.graphFor(folder, name).graph };
+  }
+
+  /**
+   * Every context of `file`'s folder: whether it loads the file, through which chain of loads
+   * (entry file first, the file itself last), and which context the file is seen in.
+   */
+  contextInfo(file: string): ContextInfo {
+    const { folder, name, settings } = this.contextFor(file);
+    const contexts = settings.contexts.map((c) => {
+      const byKey = new Map(this.graphFor(folder, c.name).graph.files.map((f) => [keyOf(f.path), f]));
+      const chain: string[] = [];
+      const seen = new Set<string>();
+      let at = byKey.get(keyOf(file));
+      while (at && !seen.has(keyOf(at.path))) {
+        seen.add(keyOf(at.path));
+        chain.unshift(this.label(at.path, folder, settings.libraryDir));
+        const from = at.sites[0]?.from;
+        at = from === undefined ? undefined : byKey.get(keyOf(from));
+      }
+      const entryFiles = c.entryFiles.map((e) => this.label(e, folder, settings.libraryDir));
+      return { name: c.name, entryFiles, loadsFile: chain.length > 0, chain };
+    });
+    return { folder, active: settings.activeContext, used: name, contexts };
+  }
+
+  /** How to name a file to the user: a library file by its name, a workspace file relative to the folder. */
+  private label(f: string, folder: string, lib: string | undefined): string {
+    if (lib && isInside(f, lib)) return path.basename(f);
+    const rel = path.relative(folder, f);
+    return rel.startsWith("..") || path.isAbsolute(rel) ? f : rel.replace(/\\/g, "/");
+  }
+
+  /** unresolved-load and (if enabled) undefined-macro diagnostics for `file`, from its context's graph. */
+  loadPathDiagnostics(file: string, text: string): TfDiagnostic[] {
+    const { folder, graph } = this.contextFor(file);
     const options = this.raw.get(keyOf(folder))?.diagnostics;
-    return loadPathDiagnostics(file, text, this.graphFor(folder).graph, {
+    return loadPathDiagnostics(file, text, graph, {
       unresolvedLoads: options?.unresolvedLoads ?? true,
       undefinedMacros: options?.undefinedMacros ?? false,
     });
   }
 
+  /**
+   * What the rest of the workspace knows about `file`, in the context it is seen in. If that
+   * context's load path reaches it, every other file on that path; otherwise just what
+   * stdlib.tf loads, which tf always reads first. Plus, as "not loaded" hints, the tf library
+   * files the path never reaches.
+   */
   navContext(file: string, uriOf: (file: string) => string): NavContext {
-    const folder = this.folderFor(file);
-    const { settings, graph } = this.graphFor(folder);
+    const { folder, settings, graph } = this.contextFor(file);
     const self = keyOf(file);
     const onPath = graph.files.some((f) => keyOf(f.path) === self);
     const loaded = graph.files.filter((f) => keyOf(f.path) !== self && (onPath || f.stdlib));
     const lib = settings.libraryDir;
-
-    const label = (f: string): string => {
-      if (lib && isInside(f, lib)) return path.basename(f);
-      const rel = path.relative(folder, f);
-      return rel.startsWith("..") || path.isAbsolute(rel) ? f : rel.replace(/\\/g, "/");
-    };
+    const label = (f: string): string => this.label(f, folder, lib);
     const isLibrary = (f: string): boolean => Boolean(lib && isInside(f, lib));
 
     const macros: ExternalMacro[] = loaded.flatMap((f: LoadedFile) => {

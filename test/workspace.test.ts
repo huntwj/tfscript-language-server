@@ -43,6 +43,8 @@ describe("resolveSettings", () => {
     );
     expect(s).toEqual({
       entryFiles: [p("ws", "main.tf"), p("home", "x.tf")],
+      contexts: [{ name: "default", entryFiles: [p("ws", "main.tf"), p("home", "x.tf")] }],
+      activeContext: "default",
       libraryDir: p("ws", "lib"),
       tfPath: [p("home", "tf")],
       workingDir: p("ws", "run"),
@@ -187,5 +189,57 @@ describe("cross-file navigation through the workspace index", () => {
     const ctx = index.navContext(p("ws", "main.tf"), uriOf);
     expect(getDefinition(text, pos(1, 2), ctx)).toEqual([]);
     expect(ctx.macros.some((m) => m.symbol.name === "welcome")).toBe(true);
+  });
+});
+
+describe("load contexts", () => {
+  // Two ways of starting tf: each tfrc loads shared.tf, but defines `go` differently.
+  const files: Record<string, string> = {
+    [p("ws", "wot.tfrc")]: "/load wot.tf\n/load shared.tf\n",
+    [p("ws", "diku.tfrc")]: "/load diku.tf\n/load shared.tf\n",
+    [p("ws", "wot.tf")]: "/def go = /echo wot\n",
+    [p("ws", "diku.tf")]: "/def go = /echo diku\n",
+    [p("ws", "shared.tf")]: "/def run = /go\n",
+  };
+  const contexts = { wot: ["wot.tfrc"], diku: ["diku.tfrc"] };
+
+  function index(activeContext?: string) {
+    const fs = memoryFs(files);
+    const idx = new WorkspaceIndex(fs, env(fs));
+    idx.setFolders([p("ws")]);
+    idx.setSettings(p("ws"), { contexts, ...(activeContext ? { activeContext } : {}) });
+    return idx;
+  }
+  const goTarget = (idx: WorkspaceIndex) => {
+    const text = files[p("ws", "shared.tf")] as string;
+    return getDefinition(text, pos(0, 12), idx.navContext(p("ws", "shared.tf"), uriOf)).map((l) => path.basename(l.uri));
+  };
+
+  it("sees a shared file through the active context", () => {
+    expect(goTarget(index())).toEqual(["wot.tf"]);
+    expect(goTarget(index("diku"))).toEqual(["diku.tf"]);
+  });
+
+  it("uses a context that loads the file when the active one doesn't", () => {
+    const info = index("wot").contextInfo(p("ws", "diku.tf"));
+    expect(info).toMatchObject({ active: "wot", used: "diku" });
+  });
+
+  it("reports each context's chain to the file", () => {
+    const info = index("diku").contextInfo(p("ws", "shared.tf"));
+    expect(info.contexts).toEqual([
+      { name: "wot", entryFiles: ["wot.tfrc"], loadsFile: true, chain: ["wot.tfrc", "shared.tf"] },
+      { name: "diku", entryFiles: ["diku.tfrc"], loadsFile: true, chain: ["diku.tfrc", "shared.tf"] },
+    ]);
+    expect(index().contextInfo(p("ws", "wot.tf")).contexts[1]).toMatchObject({ name: "diku", loadsFile: false, chain: [] });
+  });
+
+  it("falls back to entryFiles as a single default context, and to the first context for an unknown name", () => {
+    const fs = memoryFs(files);
+    const idx = new WorkspaceIndex(fs, env(fs));
+    idx.setFolders([p("ws")]);
+    idx.setSettings(p("ws"), { entryFiles: ["wot.tfrc"], activeContext: "nope" });
+    expect(idx.contextInfo(p("ws", "shared.tf"))).toMatchObject({ active: "default", used: "default" });
+    expect(goTarget(index("nope"))).toEqual(["wot.tf"]);
   });
 });

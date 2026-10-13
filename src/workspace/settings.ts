@@ -8,6 +8,13 @@ import * as path from "node:path";
 export interface RawSettings {
   /** Files tf loads after stdlib.tf, in order — normally just the tfrc. Relative to the folder. */
   entryFiles?: string[];
+  /**
+   * Named alternatives to entryFiles: each is one way tf might be started (one tfrc per MUD or
+   * character, say), with its own load path. A file reached by several is seen in the active one.
+   */
+  contexts?: Record<string, string[]>;
+  /** Which of `contexts` is active. Defaults to the first. */
+  activeContext?: string;
   /** TFLIBDIR: tf's library directory, holding stdlib.tf. */
   libraryPath?: string;
   /** TFPATH as tf starts with it. Note a non-empty TFPATH replaces TFLIBDIR as the fallback. */
@@ -28,8 +35,19 @@ export interface RawSettings {
   };
 }
 
-export interface ResolvedSettings {
+/** One way tf might be started: a name and the files it loads after stdlib.tf, in order. */
+export interface LoadContext {
+  name: string;
   entryFiles: string[];
+}
+
+export interface ResolvedSettings {
+  /** The first context's entry files. */
+  entryFiles: string[];
+  /** At least one: `contexts` from the settings, or a single "default" built from entryFiles. */
+  contexts: LoadContext[];
+  /** The active context's name, always one of `contexts`. */
+  activeContext: string;
   libraryDir?: string;
   tfPath: string[];
   workingDir: string;
@@ -75,8 +93,16 @@ export function resolveSettings(raw: RawSettings, folder: string, environment: E
       ? raw.tfPath.map(abs)
       : (environment.env.TFPATH ?? "").split(/\s+/).filter(Boolean);
 
+  const named = Object.entries(raw.contexts ?? {})
+    .map(([name, files]) => ({ name, entryFiles: (Array.isArray(files) ? files : [files]).filter((f): f is string => typeof f === "string").filter((f) => f.trim() !== "").map(abs) }))
+    .filter((c) => c.entryFiles.length > 0);
+  const contexts = named.length > 0 ? named : [{ name: "default", entryFiles }];
+  const active = contexts.find((c) => c.name === raw.activeContext) ?? (contexts[0] as LoadContext);
+
   return {
-    entryFiles,
+    entryFiles: (contexts[0] as LoadContext).entryFiles,
+    contexts,
+    activeContext: active.name,
     libraryDir: library ? abs(library) : undefined,
     tfPath,
     workingDir: raw.workingDirectory ? abs(raw.workingDirectory) : folder,

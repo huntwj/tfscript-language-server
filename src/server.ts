@@ -53,7 +53,7 @@ import { getSignatureHelp } from "./signatureHelp";
 import { formatText } from "./formatting";
 import type { RawSettings } from "./workspace/settings";
 import { fileKey } from "./workspace/loadGraph";
-import { WorkspaceIndex } from "./workspace/workspaceIndex";
+import { WorkspaceIndex, type ContextInfo } from "./workspace/workspaceIndex";
 
 // Explicit streams rather than relying on a `--stdio`/`--node-ipc`/`--socket` command-line
 // flag: createConnection() alone throws "Connection input stream is not set" without one.
@@ -349,6 +349,14 @@ connection.onReferences((params: ReferenceParams): Location[] => {
     uri: l.uri || document.uri,
     range: l.range,
   }));
+});
+
+// Not part of LSP: the editor's context picker asks which load contexts reach a file, through
+// which chain of loads, and which one the file is seen in. Choosing one is the
+// `tfscript.activeContext` setting, which arrives like any other configuration change.
+connection.onRequest("tfscript/contextInfo", (params: { uri: string }): ContextInfo | null => {
+  const file = toPath(params.uri);
+  return file === undefined ? null : index.contextInfo(file);
 });
 
 connection.onWorkspaceSymbol((params: WorkspaceSymbolParams): SymbolInformation[] =>

@@ -8,8 +8,8 @@ This is early, pre-1.0 software: diagnostics for the handful of rules proven so 
 command-name completion, document symbols (an outline of every `/def`, `/alias`, `/bind`,
 `/hook` and `/trig*`), folding, quick fixes for two of the diagnostics, and hover,
 go-to-definition and find-references for macros across every file your tfrc's `/load` and
-`/require` lines reach (see "Load paths"), signature help, workspace-wide symbol search, and
-rename. There is no formatting yet. There is a VS Code extension (`editors/vscode/`) for syntax
+`/require` lines reach (see "Load paths"), signature help, semantic highlighting, workspace-wide
+symbol search, and rename. There is no formatting yet. There is a VS Code extension (`editors/vscode/`) for syntax
 highlighting plus everything the server does; other editors can wire up the stdio server
 directly — see "Use".
 
@@ -258,7 +258,8 @@ node dist/server.js     # run the server directly (speaks LSP over stdio)
 
 The server advertises `completionProvider` (triggered on `/`), `documentSymbolProvider`,
 `foldingRangeProvider`, `codeActionProvider` (quick fixes only), `hoverProvider`,
-`definitionProvider`, `referencesProvider`, `signatureHelpProvider` (triggered on space),
+`definitionProvider`, `referencesProvider`, `signatureHelpProvider` (triggered on space), `semanticTokensProvider`
+(full documents),
 `workspaceSymbolProvider` and `renameProvider` (with prepare), and publishes diagnostics
 tagged `source: "tfscript"`. Many editors' LSP clients also pass a `--stdio` flag by
 convention — this server doesn't need it (it talks over stdio either way) but accepts and
@@ -324,7 +325,7 @@ Following scripting.md's roadmap order: diagnostics done, completion started (co
 expression functions and special variables still needed), single-file document symbols,
 folding, quick fixes, and hover, go-to-definition and find-references across the load path
 done, with command descriptions from the installed `tf-help`, plus workspace symbols,
-rename, the load-path diagnostics and signature help; then semantic highlighting and
+rename, the load-path diagnostics, signature help and semantic highlighting; then
 formatting.
 
 Workspace symbols cover every macro-defining entry in every tf script under the workspace
@@ -343,6 +344,13 @@ extraction) and, for your own macros, from a `;;;` line starting `/name` directl
 the positional parameters in order, the last one taking whatever is left; a word starting
 with `=` moves to an `= body` part. A macro of yours with no `;;; /name` line shows nothing,
 even when it shadows a built-in, since the built-in's synopsis would be wrong for it.
+
+Semantic highlighting colours names by what they resolve to on the load path, on top of the
+grammar: control-flow keywords (`/if`, `/then`, `/while`, ...) as keywords; your own macros as
+functions, and `/def` names as their declarations; tf commands and library macros as
+default-library functions; `${name}` as a macro; tf's positional selectors (`%1`, `%*`,
+`%{-L}`, `%{P2}`) as parameters, and `%{name}` and the names `/set`, `/let`, `/setenv` and
+`/unset` take as variables. A call to a name defined nowhere keeps the grammar's colour.
 
 ## Contributing
 

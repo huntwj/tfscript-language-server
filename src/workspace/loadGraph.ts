@@ -87,6 +87,12 @@ const LOADED_RE = /^\s*\/loaded\s+(\S+)/i;
 const SET_RE = /^\s*(\/eval\s+(?:-\S+\s+)*)?\/set\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*=\s*|\s+)(.*)$/is;
 const LOAD_RE = /(?:^|\s)(\/eval\s+(?:-\S+\s+)*)?\/@?(load|require)(?=\s|$)(.*)$/is;
 
+/** A path's identity for comparisons: resolved, and case-folded where the filesystem is. */
+export function fileKey(file: string): string {
+  const resolved = path.resolve(file);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
 type Expanded = { ok: true; value: string } | { ok: false; reason: string };
 
 /** One substitution pass over `text`, as `/eval` does for the forms a load path uses. */
@@ -127,14 +133,8 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   const files = new Map<string, LoadedFile>();
   const tokens = new Set<string>();
   const unresolved: UnresolvedLoad[] = [];
-  const stack: string[] = [];
   let seq = 0;
   let inStdlib = false;
-
-  const keyOf = (file: string): string => {
-    const resolved = path.resolve(file);
-    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-  };
 
   function resolve(file: string): string | undefined {
     let target = file;
@@ -186,19 +186,17 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   }
 
   function walk(file: string, site: LoadSite): void {
-    const key = keyOf(file);
+    const key = fileKey(file);
     const existing = files.get(key);
     if (existing) {
       existing.sites.push(site);
       return;
     }
-    if (stack.includes(key)) return;
     const text = options.readFile(file);
     if (text === undefined) return;
 
     const loaded: LoadedFile = { path: path.resolve(file), text, sites: [site], defs: [], stdlib: inStdlib };
     files.set(key, loaded);
-    stack.push(key);
 
     const entries = splitLogicalEntries(text);
     const abort = findAbortEntry(entries);
@@ -229,7 +227,6 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
       if (!entry.isForLoop) handleLoads(entry.text, loaded.path, entry.startLine);
     }
 
-    stack.pop();
   }
 
   if (options.libraryDir) {

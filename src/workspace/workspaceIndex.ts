@@ -2,7 +2,7 @@ import * as path from "node:path";
 import { splitRawLines } from "../logicalEntries";
 import type { ExternalMacro, NavContext } from "../navigation";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
-import { buildLoadGraph, type LoadGraph, type LoadedFile } from "./loadGraph";
+import { buildLoadGraph, fileKey as keyOf, type LoadGraph, type LoadedFile } from "./loadGraph";
 import { resolveSettings, type Environment, type RawSettings, type ResolvedSettings } from "./settings";
 
 export interface FileSystem {
@@ -16,11 +16,6 @@ interface LibraryFile {
   text: string;
   defs: TfSymbol[];
 }
-
-const keyOf = (file: string): string => {
-  const resolved = path.resolve(file);
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-};
 
 function isInside(file: string, dir: string): boolean {
   const rel = path.relative(keyOf(dir), keyOf(file));

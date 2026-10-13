@@ -36,6 +36,7 @@ import { getFoldingRanges, toFoldingRange } from "./folding";
 import { getCodeActions } from "./codeActions";
 import { getDefinition, getHover, getReferences, type NavContext } from "./navigation";
 import type { RawSettings } from "./workspace/settings";
+import { fileKey } from "./workspace/loadGraph";
 import { WorkspaceIndex } from "./workspace/workspaceIndex";
 
 // Explicit streams rather than relying on a `--stdio`/`--node-ipc`/`--socket` command-line
@@ -74,8 +75,7 @@ function toPath(uri: string): string | undefined {
   }
 }
 
-const sameFile = (a: string, b: string): boolean =>
-  process.platform === "win32" ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b);
+const sameFile = (a: string, b: string): boolean => fileKey(a) === fileKey(b);
 
 // An open document keeps the URI the editor gave it (VS Code writes `file:///c%3A/...` on
 // Windows), so a location in it must use that exact string, not a freshly built one.

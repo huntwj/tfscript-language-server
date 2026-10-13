@@ -20,12 +20,14 @@ const CORPUS_DIR = join(__dirname, "..", "..", "tinyfugue", "lib", "tf");
 const describeOrSkip = existsSync(CORPUS_DIR) ? describe : describe.skip;
 
 /**
- * Real bugs in tf's own scripts, each proven by running it in real tf. Everything else must stay
- * clean: a new entry here needs that proof, not just a diagnostic that fires.
+ * Real bugs in tf's own scripts, each proven by running it in real tf: allowed, not required, so
+ * the test holds before and after tinyfugue/ fixes them. Anything else must stay clean, and a new
+ * entry here needs that proof, not just a diagnostic that fires.
  */
 const KNOWN: Record<string, string[]> = {
   // /session: the inner "/def %1 = ... %%*%;/else ..." ends at %; in the outer body, so its /else
-  // lands outside any /if: tf prints "session: unexpected /ELSE in outer block" (2026-10-13).
+  // lands outside any /if: tf prints "session: unexpected /ELSE in outer block" (2026-10-13; OBS-80,
+  // fixed on tinyfugue's dev).
   "tintin.tf": ["block-structure@59"],
 };
 
@@ -50,7 +52,8 @@ describeOrSkip("tinyfugue lib/tf corpus (read-only)", () => {
     it(`${file} has only its known problems`, () => {
       const text = readFileSync(join(CORPUS_DIR, file), "utf8");
       const diags = getDiagnostics(text).map((d) => `${d.code}@${d.range.start.line + 1}`);
-      expect(diags).toEqual(KNOWN[file] ?? []);
+      const known = KNOWN[file] ?? [];
+      expect(diags.filter((d) => !known.includes(d))).toEqual([]);
     });
   }
 });

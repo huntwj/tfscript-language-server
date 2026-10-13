@@ -16,6 +16,11 @@ describe("findUsages", () => {
     ]);
   });
 
+  it("reads /!name (run and negate) as a call to name", () => {
+    const [, u] = findUsages("/if /!ismacro x%; /then /endif\n");
+    expect(u).toMatchObject({ name: "ismacro", kind: "call", range: { start: pos(0, 6) } });
+  });
+
   it("does not read a path as a call", () => {
     const names = findUsages("/set d=/script\n/load %{d}/ok.tf\n").map((u) => u.name);
     expect(names).toEqual(["set", "load"]);

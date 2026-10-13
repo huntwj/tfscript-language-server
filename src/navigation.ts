@@ -36,7 +36,9 @@ export interface NameUsage {
 }
 
 const NAME ="[^\\s%;=()\\[\\]{}\"'`$\\\\]+";
-const CALL_RE = new RegExp(`(^|[\\s;|(])\\/(@?)(${NAME})`, "g");
+// `/!name` runs /name and negates its result (stdlib.tf: `/if /!purge ...`), so the `!` is
+// not part of the name.
+const CALL_RE = new RegExp(`(^|[\\s;|(])\\/(@?)(!?)(${NAME})`, "g");
 const BRACED_SUBST_RE = /(?<!\$)\$\{([^}\s]+)\}/g;
 const BARE_SUBST_RE = /(?<!\$)\$([A-Za-z_][A-Za-z0-9_]*)/g;
 
@@ -54,8 +56,9 @@ export function findUsages(text: string): NameUsage[] {
     };
     for (const m of line.matchAll(CALL_RE)) {
       const at = m[2] as string;
-      const name = m[3] as string;
-      const start = (m.index ?? 0) + (m[1] as string).length + 1 + at.length;
+      const bang = m[3] as string;
+      const name = m[4] as string;
+      const start = (m.index ?? 0) + (m[1] as string).length + 1 + at.length + bang.length;
       push(name, at ? "builtin-call" : "call", start);
     }
     for (const m of line.matchAll(BRACED_SUBST_RE)) push(m[1] as string, "substitution", (m.index ?? 0) + 2);

@@ -5,9 +5,11 @@ tfscript, the macro language of [TinyFugue](https://tinyfugue.sourceforge.net/) 
 terminal MUD client. tf scripts are `.tf` files full of `/def` macros, triggers, and hooks.
 
 This is early, pre-1.0 software: diagnostics for the handful of rules proven so far (below),
-plus command-name completion. No hover yet, no go-to-definition, no formatting. There is a
-VS Code extension (`editors/vscode/`) for syntax highlighting, diagnostics, and completion;
-other editors can wire up the stdio server directly — see "Use".
+command-name completion, document symbols (an outline of every `/def`, `/alias`, `/bind`,
+`/hook` and `/trig*`), folding, and quick fixes for two of the diagnostics. No hover yet, no
+go-to-definition, no formatting. There is a VS Code extension (`editors/vscode/`) for syntax
+highlighting plus everything the server does; other editors can wire up the stdio server
+directly — see "Use".
 
 ## Why every rule here is proven against real tf, not taken from the manual
 
@@ -136,13 +138,19 @@ src/
   rules/              one file per diagnostic rule, plus the shared Rule type
   diagnostics.ts       runs every rule over every entry, maps offsets back to positions
   server.ts            LSP server entry point (stdio): diagnostics on didOpen/didChange,
-                        command-name completion on onCompletion
+                        command-name completion, document symbols, folding ranges, code actions
   completions.ts        pure getCommandCompletions(linePrefix), used by server.ts
+  symbols.ts           getDocumentSymbols(text): one symbol per macro-defining entry; /def
+                        names follow macro.c's macro_spec() option grammar
+  folding.ts           getFoldingRanges(text): continued entries and comment runs
+  codeActions.ts       getCodeActions(text, range): quick fixes for the diagnostics that
+                        have a mechanical remedy (recomputed server-side)
   data/                command names for completion/hover — see "Command data" above
 test/
   diagnostics.test.ts   unit tests per rule
   logicalEntries.test.ts  regression tests for comment lines, backslash continuation, and CRLF
   completions.test.ts   unit tests for getCommandCompletions
+  symbols.test.ts, folding.test.ts, codeActions.test.ts  unit tests for the three above
   tokenize.test.ts       unit tests for extract-command-tables.js's shell-style tokenizer
   indentedLineAfterCommand.test.ts, trailingSpaceAndAbort.test.ts  unit tests for the two
                         whole-file rules plus bare-line-after-command's abort/truncation
@@ -171,7 +179,8 @@ npm test               # vitest, fast, no Docker
 node dist/server.js     # run the server directly (speaks LSP over stdio)
 ```
 
-The server advertises `completionProvider` (triggered on `/`) and publishes diagnostics
+The server advertises `completionProvider` (triggered on `/`), `documentSymbolProvider`,
+`foldingRangeProvider` and `codeActionProvider` (quick fixes only), and publishes diagnostics
 tagged `source: "tfscript"`. Many editors' LSP clients also pass a `--stdio` flag by
 convention — this server doesn't need it (it talks over stdio either way) but accepts and
 ignores it.
@@ -233,8 +242,10 @@ Two layers, matching the private notes repo's own fast-loop/slow-run split:
   tinyfugue/lib/tf files plus the 3 WoTMUD ones.
 
 Following scripting.md's roadmap order: diagnostics done, completion started (command names;
-expression functions and special variables still needed), then hover, then go-to-definition
-for `/def` across `/load`, then formatting.
+expression functions and special variables still needed), single-file document symbols,
+folding and quick fixes done, then hover, then go-to-definition for `/def` across `/load`
+(needs a cross-file symbol table the single-file `symbols.ts` doesn't attempt), then
+formatting.
 
 ## Contributing
 

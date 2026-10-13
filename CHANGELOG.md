@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Document symbols (`onDocumentSymbol`): an outline entry for every top-level `/def`,
+  `/alias`, `/bind`, `/hook`, `/trig`, `/trigc`, `/trigp` and `/trigpc`. `/def` names are
+  read the way `macro_spec()` reads them (grouped flags, quoted option arguments, `--`, a
+  `=` glued to the last option); an anonymous `-t`/`-h`/`-b` macro is listed under its
+  pattern.
+- Folding ranges (`onFoldingRanges`): every backslash-continued entry, and runs of two or
+  more comment lines.
+- Quick fixes (`onCodeAction`): strip the whitespace after a trailing `\`
+  (`trailing-space-after-backslash`), and prefix a top-level command with `/eval`
+  (`load-no-expansion`).
+
 ## 0.1.0
 
 First release.

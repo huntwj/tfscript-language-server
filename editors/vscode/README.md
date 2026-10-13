@@ -29,7 +29,8 @@ source). Node and npm are only needed to *build* this extension from source.
 - Line-comment toggling and bracket matching (`language-configuration.json`) — `;` is the
   default toggle-comment character; `#` also works in tf but VS Code only supports one
   toggle-comment string per language.
-- Diagnostics and `/`-triggered completion, via the LSP server, same as any other client.
+- Diagnostics, `/`-triggered completion, the Outline/breadcrumbs (document symbols), folding
+  and quick fixes, via the LSP server, same as any other client.
 
 ## Building and installing
 

@@ -41,8 +41,15 @@ export function activate(context: vscode.ExtensionContext): void {
     },
   };
 
+  // The server reads tfscript.* settings itself (workspace/configuration) and keeps an index
+  // of every file its load paths reach, so it needs to hear when a setting or any .tf file
+  // changes — including files that aren't open.
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "tf" }],
+    synchronize: {
+      configurationSection: "tfscript",
+      fileEvents: vscode.workspace.createFileSystemWatcher("**/{*.tf,.tfrc,tfrc}"),
+    },
   };
 
   client = new LanguageClient("tfscript", "tfscript", serverOptions, clientOptions);

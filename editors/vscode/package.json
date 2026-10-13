@@ -39,7 +39,44 @@
         "scopeName": "source.tf",
         "path": "./syntaxes/tf.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "tfscript",
+      "properties": {
+        "tfscript.entryFiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "Files tf loads after `stdlib.tf`, in order — normally your tfrc. The server follows their `/load` and `/require` lines to learn which macros each file can see. Relative paths are relative to the workspace folder; `~` is your home directory. When empty: a `.tfrc`, `tfrc` or `tfrc.tf` at the folder root, else `~/.tfrc`, else `~/tfrc`."
+        },
+        "tfscript.libraryPath": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "tf's library directory (`TFLIBDIR`), the one holding `stdlib.tf`. Its files are read at runtime for hover docs and for `/require` targets. When empty: the `TFLIBDIR` environment variable."
+        },
+        "tfscript.tfPath": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "`TFPATH` as tf starts with it: directories searched for relative `/load` paths. As in tf, a non-empty `TFPATH` replaces the library directory as the fallback, so include it here if your scripts `/require` library files. When empty: the `TFPATH` environment variable."
+        },
+        "tfscript.workingDirectory": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "The directory tf runs in. Relative `/load` paths are tried here first — not beside the loading file. When empty: the workspace folder."
+        },
+        "tfscript.homeDirectory": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "What `~` means in load paths (tf's `HOME`). Useful when tf runs somewhere else, such as WSL or a container. When empty: your home directory."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "tsc -p . && node scripts/copy-server.js",

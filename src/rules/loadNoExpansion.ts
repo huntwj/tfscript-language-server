@@ -8,9 +8,12 @@ import type { EntryRule, EntryMatch } from "./types";
  * substituted on every iteration, unlike an ordinary top-level line. `/bind`, `/hook` and
  * `/trig`/`/trigc`/`/trigp`/`/trigpc` bodies are exempt for the same reason `/def` is — see
  * LogicalEntry.isOtherMacroBody. A top-level line already starting with `/eval` is exempt
- * too, since that forces one substitution pass.
+ * too, since that forces one substitution pass — and so is a `%{...}` after an `/eval` further
+ * into the entry (e.g. in an `/else` branch of a joined top-level `/if`), as long as no `%;`
+ * separates them; proven live 2026-10-12 (`/else /eval /echo %{W}` prints W's value).
  */
 const EVAL_PREFIX_RE = /^\s*\/eval\b/i;
+const EVAL_BEFORE_RE = /\/eval\b(?:(?!%;).)*$/is;
 const PERCENT_BRACE_RE = /%\{[^}]*\}/g;
 
 export const loadNoExpansion: EntryRule = {
@@ -24,6 +27,7 @@ export const loadNoExpansion: EntryRule = {
     const matches = [...entry.text.matchAll(PERCENT_BRACE_RE)];
     return matches
       .filter((m) => m.index !== undefined)
+      .filter((m) => !EVAL_BEFORE_RE.test(entry.text.slice(0, m.index)))
       .map((m) => ({
         start: m.index as number,
         end: (m.index as number) + m[0].length,

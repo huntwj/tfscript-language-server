@@ -32,3 +32,25 @@ describe("bad-substitution-selector", () => {
     expect(codes("/def f = /echo %{foo} %{1} %{*} %{-L1}\n")).not.toContain("bad-substitution-selector");
   });
 });
+
+describe("load-no-expansion and /alias", () => {
+  it("does not flag %{...} in a top-level /alias body (deferred like a /def body)", () => {
+    expect(codes("/alias pc /diku_putContainer %{*}\n")).not.toContain("load-no-expansion");
+  });
+
+  it("still flags an ordinary top-level command", () => {
+    expect(codes("/echo %{*}\n")).toContain("load-no-expansion");
+  });
+});
+
+describe("load-no-expansion and /eval inside a joined /if", () => {
+  const joined = ["/if (0) \\", "  /echo no%; \\", "/else \\", "  /eval /echo %{W}%; \\", "/endif", ""].join("\n");
+
+  it("does not flag %{...} after an /eval in the same segment", () => {
+    expect(codes(joined)).not.toContain("load-no-expansion");
+  });
+
+  it("still flags %{...} after a %; that ends the /eval's segment", () => {
+    expect(codes("/if (1) /eval /echo a%; /echo %{W}%; /endif\n")).toContain("load-no-expansion");
+  });
+});

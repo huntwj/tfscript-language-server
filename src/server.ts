@@ -15,7 +15,12 @@ import {
   type DocumentSymbolParams,
   type FoldingRange,
   type FoldingRangeParams,
+  type Hover,
   type InitializeResult,
+  type Location,
+  MarkupKind,
+  type ReferenceParams,
+  type TextDocumentPositionParams,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { getDiagnostics, type TfDiagnostic } from "./diagnostics";
@@ -23,6 +28,7 @@ import { getCommandCompletions } from "./completions";
 import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
 import { getCodeActions } from "./codeActions";
+import { getDefinition, getHover, getReferences } from "./navigation";
 
 // Explicit streams rather than relying on a `--stdio`/`--node-ipc`/`--socket` command-line
 // flag: createConnection() alone throws "Connection input stream is not set" without one.
@@ -36,6 +42,9 @@ connection.onInitialize((): InitializeResult => ({
     documentSymbolProvider: true,
     foldingRangeProvider: true,
     codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix] },
+    hoverProvider: true,
+    definitionProvider: true,
+    referencesProvider: true,
   },
 }));
 
@@ -100,6 +109,27 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
     kind: CodeActionKind.QuickFix,
     diagnostics: [toLspDiagnostic(action.diagnostic)],
     edit: { changes: { [document.uri]: action.edits } },
+  }));
+});
+
+connection.onHover((params: TextDocumentPositionParams): Hover | null => {
+  const document = documents.get(params.textDocument.uri);
+  const hover = document && getHover(document.getText(), params.position);
+  return hover ? { contents: { kind: MarkupKind.Markdown, value: hover.markdown }, range: hover.range } : null;
+});
+
+connection.onDefinition((params: TextDocumentPositionParams): Location[] => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return [];
+  return getDefinition(document.getText(), params.position).map((range) => ({ uri: document.uri, range }));
+});
+
+connection.onReferences((params: ReferenceParams): Location[] => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return [];
+  return getReferences(document.getText(), params.position, params.context.includeDeclaration).map((range) => ({
+    uri: document.uri,
+    range,
   }));
 });
 

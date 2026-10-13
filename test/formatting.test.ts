@@ -17,8 +17,9 @@ function format(text: string, options: Partial<FormatOptions> = {}): string {
 const joined = (text: string) => splitLogicalEntries(text).map((e) => e.text);
 
 describe("topLevelSeparators", () => {
-  it("skips %%;, quotes and brackets", () => {
+  it("skips %%;, %%%;, quotes and brackets", () => {
     expect(topLevelSeparators("/a%; /b %%; c%;d")).toEqual([2, 13]);
+    expect(topLevelSeparators("/a %%%; /b%; /c")).toEqual([10]);
     expect(topLevelSeparators('/echo "a%;b"%; $[x%;y]%; %{a%;}')).toEqual([12, 22]);
   });
 });
@@ -102,8 +103,8 @@ describe("formatText", () => {
     expect(format("/def go = /while /shift%; /@test {#} > 1%; /do /echo %1%; /done\n")).toBe(
       ["/def go = \\", "    /while /shift%; /@test {#} > 1%; /do \\", "        /echo %1%;\\", "    /done", ""].join("\n"),
     );
-    expect(format("/def go = /if /test x /then /a%; /b%; /endif\n")).toBe(
-      ["/def go = \\", "    /if /test x /then \\", "        /a%;\\", "        /b%;\\", "    /endif", ""].join("\n"),
+    expect(format("/def go = /if /test x%; /then /a%; /b%; /endif\n")).toBe(
+      ["/def go = \\", "    /if /test x%; /then \\", "        /a%;\\", "        /b%;\\", "    /endif", ""].join("\n"),
     );
   });
 

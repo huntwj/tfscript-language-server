@@ -49,9 +49,10 @@ export interface FormatEdit {
 
 /**
  * Offsets of the `%` of every `%;` separator in `s` that is outside quotes and brackets, and
- * not escaped (`%%;` is a literal `%` and `;`). Unbalanced text — an apostrophe in a line sent
- * to the world, `:-(` — just stops finding separators after it, which only ever means fewer
- * splits.
+ * not part of a longer run of `%`s: tf copies a run of two or more whole, so `%%;` and `%%%;` are
+ * both text (proven, `separator-literal-forms`). Quotes don't actually protect a `%;` outside an
+ * expression, and unbalanced text (an apostrophe in a line sent to the world, `:-(`) stops the
+ * search early; both only ever mean fewer splits.
  */
 export function topLevelSeparators(s: string): number[] {
   const out: number[] = [];
@@ -71,7 +72,7 @@ export function topLevelSeparators(s: string): number[] {
     if (ch === "%") {
       let n = 1;
       while (s[i + n] === "%") n += 1;
-      if (n % 2 === 1 && s[i + n] === ";" && depth === 0) out.push(i + n - 1);
+      if (n === 1 && s[i + n] === ";" && depth === 0) out.push(i);
       i += n - 1;
       continue;
     }

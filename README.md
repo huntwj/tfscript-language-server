@@ -6,9 +6,9 @@ terminal MUD client. tf scripts are `.tf` files full of `/def` macros, triggers,
 
 This is early, pre-1.0 software: diagnostics for the handful of rules proven so far (below),
 command-name completion, document symbols (an outline of every `/def`, `/alias`, `/bind`,
-`/hook` and `/trig*`), folding, quick fixes for two of the diagnostics, and single-file hover,
-go-to-definition and find-references for macros. Nothing follows `/load` across files yet, and
-there is no formatting. There is a VS Code extension (`editors/vscode/`) for syntax
+`/hook` and `/trig*`), folding, quick fixes for two of the diagnostics, and hover,
+go-to-definition and find-references for macros across every file your tfrc's `/load` and
+`/require` lines reach (see "Load paths"). There is no rename or formatting yet. There is a VS Code extension (`editors/vscode/`) for syntax
 highlighting plus everything the server does; other editors can wire up the stdio server
 directly — see "Use".
 
@@ -102,7 +102,43 @@ exist in a Lua- or Python-enabled tf build (`/calllua`, `/python*`, ...; see
 `tinyfugue/src/cmdlist.h`'s `#if LUA_ENABLED`/`#ifdef TFPYTHON` guards) — completion offers
 them unconditionally.
 
-## Command data (drives completion; hover not wired up yet)
+## Load paths
+
+A macro is usually defined in a different file from the one that calls it, and often nothing in
+the calling file says where: your tfrc `/require`s `alias.tf` and then loads your script, which
+just uses `/alias`. So the server replays tf's own startup, the way tf itself would read it:
+`stdlib.tf` first, then your tfrc (or whatever entry files you configure), following each
+top-level `/load` and `/require` in order (`src/workspace/loadGraph.ts`). A file then knows
+every macro defined anywhere on that path. The resolution rules were proven against real tf,
+not taken from the manual:
+
+- a relative `/load` path is tried against **tf's current directory, not the loading file's
+  directory**, then against each `TFPATH` directory in order — or `TFLIBDIR` when `TFPATH` is
+  empty, so a non-empty `TFPATH` must include the library directory for `/require alias.tf` to
+  work;
+- `/require` skips a file whose `/loaded` token has already run — by token, not filename;
+- a top-level line isn't substituted, so `/load %{dir}/x.tf` fails in tf too, while
+  `/eval /load %{dir}/x.tf` works; `/set` lines on the path are tracked so these resolve.
+
+Settings (folder-scoped in VS Code; any client can send them through `workspace/configuration`
+under `tfscript`):
+
+| Setting | Meaning | When unset |
+|---|---|---|
+| `entryFiles` | files tf loads after `stdlib.tf`, in order | `.tfrc`, `tfrc` or `tfrc.tf` at the folder root, else `~/.tfrc`, else `~/tfrc` |
+| `libraryPath` | `TFLIBDIR`, holding `stdlib.tf` | the `TFLIBDIR` environment variable |
+| `tfPath` | `TFPATH` as tf starts with it | the `TFPATH` environment variable |
+| `workingDirectory` | tf's current directory | the workspace folder |
+| `homeDirectory` | what `~` means (tf's `HOME`) | your home directory |
+
+tf's library files are read from your installation at runtime, never copied into this
+package, so their `;;;` doc comments show up in hover without any licensing question. A macro
+from a library file your path never loads still gets a hover, with a hint to `/require` it. A
+file no entry path reaches sees only what `stdlib.tf` loads. When a file is reached more than
+once, its first load sets its place in the order; every load site is recorded, for a future
+"which context is active" choice.
+
+## Command data (drives completion and hover)
 
 `src/data/` is the completion data: `ALL_COMMANDS` (`commands.ts`) lists every
 top-level command name this engine knows, each tagged with where it came from. tf's
@@ -155,8 +191,12 @@ src/
   folding.ts           getFoldingRanges(text): continued entries and comment runs
   codeActions.ts       getCodeActions(text, range): quick fixes for the diagnostics that
                         have a mechanical remedy (recomputed server-side)
-  navigation.ts        getHover / getDefinition / getReferences: single-file macro lookup
-                        (case-insensitive, like tf); /@name always means the built-in
+  navigation.ts        getHover / getDefinition / getReferences: macro lookup (case-insensitive,
+                        like tf), across files when given a NavContext; /@name always means the
+                        built-in
+  workspace/           loadGraph.ts (tf's load order, statically), settings.ts (tfscript.*
+                        settings and their defaults), workspaceIndex.ts (per-folder graphs,
+                        unsaved edits, library files) — see "Load paths" above
   data/                command names, usage synopses and descriptions for completion/hover
                         — see "Command data" above
 test/
@@ -165,6 +205,8 @@ test/
   completions.test.ts   unit tests for getCommandCompletions
   symbols.test.ts, folding.test.ts, codeActions.test.ts, navigation.test.ts  unit tests for
                         the four above
+  loadGraph.test.ts, workspace.test.ts  load order and path resolution (each rule proven
+                        against real tf), settings defaults, cross-file navigation
   tokenize.test.ts       unit tests for extract-command-tables.js's shell-style tokenizer
   indentedLineAfterCommand.test.ts, trailingSpaceAndAbort.test.ts  unit tests for the two
                         whole-file rules plus bare-line-after-command's abort/truncation
@@ -258,9 +300,10 @@ Two layers, matching the private notes repo's own fast-loop/slow-run split:
 
 Following scripting.md's roadmap order: diagnostics done, completion started (command names;
 expression functions and special variables still needed), single-file document symbols,
-folding, quick fixes, hover, go-to-definition and find-references done, then following
-`/load`/`/require` for cross-file definitions, references and rename (needs a workspace
-symbol table), then formatting.
+folding, quick fixes, and hover, go-to-definition and find-references across the load path
+done; then full built-in descriptions from the installed `tf-help`, workspace symbols, rename,
+and optional load-path diagnostics (unresolved `/load`, calls to names defined nowhere on the
+path); then formatting.
 
 ## Contributing
 

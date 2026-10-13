@@ -17,6 +17,13 @@
   always means the built-in. Hover on a known command shows its usage synopsis (extracted from
   tinyfugue's htmldoc) and an optional description from `src/data/commandDescriptions.ts`;
   hover on a local macro shows the `;;;` doc-comment lines directly above its `/def`.
+- Cross-file navigation: the server replays tf's load order from `stdlib.tf` and your tfrc (or
+  the new `tfscript.entryFiles` setting), following `/load` and `/require` with tf's own path
+  rules (current directory, then `TFPATH`, else `TFLIBDIR`; `/require` deduplicates by
+  `/loaded` token). Hover, go-to-definition and find-references then see macros from every
+  file on that path, and tf's installed library is read at runtime for `;;;` docs. A library
+  macro the path never loads gets a "`/require` it" hint. New settings: `tfscript.entryFiles`,
+  `libraryPath`, `tfPath`, `workingDirectory`, `homeDirectory`.
 - New `bad-substitution-selector` diagnostic: `%{foo%{bar}}` is an error in tf (nesting only
   works through a `-` default value).
 - `load-no-expansion` no longer flags `/alias` bodies, or a `%{...}` after an `/eval` inside a

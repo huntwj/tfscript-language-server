@@ -92,11 +92,6 @@ function isDigit(ch: string | undefined): boolean {
   return ch !== undefined && ch >= "0" && ch <= "9";
 }
 
-const TIMING: Record<StructureMode, string> = {
-  body: "tf reports this when the macro first runs, and the macro then does nothing.",
-  top: "tf reports this as it loads the file, and skips the line.",
-};
-
 function describeBlock(block: Block): string {
   switch (block) {
     case "then": return "in an /if body";
@@ -115,12 +110,7 @@ class Parser {
   private readonly open: Open[] = [];
   private readonly mids: MidKeyword[] = [];
   readonly issues: StructureIssue[] = [];
-  /** When tf reports what this parser finds, and what then happens. */
-  timing: string;
-
-  constructor(private readonly s: string, private readonly mode: StructureMode) {
-    this.timing = TIMING[mode];
-  }
+  constructor(private readonly s: string, private readonly mode: StructureMode) {}
 
   run(): void {
     try {
@@ -188,10 +178,10 @@ class Parser {
         mid.start,
         mid.end,
         `/${mid.word} is part of ${where}, not a keyword: tf only reads keywords at the start of a ` +
-          `statement. Put %; before it. (tf: "${tf}") ${this.timing}`,
+          `statement. Put %; before it. (tf: "${tf}")`,
       );
     }
-    this.fail(kind, start, end, `${problem} (tf: "${tf}") ${this.timing}`);
+    this.fail(kind, start, end, `${problem} (tf: "${tf}")`);
   }
 
   private list(subsIn: number): void {
@@ -245,7 +235,7 @@ class Parser {
           case "test":
           case "return":
           case "result":
-            this.expressionStatement(subs);
+            this.expressionStatement(subs, word);
             break;
           default:
             this.i = stmtStart;
@@ -278,7 +268,7 @@ class Parser {
           this.i,
           end,
           `Expected %; or the end of the line${after}, but found more text. (tf: "macro syntax error: ` +
-            `expected end of statement${after}... Possibly missing '%;'") ${this.timing}`,
+            `expected end of statement${after}... Possibly missing '%;'")`,
         );
       }
     } while (this.i < this.s.length);
@@ -382,7 +372,7 @@ class Parser {
     const digits = this.i;
     while (isDigit(this.s[this.i])) this.i += 1;
     if (this.i === digits || Number(this.s.slice(digits, this.i)) <= 0) {
-      this.fail("block", start, end, `/break takes a positive number of loops. (tf: "/BREAK syntax error: expected positive integer") ${this.timing}`);
+      this.fail("block", start, end, `/break takes a positive number of loops. (tf: "/BREAK syntax error: expected positive integer")`);
     }
     if (this.isStatEnd(this.i)) {
       this.i += 2;
@@ -391,16 +381,12 @@ class Parser {
   }
 
   /** `/test`, `/return`, `/result`: the text is substituted, then (if it's fixed) compiled as an expression. */
-  private expressionStatement(subs: number): void {
+  private expressionStatement(subs: number, keyword: string): void {
     const start = this.i;
-    this.statement(subs);
+    this.statement(subs, keyword);
     const text = this.s.slice(start, this.i);
     if (/[%$\\]/.test(text)) return; // generated at runtime: compiled then
     const sub = new Parser(text, this.mode);
-    sub.timing =
-      this.mode === "body"
-        ? "tf reports this when the macro first runs, then carries on with the expression's value as 0."
-        : "tf reports this as it loads the file, then carries on with the expression's value as 0.";
     try {
       sub.expression(undefined, 0);
     } catch (e) {
@@ -411,11 +397,11 @@ class Parser {
   }
 
   /** Statement text, as `expand()` scans it, up to a separator, the end, or a `$(...)`'s `)`. */
-  private statement(subs: number): void {
+  private statement(subs: number, keyword = ""): void {
     const s = this.s;
     const stmtStart = this.i;
-    let command = "";
-    if (s[this.i] === "/") {
+    let command = keyword;
+    if (!command && s[this.i] === "/") {
       const m = /^\/[@!]*([^\s%]*)/.exec(s.slice(this.i));
       command = (m?.[1] ?? "").toLowerCase();
     }
@@ -498,7 +484,7 @@ class Parser {
           (star || pee || n === 0
             ? "A leading - only goes with a positive number or L (%-1, %-L2), not with *, P or 0. "
             : "%- starts a substitution (%-1, %-L), but no selector follows it; write %%- for a literal %-. ") +
-            `(tf: "illegal character '-' in substitution") ${this.timing}`,
+            `(tf: "illegal character '-' in substitution")`,
         );
       }
     }
@@ -537,8 +523,8 @@ class Parser {
         percent,
         percent + 2,
         this.i < s.length && !this.isStatEnd(this.i)
-          ? `This %{ is never closed: tf expects } here. (tf: "${tf}") ${this.timing}`
-          : `This %{ is never closed. (tf: "${tf}") ${this.timing}`,
+          ? `This %{ is never closed: tf expects } here. (tf: "${tf}")`
+          : `This %{ is never closed. (tf: "${tf}")`,
       );
     }
   }
@@ -560,7 +546,7 @@ class Parser {
       this.block = outer;
       this.cmdsub -= 1;
       this.dropMids(dollar);
-      if (s[this.i] !== ")") this.fail("bracket", dollar, dollar + 2, `This $( is never closed. (tf: "unmatched (") ${this.timing}`);
+      if (s[this.i] !== ")") this.fail("bracket", dollar, dollar + 2, `This $( is never closed. (tf: "unmatched (")`);
       this.i += 1;
     } else {
       this.macsub(dollar);
@@ -598,7 +584,7 @@ class Parser {
       }
     }
     if (bracket) {
-      if (s[this.i] !== "}") this.fail("bracket", dollar, dollar + 2, `This \${ is never closed. (tf: "unmatched \${") ${this.timing}`);
+      if (s[this.i] !== "}") this.fail("bracket", dollar, dollar + 2, `This \${ is never closed. (tf: "unmatched \${")`);
       this.i += 1;
     } else if (s[this.i] === "$") {
       this.i += 1;
@@ -627,7 +613,7 @@ class Parser {
         this.i += 1;
         while (this.i < s.length && s[this.i] !== ch) this.i += s[this.i] === "\\" ? 2 : 1;
         if (this.i >= s.length) {
-          this.fail("bracket", quote, quote + 1, `This string is never closed. (tf: "unmatched ${ch} in string literal") ${this.timing}`);
+          this.fail("bracket", quote, quote + 1, `This string is never closed. (tf: "unmatched ${ch} in string literal")`);
         }
         this.i += 1;
         continue;
@@ -655,14 +641,14 @@ class Parser {
             this.i,
             this.i + 1,
             close === "]"
-              ? `This ) has no ( to close inside the $[...]. (tf: "expression syntax error: expected operator or ']', found ')'") ${this.timing}`
-              : `This ) has no ( to close. (tf: "expression syntax error: expected end of expression, found ')'") ${this.timing}`,
+              ? `This ) has no ( to close inside the $[...]. (tf: "expression syntax error: expected operator or ']', found ')'")`
+              : `This ) has no ( to close. (tf: "expression syntax error: expected end of expression, found ')'")`,
           );
         }
         depth -= 1;
       } else if (ch === "]" && close === "]") {
         if (depth > 0) {
-          this.fail("bracket", this.i, this.i + 1, `A ( in this $[...] is never closed before its ]. (tf: "expression syntax error: expected ')' after '(...', found ']'") ${this.timing}`);
+          this.fail("bracket", this.i, this.i + 1, `A ( in this $[...] is never closed before its ]. (tf: "expression syntax error: expected ')' after '(...', found ']'")`);
         }
         this.i += 1;
         return;
@@ -670,16 +656,16 @@ class Parser {
       this.i += 1;
     }
     if (close === "]") {
-      this.fail("bracket", open, open + 2, `This $[ is never closed. (tf: "unmatched $[") ${this.timing}`);
+      this.fail("bracket", open, open + 2, `This $[ is never closed. (tf: "unmatched $[")`);
     } else if (close === ")") {
       this.fail(
         "bracket",
         open,
         open + 1,
-        `The ${keyword ?? ""} condition's ( is never closed. (tf: "condition syntax error: expected operator or ')'") ${this.timing}`,
+        `The ${keyword ?? ""} condition's ( is never closed. (tf: "condition syntax error: expected operator or ')'")`,
       );
     } else if (depth > 0) {
-      this.fail("bracket", open, s.length, `A ( in this expression is never closed. (tf: "expression syntax error: expected ')'") ${this.timing}`);
+      this.fail("bracket", open, s.length, `A ( in this expression is never closed. (tf: "expression syntax error: expected ')'")`);
     }
   }
 }

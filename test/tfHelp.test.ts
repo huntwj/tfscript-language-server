@@ -77,4 +77,43 @@ const TF_HELP = join(__dirname, "..", "..", "tinyfugue", "lib", "tf", "tf-help")
       expect(help.get(name)?.summary, name).not.toBe("");
     }
   });
+
+  it("finds functions and variables by their # anchors, with every signature", () => {
+    const help = parseTfHelp(readFileSync(TF_HELP, "utf8"));
+    expect(help.get("regmatch()")?.usage).toEqual(["regmatch(s1, s2)"]);
+    expect(help.get("regmatch()")?.summary).toMatch(/^\(int\) /);
+    expect(help.get("substr()")?.usage).toEqual(["substr(s, i1)", "substr(s, i1, i2)"]);
+    expect(help.get("%wrap")).toMatchObject({ usage: ["wrap=on"] });
+    expect(help.get("%wrap")?.summary).toMatch(/^\(flag\) /);
+  });
+});
+
+describe("parseTfHelp # anchors", () => {
+  const text = [
+    "&functions",
+    "Functions",
+    "#strlen",
+    "#strlen()",
+    "  \x1b[1mstrlen\x1b[22m(\x1b[4ms\x1b[24m) ",
+    "          (int) Length of string",
+    "          <s>.",
+    "#%{PL}",
+    " Regexp subexpressions.",
+    "#wrap",
+    "#%wrap",
+    "  wrap=on ",
+    "          (flag) Wrap lines.",
+    "",
+  ].join("\n");
+
+  it("reads the signature lines and the description under each anchor name", () => {
+    const help = parseTfHelp(text);
+    expect(help.get("strlen()")).toEqual({ usage: ["strlen(s)"], summary: "(int) Length of string <s>." });
+    expect(help.get("strlen")).toBe(help.get("strlen()"));
+    expect(help.get("%wrap")).toEqual({ usage: ["wrap=on"], summary: "(flag) Wrap lines." });
+  });
+
+  it("skips an anchor that heads a section rather than one item", () => {
+    expect(parseTfHelp(text).has("%{pl}")).toBe(false);
+  });
 });

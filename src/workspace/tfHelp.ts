@@ -45,7 +45,48 @@ function parseSection(body: string[]): HelpEntry {
   return { usage, summary: paragraph.join(" ").replace(/\s+/g, " ").trim() };
 }
 
-/** Help entries keyed by lowercase topic, e.g. `/let` or `/unlimit`. */
+/**
+ * Inside a page, `#anchor` lines mark one item: a function (`#regmatch`, `#regmatch()`) or a
+ * variable (`#wrap`, `#%wrap`), followed by its signature (`regmatch(s1, s2)`, `wrap=on`) and
+ * an indented description that starts with its type (`(int) ...`, `(flag) ...`). Each becomes an
+ * entry whose `usage` is that signature, under every anchor name (lowercased).
+ */
+function parseAnchors(lines: string[], entries: Map<string, HelpEntry>): void {
+  let i = 0;
+  while (i < lines.length) {
+    if (!/^#\S/.test(lines[i] as string)) {
+      i += 1;
+      continue;
+    }
+    const names: string[] = [];
+    while (i < lines.length && /^#\S/.test(lines[i] as string)) {
+      names.push((lines[i] as string).slice(1).trim().toLowerCase());
+      i += 1;
+    }
+    while (i < lines.length && (lines[i] as string).trim() === "") i += 1;
+    // Signature lines sit two columns in, the description ten: substr() has two signatures.
+    const signatures: string[] = [];
+    while (i < lines.length && /^ {1,4}\S/.test(lines[i] as string)) {
+      signatures.push((lines[i] as string).trim());
+      i += 1;
+    }
+    const description: string[] = [];
+    while (i < lines.length && (lines[i] as string).trim() !== "" && !/^[#&]/.test(lines[i] as string)) {
+      description.push((lines[i] as string).trim());
+      i += 1;
+    }
+    // An anchor followed by anything else (a page heading) documents no single item.
+    if (signatures.length === 0 || description.length === 0) continue;
+    const entry = { usage: signatures, summary: description.join(" ").replace(/\s+/g, " ").trim() };
+    for (const name of names) if (!entries.has(name)) entries.set(name, entry);
+  }
+}
+
+/**
+ * Help entries keyed by lowercase topic: pages by their `&` names (`/let`, `/unlimit`), and
+ * the functions and variables documented inside pages by their `#` anchors (`regmatch()`,
+ * `%wrap`). A page name wins over an anchor of the same name.
+ */
 export function parseTfHelp(text: string): Map<string, HelpEntry> {
   const entries = new Map<string, HelpEntry>();
   const lines = text.replace(ANSI_RE, "").split("\n");
@@ -68,5 +109,6 @@ export function parseTfHelp(text: string): Map<string, HelpEntry> {
     const entry = parseSection(body);
     for (const topic of topics) if (!entries.has(topic)) entries.set(topic, entry);
   }
+  parseAnchors(lines, entries);
   return entries;
 }

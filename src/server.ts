@@ -13,6 +13,8 @@ import {
   DiagnosticSeverity,
   type DocumentSymbol,
   type DocumentSymbolParams,
+  type DocumentFormattingParams,
+  type DocumentRangeFormattingParams,
   type FoldingRange,
   type FoldingRangeParams,
   type Hover,
@@ -48,6 +50,7 @@ import { getCodeActions } from "./codeActions";
 import { getDefinition, getHover, getReferences, getRenameEdits, prepareRename, type NavContext } from "./navigation";
 import { encodeSemanticTokens, getSemanticTokens, TOKEN_MODIFIERS, TOKEN_TYPES } from "./semanticTokens";
 import { getSignatureHelp } from "./signatureHelp";
+import { formatText } from "./formatting";
 import type { RawSettings } from "./workspace/settings";
 import { fileKey } from "./workspace/loadGraph";
 import { WorkspaceIndex } from "./workspace/workspaceIndex";
@@ -165,6 +168,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       workspaceSymbolProvider: true,
       renameProvider: { prepareProvider: true },
       semanticTokensProvider: { legend: { tokenTypes: [...TOKEN_TYPES], tokenModifiers: [...TOKEN_MODIFIERS] }, full: true },
+      documentFormattingProvider: true,
+      documentRangeFormattingProvider: true,
       signatureHelpProvider: { triggerCharacters: [" "], retriggerCharacters: ["=", "-"] },
     },
   };
@@ -312,6 +317,22 @@ connection.languages.semanticTokens.on((params: SemanticTokensParams): SemanticT
   const document = documents.get(params.textDocument.uri);
   return { data: document ? encodeSemanticTokens(getSemanticTokens(document.getText(), contextFor(document))) : [] };
 });
+
+async function formatting(params: DocumentFormattingParams | DocumentRangeFormattingParams): Promise<TextEdit[]> {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return [];
+  let splitStatements = true;
+  if (hasConfiguration) {
+    const raw = (await connection.workspace.getConfiguration({ scopeUri: document.uri, section: "tfscript" })) as RawSettings | null;
+    splitStatements = raw?.format?.splitStatements ?? true;
+  }
+  const indent = params.options.insertSpaces ? " ".repeat(params.options.tabSize) : "\t";
+  const range = "range" in params ? params.range : undefined;
+  return formatText(document.getText(), { indent, splitStatements }, range);
+}
+
+connection.onDocumentFormatting(formatting);
+connection.onDocumentRangeFormatting(formatting);
 
 connection.onDefinition((params: TextDocumentPositionParams): Location[] => {
   const document = documents.get(params.textDocument.uri);

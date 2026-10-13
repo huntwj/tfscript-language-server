@@ -22,6 +22,10 @@ export interface RawSettings {
     /** Calls to names defined nowhere on the load path. Default off. */
     undefinedMacros?: boolean;
   };
+  format?: {
+    /** Split macro bodies into one `%;`-separated statement per line. Default on. */
+    splitStatements?: boolean;
+  };
 }
 
 export interface ResolvedSettings {

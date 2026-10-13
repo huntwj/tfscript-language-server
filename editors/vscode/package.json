@@ -81,6 +81,12 @@
           "scope": "resource",
           "markdownDescription": "Note `/name` calls to names defined nowhere on the load path and not tf commands. Off by default: macros created at runtime (`/eval /def`, hooks, files loaded another way) are invisible to it, though optional calls guarded by `ismacro` are skipped."
         },
+        "tfscript.format.splitStatements": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "When formatting, put each `%;`-separated statement of a `/def`, `/bind`, `/hook` or `/trig` body on its own `%;\\` line, and break after `/if (...)`, `/else`, `/then` and `/do`. Off: only re-indent the lines you already have."
+        },
         "tfscript.homeDirectory": {
           "type": "string",
           "default": "",

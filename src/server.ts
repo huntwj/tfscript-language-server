@@ -4,6 +4,9 @@ import {
   ProposedFeatures,
   TextDocuments,
   TextDocumentSyncKind,
+  type CodeAction,
+  CodeActionKind,
+  type CodeActionParams,
   type CompletionItem,
   type CompletionParams,
   type Diagnostic,
@@ -15,10 +18,11 @@ import {
   type InitializeResult,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { getDiagnostics } from "./diagnostics";
+import { getDiagnostics, type TfDiagnostic } from "./diagnostics";
 import { getCommandCompletions } from "./completions";
 import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
+import { getCodeActions } from "./codeActions";
 
 // Explicit streams rather than relying on a `--stdio`/`--node-ipc`/`--socket` command-line
 // flag: createConnection() alone throws "Connection input stream is not set" without one.
@@ -31,6 +35,7 @@ connection.onInitialize((): InitializeResult => ({
     completionProvider: { triggerCharacters: ["/"] },
     documentSymbolProvider: true,
     foldingRangeProvider: true,
+    codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix] },
   },
 }));
 
@@ -41,14 +46,18 @@ documents.onDidClose((event) =>
   connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] }),
 );
 
-function validate(document: TextDocument): void {
-  const diagnostics: Diagnostic[] = getDiagnostics(document.getText()).map((d) => ({
+function toLspDiagnostic(d: TfDiagnostic): Diagnostic {
+  return {
     range: d.range,
     message: d.message,
     code: d.code,
     source: "tfscript",
     severity: d.severity === "error" ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
-  }));
+  };
+}
+
+function validate(document: TextDocument): void {
+  const diagnostics = getDiagnostics(document.getText()).map(toLspDiagnostic);
   connection.sendDiagnostics({ uri: document.uri, diagnostics });
 }
 
@@ -74,6 +83,24 @@ connection.onFoldingRanges((params: FoldingRangeParams): FoldingRange[] => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
   return getFoldingRanges(document.getText()).map(toFoldingRange);
+});
+
+// `only` lists the kinds the client wants; a kind matches itself and anything nested under it
+// (`quickfix` covers `quickfix.foo`; `""` covers everything).
+function wantsQuickFix(only: string[] | undefined): boolean {
+  if (!only) return true;
+  return only.some((k) => k === "" || CodeActionKind.QuickFix === k || CodeActionKind.QuickFix.startsWith(`${k}.`));
+}
+
+connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document || !wantsQuickFix(params.context.only)) return [];
+  return getCodeActions(document.getText(), params.range).map((action) => ({
+    title: action.title,
+    kind: CodeActionKind.QuickFix,
+    diagnostics: [toLspDiagnostic(action.diagnostic)],
+    edit: { changes: { [document.uri]: action.edits } },
+  }));
 });
 
 documents.listen(connection);

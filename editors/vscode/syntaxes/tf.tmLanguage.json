@@ -5,22 +5,74 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#strings" },
+    { "include": "#continuation" },
     { "include": "#substitutions" },
+    { "include": "#operators" },
+    { "include": "#numbers" },
+    { "include": "#functions" },
     { "include": "#commands" }
   ],
   "repository": {
     "comments": {
       "patterns": [
         {
-          "comment": "A line is a comment when its first non-whitespace character is ; or # (tf's own load_file() rule, not just the ;; convention test-case headers use).",
+          "comment": "This grammar's own authoring convention, not a tf semantic: to real tf, ;/echo, ;; echo, and ; /echo are all equally just a comment, no distinction whatsoever. Here, ; (or #) immediately followed by / with no space marks a line of CODE that's been commented out, so it's still highlighted as code (dimmed like a comment, but with its commands/strings/substitutions/operators all visible) rather than as prose. ;; and ; / (space before the /) are both left as plain prose — see editors/vscode/README.md.",
+          "name": "comment.line.semicolon.code.tf",
+          "begin": "^\\s*;(?=/)",
+          "end": "$",
+          "patterns": [
+            { "include": "#strings" },
+            { "include": "#continuation" },
+            { "include": "#substitutions" },
+            { "include": "#operators" },
+            { "include": "#numbers" },
+            { "include": "#functions" },
+            { "include": "#commands" }
+          ]
+        },
+        {
+          "name": "comment.line.number-sign.code.tf",
+          "begin": "^\\s*#(?=/)",
+          "end": "$",
+          "patterns": [
+            { "include": "#strings" },
+            { "include": "#continuation" },
+            { "include": "#substitutions" },
+            { "include": "#operators" },
+            { "include": "#numbers" },
+            { "include": "#functions" },
+            { "include": "#commands" }
+          ]
+        },
+        {
+          "comment": "A line is a comment when its first non-whitespace character is ; or # (tf's own load_file() rule, not just the ;; convention test-case headers use). tfscript comments routinely ARE unlabeled example code (see this project's own test-case headers), so substitutions and operators are still highlighted inside, and so is a /word that's a REAL, known command name (#knownCommandsInProse) — but not an arbitrary /word, since a plain-English '/' (e.g. \"50/50\") is a much easier false positive in prose than a name that happens to exactly match one of tf's ~214 real commands. An unrecognized name (a custom macro, e.g. /my_func) only lights up on an explicit ;/ commented-code line, not in plain prose. Quoted strings are deliberately NOT nested here either: an ordinary contraction like \"don't\" would start a fake string looking for a closing apostrophe.",
           "name": "comment.line.semicolon.tf",
-          "match": "^\\s*;.*$"
+          "begin": "^\\s*;",
+          "end": "$",
+          "patterns": [
+            { "include": "#substitutions" },
+            { "include": "#operators" },
+            { "include": "#numbers" },
+            { "include": "#knownCommandsInProse" }
+          ]
         },
         {
           "name": "comment.line.number-sign.tf",
-          "match": "^\\s*#.*$"
+          "begin": "^\\s*#",
+          "end": "$",
+          "patterns": [
+            { "include": "#substitutions" },
+            { "include": "#operators" },
+            { "include": "#numbers" },
+            { "include": "#knownCommandsInProse" }
+          ]
         }
       ]
+    },
+    "continuation": {
+      "comment": "A trailing \\ continues this line onto the next, UNLESS the character right before it is % (a literal %\\ is an escaped backslash, not a continuation — see src/logicalEntries.ts's continuesToNextLine; that case is already covered by #substitutions' character-escape pattern, which this negative lookbehind steps aside for). Deliberately scoped under comment.* purely for the visual effect — a theme that mutes prose comments mutes this the same way — not a claim that a continuation marker IS a comment; no standalone punctuation.* scope reliably gets that same deemphasis.",
+      "match": "(?<!%)\\\\$",
+      "name": "constant.character.escape.line-continuation.tf"
     },
     "strings": {
       "patterns": [
@@ -38,36 +90,182 @@
         }
       ]
     },
+    "numbers": {
+      "comment": "Integers, decimals, and reals with an exponent (tinyfugue/htmldoc/topics/expressions.html's Operands section). Not attempting dtime (h:m:s) or atime forms here — those are ordinary-looking numbers with colons, too easy to confuse with other uses of ':' in a cosmetic grammar.",
+      "match": "\\b[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\\b",
+      "name": "constant.numeric.tf"
+    },
     "substitutions": {
+      "comment": "tf's full substitution grammar — htmldoc/topics/substitution.html covers %selector, %{...}, %;, %|, $[...], $(...), and ${...}/$name all as ONE topic, 'substitution', which is also how a tf scripter actually thinks of them: all sigils that mean 'something gets replaced here before this runs'. Every sigil capture below therefore carries two scopes together — punctuation.definition.substitution.tf (the shared family, so a theme that only wants to flag 'this is a substitution marker' can do that for every one of them with a single rule) plus a specific second scope for which KIND: punctuation.definition.variable.tf (%, a real dereference), .expression.tf ($[...]), .command.tf ($(...)), or .macro.tf (${...}/$name — substituting another macro's BODY, not a variable). %;/%|'s % carries only the family scope, no second one, since separating commands isn't dereferencing anything. Brackets get their own punctuation.section.bracket.* scope too, same convention VS Code's own bundled bash grammar uses for ${...} (confirmed by reading shell-unix-bash.tmLanguage.json directly). None of this is picked for how it happens to render in any one theme — whether a theme colors punctuation.definition.* or punctuation.section.bracket.* at all is that theme's own call, not something this grammar chases.",
       "patterns": [
         {
-          "comment": "%{var} — not expanded in a top-level command (load-no-expansion); deferred inside /def, /for, /bind, /hook and /trig-family bodies.",
-          "name": "variable.other.tf",
-          "match": "%\\{[^}]*\\}"
+          "comment": "%{selector} / %{selector-default} — braced variable, argument, or %P/%L/%R substitution. The inner content is matched twice over: first the common case (a bare selector, highlighted as a plain name/reference) via #substitutionSelector, then anything left over (a '-default' tail, which htmldoc/topics/substitution.html says may itself contain variable/macro/expression/command substitutions) falls through to the fully recursive set. The (?<!%) guards against %%{ — percent compression (two %'s collapsing to one literal %) — being misread as a live %{ opener; without it, a found-in-the-wild %%{...} (tinyfugue/lib/tf/kbstack.tf) would open a begin/end region at the wrong %, hunting for a '}' match that can swallow far more than intended.",
+          "begin": "(?<!%)(%)(\\{)",
+          "end": "(\\})",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.substitution.tf punctuation.definition.variable.tf" },
+            "2": { "name": "punctuation.section.bracket.curly.variable.begin.tf" }
+          },
+          "endCaptures": {
+            "1": { "name": "punctuation.section.bracket.curly.variable.end.tf" }
+          },
+          "patterns": [
+            { "include": "#substitutionSelector" },
+            { "include": "#strings" },
+            { "include": "#substitutions" },
+            { "include": "#operators" },
+            { "include": "#numbers" },
+            { "include": "#functions" }
+          ]
         },
         {
-          "comment": "%0-%9 positional argument, %* the rest, %-1 etc. a relative positional range.",
-          "name": "variable.parameter.tf",
-          "match": "%(\\*|-?[0-9]+(-[0-9]*)?)"
+          "comment": "Unbraced %selector, exactly matching htmldoc/topics/substitution.html's documented list (verified directly — an earlier version of this pattern invented a nonexistent '1-5'-style range form, which caused a real false positive elsewhere once checked against real-world scripts; there is no range form in tf's selector grammar at all): a name, #, ?, *, a plain positional number, -N (all except the first N), L/LN (last/Nth-last; bare 'L' means 'L1'), -L/-LN, or P/PN/R (all just names shape-wise). No brackets to decompose here, so sigil + selector share one combined match.",
+          "match": "(?<!%)(%)([A-Za-z_][A-Za-z0-9_]*|[#?*]|[0-9]+|-(?:L[0-9]*|[0-9]+))",
+          "captures": {
+            "1": { "name": "punctuation.definition.substitution.tf punctuation.definition.variable.tf" },
+            "2": { "name": "variable.parameter.tf" }
+          }
         },
         {
-          "comment": "%; separates commands on one logical line.",
-          "name": "keyword.operator.separator.tf",
-          "match": "%;"
+          "comment": "%; separates commands on one logical line; %| does too, and also pipes the first command's output into the second. The % is the same sigil color as every other %, consistently — only the ;/| itself gets the operator color, since that's the part that's actually punctuation/control flow.",
+          "match": "(%)(;|\\|)",
+          "captures": {
+            "1": { "name": "punctuation.definition.substitution.tf" },
+            "2": { "name": "keyword.operator.separator.tf" }
+          }
         },
         {
-          "comment": "$[...] — a redundant-inside-/if expression substitution (dollar-bracket-in-if); legal anywhere an expression is read.",
-          "name": "variable.other.expression.tf",
-          "match": "\\$\\[[^\\]]*\\]"
+          "comment": "%%... — percent compression: one fewer %, used to write a literal % (e.g. %% for one %).",
+          "name": "constant.character.escape.tf",
+          "match": "%%+"
+        },
+        {
+          "comment": "$[expression] — a redundant-inside-/if/elseif/while expression substitution (dollar-bracket-in-if); legal anywhere an expression is read. Fully recursive inside: real operators, numbers, functions, strings, and further substitutions all apply, same as any other expression context.",
+          "begin": "(\\$)(\\[)",
+          "end": "(\\])",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.substitution.tf punctuation.definition.expression.tf" },
+            "2": { "name": "punctuation.section.bracket.square.expression.begin.tf" }
+          },
+          "endCaptures": {
+            "1": { "name": "punctuation.section.bracket.square.expression.end.tf" }
+          },
+          "patterns": [
+            { "include": "#strings" },
+            { "include": "#substitutions" },
+            { "include": "#operators" },
+            { "include": "#numbers" },
+            { "include": "#functions" }
+          ]
+        },
+        {
+          "comment": "$(command) — command substitution: command runs as a macro body and its echoed output is substituted in place. Fully recursive inside, but with command-context patterns (a real tf command, not a bare expression).",
+          "begin": "(\\$)(\\()",
+          "end": "(\\))",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.substitution.tf punctuation.definition.command.tf" },
+            "2": { "name": "punctuation.section.bracket.round.command.begin.tf" }
+          },
+          "endCaptures": {
+            "1": { "name": "punctuation.section.bracket.round.command.end.tf" }
+          },
+          "patterns": [
+            { "include": "#strings" },
+            { "include": "#substitutions" },
+            { "include": "#operators" },
+            { "include": "#numbers" },
+            { "include": "#functions" },
+            { "include": "#commands" }
+          ]
+        },
+        {
+          "comment": "$$... — dollar compression: one fewer $, used to write a literal $ (e.g. $$ for one $).",
+          "name": "constant.character.escape.tf",
+          "match": "\\$\\$+"
+        },
+        {
+          "comment": "${name} or bare $name — macro substitution: the body of macro `name` is substituted in place.",
+          "match": "(\\$)(\\{[^}]*\\}|[A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "punctuation.definition.substitution.tf punctuation.definition.macro.tf" },
+            "2": { "name": "variable.other.tf" }
+          }
+        },
+        {
+          "comment": "\\n (decimal/octal/0x hex character code) or \\c (escaped literal character) — tf's character substitution, same %{backslash} mechanism as a shell's backslash escapes.",
+          "name": "constant.character.escape.tf",
+          "match": "\\\\(?:0[xX][0-9A-Fa-f]+|[0-9]+|.)"
+        },
+        {
+          "comment": "Bare {selector} / {selector-default} — tinyfugue/htmldoc/topics/expressions.html: \"in expressions, it is easiest to omit the % and just use the {selector[-default]} part\". Same pairing as %{...} above, minus the sigil (there isn't one). Deliberately also matches tinyfugue/htmldoc/topics/patterns.html's OTHER use of {...} — glob-pattern word alternation, e.g. {storm|chup*} — which is a different construct entirely; a regex grammar can't tell \"this {...} is an expression selector\" from \"this {...} is a glob group\" apart without knowing which argument position expects which, so both get the same treatment. Not wrong exactly either way — both are \"a block with content\" — just not always literally what it is.",
+          "begin": "(\\{)",
+          "end": "(\\})",
+          "beginCaptures": {
+            "1": { "name": "punctuation.section.bracket.curly.variable.begin.tf" }
+          },
+          "endCaptures": {
+            "1": { "name": "punctuation.section.bracket.curly.variable.end.tf" }
+          },
+          "patterns": [
+            { "include": "#substitutionSelector" },
+            { "include": "#strings" },
+            { "include": "#substitutions" },
+            { "include": "#operators" },
+            { "include": "#numbers" },
+            { "include": "#functions" }
+          ]
         }
       ]
     },
-    "commands": {
+    "substitutionSelector": {
+      "comment": "The common case inside %{...}: a bare selector with no '-default' tail. Same shape as the unbraced %selector match above, minus the %. Deliberately ambiguous with a '1-foofle' range-vs-default split the same way the unbraced form already is (see that pattern's own note) — not re-solving a pre-existing heuristic limitation here. No anchor needed: tried first in the enclosing begin/end region's patterns, so it's already attempted starting right where scanning resumed (immediately after the opening brace) before any of the recursive fallbacks below get a turn.",
+      "match": "[A-Za-z_][A-Za-z0-9_]*|[#?*]|[0-9]+|-(?:L[0-9]*|[0-9]+)",
+      "name": "variable.parameter.tf"
+    },
+    "functions": {
+      "comment": "tf's documented built-in expression functions: tinyfugue/htmldoc/topics/functions.html's own anchors (85 names) plus the handful of commands htmldoc/commands/*.html separately documents as also callable as a function — addworld, echo, escape, eval, ftime, prompt, replace, send, substitute, textencode (replace is in both lists). Anything else shaped like name( — a macro called as a function, or a builtin command called as a function, both real per functions.html's own resolution order (\"builtin function, then macro, then builtin command\") — falls through to the unrecognized-name pattern below (entity.name.function.tf), same known/unrecognized split as #commands and the same support.*-vs-entity.name.* convention, since this engine has no way to confirm an arbitrary macro name without the project's own case harness.",
       "patterns": [
         {
-          "comment": "A top-level /word: tf's control-flow keywords, C builtins, and stdlib.tf macros are all written the same way.",
-          "name": "keyword.control.tf",
-          "match": "/[A-Za-z_][A-Za-z0-9_]*"
+          "match": "\\b(?i:abs|acos|addworld|ascii_bytes|ascii|asin|atan|char_bytes|char|columns|cos|cputime|decode_ansi|decode_attr|echo|encode_ansi|encode_attr|escape|eval|exp|fg_world|filename|ftime|fwrite|gethostname|getpid|idle|inline_attr|is_connected|is_open|kbdel|kbgoto|kbhead|kblen|kbmatch|kbpoint|kbtail|kbwordleft|kbwordright|keycode|lines|ln|log10|log|mktime|mod|morepaused|morescroll|moresize|nactive|nlog|nmail|nread|pad|pow|prompt|rand|read|regmatch|replace|send|sidle|sin|sqrt|status_fields|strcat|strchr_bytes|strchr|strcmpattr|strcmp|strip_attr|strlen_bytes|strlen|strncmp|strrchr_bytes|strrchr|strrep|strstr_bytes|strstr|substitute|substr_bytes|substr|systype|tan|test|textencode|tfclose|tfflush|tfopen|tfread|tfwrite|time|tolower|toupper|trunc|winlines|world_info)\\b(?=\\()",
+          "name": "support.function.tf"
+        },
+        {
+          "comment": "Unrecognized name immediately followed by ( — presumably your own macro, called as a function. Same color as an unrecognized /command (#commands' #unknownCommand), since both mean the same thing: \"a name this engine can't confirm, probably yours.\"",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\()",
+          "name": "entity.name.function.tf"
+        }
+      ]
+    },
+    "knownCommandsInProse": {
+      "comment": "The real, complete list of tf command names (keyword table + builtin dispatch table + stdlib.tf macros) this project's own LSP server already extracts for completion — src/data/commands.ts's ALL_COMMANDS, deduped and lowercased. Regenerate with (from the repo root, after `npm run build`): node -e \"const {ALL_COMMANDS}=require('./dist/data/commands'); console.log([...new Set(ALL_COMMANDS.map(c=>c.name.toLowerCase()))].sort().join('|'))\" — 214 names as of tinyfugue's current tree; the exact same list also appears in #commands' known-command branch, so update both together. support.function.tf: tf provides this command, same as a known #functions call. Deliberately only used inside plain-prose comments (see #comments); real code and ;/-marked commented code use #commands instead, since there every /word, known or custom, is a real command and gets the known/unrecognized scope split either way.",
+      "match": "/(?i::|_echo|_paste|act|adddiku|addlp|addlpp|addtelnet|addtiny|addworld|background|bamf|beep|bg|bind|borg|break|calllua|cat|cd|cleardone|clearfull|connect|core|dc|def|do|dokey|done|echo|edit|else|elseif|endif|escape|eval|exit|export|expr|false|features|fg|first|for|gag|gpri|grab|help|hilite_page|hilite_whisper|hilite|histsize|hook|hpri|if|input|insert|isize|ismacro|isvar|kecho|kill|last|lcd|let|limit|listbind|listdef|listfullhilite|listgag|listhilite|listhook|listpartial|listsockets|liststreams|listtrig|listvar|listworlds|list|load|loaded|loadhist|loadlua|localecho|login|log|lp|lpquote|man|mecho|more|nogag|nohilite_page|nohilite_whisper|nohilite|nolog|nologin|noquiet|not|nowrap|nth|partial|paste|prompt|proxy_command|proxy_connect|proxy_hook|ps|ptime|purgebind|purgedeft|purgedef|purgegag|purgehilite|purgehook|purgelua|purgetrig|purgeworld|purge|pwd|python_call_unsafe|python_call|python_kill|python_load|python|qecho|quiet|quitdone|quit|quote|rand|recall|recordline|redef|relimit|repeat|replace|reply|require|rest|restrict|result|retry_off|retry|return|runtime|savehilite|saveworld|save|send_help|send|setenv|set|sh|shift|shpause|signal|sockmload|split|status_add|status_clear|status_edit|status_rm|sub|substitute|suspend|sys|telnet|test|then|time|toggle|trigc|trigger|trigpc|trigp|trig|true|unbind|undefn|undeft|undef|unhook|unlimit|unset|untrig|unworld|vercmp|version|ver|visual|watchdog|watchname|while|world|wrapspace|wrap|~con_hook_telnet|~def_file_command|~default_login_hook|~detect_worldtype_hook|~do_prefix|~gagloadfail|~login_hook_lp|~login_hook_lpp|~login_hook_telnet|~login_hook_tiny|~send|~telnet_passwd|~world_hook_lp|~world_hook_lpp|~world_hook_prompt|~world_hook_telnet|~world_hook_tiny)(?![A-Za-z0-9_])",
+      "name": "support.function.tf"
+    },
+    "operators": {
+      "comment": "tinyfugue/htmldoc/topics/expressions.html's full operator table — valid inside $[...], /if, /elseif, /while, and /def -E conditions. Highlighted wherever it appears (not scoped to just those contexts, same tradeoff the #commands rule already makes): no modulo/bitwise operators exist in tf (mod() is a function, and % is reserved entirely for substitution — see #substitutions), and bare / is deliberately excluded here even though division is real, since it would conflict visually with the far more common /command prefix.",
+      "match": "==|!=|=~|!~|=/|!/|<=|>=|\\+\\+|--|\\+=|-=|\\*=|/=|:=|[!+\\-*=<>&|?:,]",
+      "name": "keyword.operator.tf"
+    },
+    "commands": {
+      "comment": "A top-level /word: tf's control-flow keywords, C builtins, and stdlib.tf macros are all written the same way, plus a user's own custom macros — same name(...)-call ambiguity #functions has. Known names (the same ~214-name list as #knownCommandsInProse) get support.function.tf — tf provides these, same family as a known #functions call. Anything else (presumably your own macro) gets entity.name.function.tf — a name being invoked that this engine can't confirm is built-in, same standard support.*-vs-entity.name.*-for-user-defined convention real grammars use (confirmed in VS Code's own bundled bash grammar). /@word is the same command either way, just forced to resolve to the real builtin even if a same-named macro exists to shadow it (htmldoc/topics/macros.html: \"If a macro and builtin have the same name, the macro will be called. Typing '/@' ... will always call the builtin command.\") — stdlib.tf leans on this throughout (/@test, /@eval, /@list, ...). The @ always gets keyword.operator.tf regardless of which branch the name falls in.",
+      "patterns": [
+        {
+          "comment": "Known branch: tried first, so an exact match here wins over the unrecognized fallback below.",
+          "match": "(/)(@)?((?i::|_echo|_paste|act|adddiku|addlp|addlpp|addtelnet|addtiny|addworld|background|bamf|beep|bg|bind|borg|break|calllua|cat|cd|cleardone|clearfull|connect|core|dc|def|do|dokey|done|echo|edit|else|elseif|endif|escape|eval|exit|export|expr|false|features|fg|first|for|gag|gpri|grab|help|hilite_page|hilite_whisper|hilite|histsize|hook|hpri|if|input|insert|isize|ismacro|isvar|kecho|kill|last|lcd|let|limit|listbind|listdef|listfullhilite|listgag|listhilite|listhook|listpartial|listsockets|liststreams|listtrig|listvar|listworlds|list|load|loaded|loadhist|loadlua|localecho|login|log|lp|lpquote|man|mecho|more|nogag|nohilite_page|nohilite_whisper|nohilite|nolog|nologin|noquiet|not|nowrap|nth|partial|paste|prompt|proxy_command|proxy_connect|proxy_hook|ps|ptime|purgebind|purgedeft|purgedef|purgegag|purgehilite|purgehook|purgelua|purgetrig|purgeworld|purge|pwd|python_call_unsafe|python_call|python_kill|python_load|python|qecho|quiet|quitdone|quit|quote|rand|recall|recordline|redef|relimit|repeat|replace|reply|require|rest|restrict|result|retry_off|retry|return|runtime|savehilite|saveworld|save|send_help|send|setenv|set|sh|shift|shpause|signal|sockmload|split|status_add|status_clear|status_edit|status_rm|sub|substitute|suspend|sys|telnet|test|then|time|toggle|trigc|trigger|trigpc|trigp|trig|true|unbind|undefn|undeft|undef|unhook|unlimit|unset|untrig|unworld|vercmp|version|ver|visual|watchdog|watchname|while|world|wrapspace|wrap|~con_hook_telnet|~def_file_command|~default_login_hook|~detect_worldtype_hook|~do_prefix|~gagloadfail|~login_hook_lp|~login_hook_lpp|~login_hook_telnet|~login_hook_tiny|~send|~telnet_passwd|~world_hook_lp|~world_hook_lpp|~world_hook_prompt|~world_hook_telnet|~world_hook_tiny))(?![A-Za-z0-9_])",
+          "captures": {
+            "1": { "name": "support.function.tf" },
+            "2": { "name": "keyword.operator.tf" },
+            "3": { "name": "support.function.tf" }
+          }
+        },
+        {
+          "comment": "Unrecognized branch: anything else shaped like /word — presumably your own macro.",
+          "match": "(/)(@)?([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "entity.name.function.tf" },
+            "2": { "name": "keyword.operator.tf" },
+            "3": { "name": "entity.name.function.tf" }
+          }
         }
       ]
     }

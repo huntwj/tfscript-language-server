@@ -49,6 +49,9 @@
   `/if`/`/while` children indented a level, and continuation lines re-indented. Only whitespace
   tf ignores is changed, and each entry is checked by joining it again. New setting
   `tfscript.format.splitStatements` (default on) turns the splitting off.
+- New `reserved-macro-name` diagnostic: tf refuses `/def` of a keyword or `eval` ("is a reserved
+  word"). Navigation, hover, signature help and highlighting no longer treat such a `/def` as
+  defining anything, and hover no longer claims a macro can shadow a keyword.
 - New `bad-substitution-selector` diagnostic: `%{foo%{bar}}` is an error in tf (nesting only
   works through a `-` default value).
 - `load-no-expansion` no longer flags `/alias` bodies, or a `%{...}` after an `/eval` inside a

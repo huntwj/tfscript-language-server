@@ -1,6 +1,7 @@
 import { isBlankLine, isCommentLine, leadingWhitespaceLength, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { CALL_RE } from "./navigation";
 import type { Range } from "./symbols";
+import { macroBodyStart } from "./structure";
 
 /**
  * Formatting that cannot change what tf runs.
@@ -121,21 +122,6 @@ function keywordsIn(line: string): string[] {
   return found;
 }
 
-/** Where the body of a macro-defining entry starts: just after its `=`, or -1. */
-function bodyStart(text: string): number {
-  let quote = "";
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i] as string;
-    if (quote) {
-      if (ch === "\\") i += 1;
-      else if (ch === quote) quote = "";
-    } else if (ch === '"' || ch === "'" || ch === "`") quote = ch;
-    else if (ch === "\\") i += 1;
-    else if (ch === "=") return i + 1;
-  }
-  return -1;
-}
-
 /**
  * The joined text with the whitespace beside each separator in the body removed: the parts of
  * an entry formatting may change. Two entries that normalise the same run the same.
@@ -156,7 +142,7 @@ function normalise(joined: string, body: number): string {
 /** The macro body's text with separator whitespace dropped, and where to break it into lines. */
 function plannedLines(entry: LogicalEntry): string[] | undefined {
   const joined = entry.text;
-  const body = bodyStart(joined);
+  const body = macroBodyStart(joined);
   if (body < 0) return undefined;
   const text = normalise(joined, body);
   const seps = topLevelSeparators(text).filter((s) => s >= body);
@@ -321,7 +307,7 @@ function formatEntry(entry: LogicalEntry, original: string[], options: FormatOpt
     if (planned) {
       const withSlashes = planned.map((l, i) => (i < planned.length - 1 ? `${l}\\` : l));
       const rebuilt = indentLines(withSlashes, firstIndent, true, options.indent);
-      const body = bodyStart(entry.text);
+      const body = macroBodyStart(entry.text);
       const ok = !rebuilt.some((l, i) => i > 0 && isCommentLine(l)) && normalise(rejoin(rebuilt), body) === normalise(entry.text, body);
       if (ok) return rebuilt;
     }

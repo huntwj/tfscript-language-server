@@ -93,7 +93,7 @@ describe("formatText", () => {
   it("hangs a nested /def's body, and starts an /alias body at one level", () => {
     const text = ["/def log = \\", "/if (c) \\", "/def -t'x' inner =\\", "/echo hi%;\\", "/endif", "/alias go \\", "/a %;\\", "/b", ""].join("\n");
     expect(format(text)).toBe(
-      ["/def log = \\", "    /if (c) \\", "        /def -t'x' inner =\\", "            /echo hi%;\\", "    /endif", "/alias go \\", "    /a %;\\", "    /b", ""].join(
+      ["/def log = \\", "    /if (c) \\", "        /def -t'x' inner =\\", "            /echo hi%;\\", "    /endif", "/alias go \\", "    /a%;\\", "    /b", ""].join(
         "\n",
       ),
     );

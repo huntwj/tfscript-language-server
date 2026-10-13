@@ -131,6 +131,22 @@ under `tfscript`):
 | `tfPath` | `TFPATH` as tf starts with it | the `TFPATH` environment variable |
 | `workingDirectory` | tf's current directory | the workspace folder |
 | `homeDirectory` | what `~` means (tf's `HOME`) | your home directory |
+| `diagnostics.unresolvedLoads` | warn on a `/load`/`/require` tf wouldn't find (`unresolved-load`) | on |
+| `diagnostics.undefinedMacros` | note `/name` calls defined nowhere on the path (`undefined-macro`) | off |
+
+Two diagnostics need the whole load path, so they only appear in files a load path reaches:
+
+- `unresolved-load` (warning): a `/load` or `/require` whose file tf wouldn't find, with every
+  place tf would try, in order. An `/eval` path built from a variable that isn't set to literal
+  text on the path is only noted (information), since tf may well work it out at runtime.
+- `undefined-macro` (information, off by default): a `/name` call to something that is neither
+  a tf command nor defined anywhere on the path — at top level or inside a macro body, in any
+  order. It skips what only looks like a call (paths, globs and regexes, text in double
+  quotes, names built at runtime like `/run_%1`) and optional calls guarded by `ismacro`, and
+  counts a `/def ~body_%1` as defining every name starting `~body_`. What it can't see are
+  macros created by `/eval /def` with a computed name or loaded some other way, which is why
+  it's off by default. On tf's own library, with every file loaded, it flags only kbbind.tf's
+  `key_*` hooks that are left for you to define.
 
 tf's library files are read from your installation at runtime, never copied into this
 package, so their `;;;` doc comments show up in hover without any licensing question. The same
@@ -308,8 +324,7 @@ Following scripting.md's roadmap order: diagnostics done, completion started (co
 expression functions and special variables still needed), single-file document symbols,
 folding, quick fixes, and hover, go-to-definition and find-references across the load path
 done, with command descriptions from the installed `tf-help`, plus workspace symbols and
-rename; then optional load-path diagnostics (unresolved `/load`, calls to names defined nowhere
-on the path); then formatting.
+rename, and the load-path diagnostics; then formatting.
 
 Workspace symbols cover every macro-defining entry in every tf script under the workspace
 folders, whether or not a load path reaches it. Rename changes a macro you defined — its

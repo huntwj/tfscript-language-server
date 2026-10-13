@@ -24,6 +24,11 @@
   file on that path, and tf's installed library is read at runtime for `;;;` docs. A library
   macro the path never loads gets a "`/require` it" hint. New settings: `tfscript.entryFiles`,
   `libraryPath`, `tfPath`, `workingDirectory`, `homeDirectory`.
+- Load-path diagnostics: `unresolved-load` warns on a `/load`/`/require` tf wouldn't find,
+  listing where tf would look; `undefined-macro` (opt-in via
+  `tfscript.diagnostics.undefinedMacros`) notes `/name` calls defined nowhere on the load path.
+  Open files are rechecked when another file changes.
+- Navigation reads `/!name` (run and negate the result) as a use of `name`.
 - Workspace symbols: every `/def`, `/alias`, `/bind`, `/hook` and `/trig*` in every tf script
   under the workspace folders.
 - Rename: a macro you defined, with its `/def` names, calls and `${name}`/`$name`

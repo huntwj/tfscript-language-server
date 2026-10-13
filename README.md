@@ -51,6 +51,7 @@ file gets truncated, since tf never reads past the line it aborts on.
 | 6 | `dollar-bracket-in-if` | redundant `$[...]` inside an `/if`/`/elseif`/`/while` condition |
 | — | `indented-line-after-command` | an indented line starting a new command right after one that didn't end in `\` — tf's own "possibly missing trailing \\" warning |
 | — | `trailing-space-after-backslash` | a final `\` followed by whitespace (including a CRLF file's trailing `\r`) — not a continuation, tf warns and runs the line as-is |
+| — | `bad-substitution-selector` | `%{selector}` followed directly by another `%`/`$` substitution (`%{foo%{bar}}`) — tf errors "unmatched { or illegal character"; nesting only works through the default value, `%{foo-%{bar}}` |
 | — | `bare-line-after-command` | a line that is not blank, a comment, or a `/command` — tf aborts the rest of the file's load; everything after it is suppressed from the other rules, since tf never reads it either |
 
 The numbered rules are the case numbers in the private notes repo's `scripting.md` (below);

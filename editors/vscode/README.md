@@ -30,7 +30,8 @@ source). Node and npm are only needed to *build* this extension from source.
   default toggle-comment character; `#` also works in tf but VS Code only supports one
   toggle-comment string per language.
 - Diagnostics, `/`-triggered completion, the Outline/breadcrumbs (document symbols), folding,
-  quick fixes, hover, go-to-definition and find-references, via the LSP server, same as any
+  quick fixes, hover, go-to-definition, find-references, Go to Symbol in Workspace (Ctrl+T)
+  and rename (F2), via the LSP server, same as any
   other client.
 - `tfscript.*` settings, so a folder can say how tf loads it. The server follows your tfrc's
   `/load` and `/require` lines to know which macros each file can see. For a script repo that

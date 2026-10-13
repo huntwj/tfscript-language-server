@@ -8,7 +8,8 @@ This is early, pre-1.0 software: diagnostics for the handful of rules proven so 
 command-name completion, document symbols (an outline of every `/def`, `/alias`, `/bind`,
 `/hook` and `/trig*`), folding, quick fixes for two of the diagnostics, and hover,
 go-to-definition and find-references for macros across every file your tfrc's `/load` and
-`/require` lines reach (see "Load paths"). There is no rename or formatting yet. There is a VS Code extension (`editors/vscode/`) for syntax
+`/require` lines reach (see "Load paths"), workspace-wide symbol search, and rename. There is
+no formatting yet. There is a VS Code extension (`editors/vscode/`) for syntax
 highlighting plus everything the server does; other editors can wire up the stdio server
 directly — see "Use".
 
@@ -241,7 +242,8 @@ node dist/server.js     # run the server directly (speaks LSP over stdio)
 
 The server advertises `completionProvider` (triggered on `/`), `documentSymbolProvider`,
 `foldingRangeProvider`, `codeActionProvider` (quick fixes only), `hoverProvider`,
-`definitionProvider` and `referencesProvider`, and publishes diagnostics
+`definitionProvider`, `referencesProvider`, `workspaceSymbolProvider` and `renameProvider`
+(with prepare), and publishes diagnostics
 tagged `source: "tfscript"`. Many editors' LSP clients also pass a `--stdio` flag by
 convention — this server doesn't need it (it talks over stdio either way) but accepts and
 ignores it.
@@ -305,9 +307,17 @@ Two layers, matching the private notes repo's own fast-loop/slow-run split:
 Following scripting.md's roadmap order: diagnostics done, completion started (command names;
 expression functions and special variables still needed), single-file document symbols,
 folding, quick fixes, and hover, go-to-definition and find-references across the load path
-done, with command descriptions from the installed `tf-help`; then workspace symbols, rename,
-and optional load-path diagnostics (unresolved `/load`, calls to names defined nowhere on the
-path); then formatting.
+done, with command descriptions from the installed `tf-help`, plus workspace symbols and
+rename; then optional load-path diagnostics (unresolved `/load`, calls to names defined nowhere
+on the path); then formatting.
+
+Workspace symbols cover every macro-defining entry in every tf script under the workspace
+folders, whether or not a load path reaches it. Rename changes a macro you defined — its
+`/def` names and every `/name`, `${name}` and `$name` in the files on the load path (a bare
+`$old` becomes `${new}` if the new name isn't a plain identifier). It refuses tf's built-ins,
+`/@name` calls, and macros defined in tf's library, and it does not touch comments (`;;;` doc
+lines included) or names inside strings or built at runtime (`/undef name`, `ismacro("name")`).
+A script outside the load path that calls the macro is not updated either.
 
 ## Contributing
 

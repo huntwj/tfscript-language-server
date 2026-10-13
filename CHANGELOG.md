@@ -24,6 +24,11 @@
   file on that path, and tf's installed library is read at runtime for `;;;` docs. A library
   macro the path never loads gets a "`/require` it" hint. New settings: `tfscript.entryFiles`,
   `libraryPath`, `tfPath`, `workingDirectory`, `homeDirectory`.
+- Workspace symbols: every `/def`, `/alias`, `/bind`, `/hook` and `/trig*` in every tf script
+  under the workspace folders.
+- Rename: a macro you defined, with its `/def` names, calls and `${name}`/`$name`
+  substitutions across the files on the load path. Built-ins, `/@name` calls and tf library
+  macros are refused with a reason.
 - Hover reads the installed `tf-help` (beside `stdlib.tf`) for each command's usage and first
   description paragraph, including library macros such as `/alias`. A hand-written
   `commandDescriptions.ts` entry still takes precedence. Text from tf files and `tf-help` is

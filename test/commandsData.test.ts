@@ -5,6 +5,8 @@ import { BUILTIN_COMMANDS } from "../src/data/builtinCommands.generated";
 import { KEYWORD_COMMANDS } from "../src/data/keywordCommands.generated";
 import { STDLIB_COMMANDS } from "../src/data/stdlibCommands.generated";
 import { ALL_COMMANDS } from "../src/data/commands";
+import { COMMAND_DESCRIPTIONS } from "../src/data/commandDescriptions";
+import { COMMAND_USAGES } from "../src/data/commandUsages.generated";
 import { splitLogicalEntries } from "../src/logicalEntries";
 
 // Plain JS, required rather than imported: test files aren't in tsconfig's `include`, so
@@ -41,6 +43,18 @@ describeOrSkip("command tables (vs. the sibling tinyfugue checkout)", () => {
   it("matches lib/tf/stdlib.tf's top-level /def macros", () => {
     const text = readFileSync(join(TINYFUGUE_DIR, "lib", "tf", "stdlib.tf"), "utf8");
     expect([...STDLIB_COMMANDS]).toEqual(extractor.extractStdlibMacros(text, splitLogicalEntries));
+  });
+
+  it("matches htmldoc/commands/*.html's usage synopses", () => {
+    const pages = extractor.readCommandPages(join(TINYFUGUE_DIR, "htmldoc", "commands"));
+    expect(COMMAND_USAGES).toEqual(extractor.extractCommandUsages(pages));
+  });
+});
+
+describe("COMMAND_DESCRIPTIONS", () => {
+  it("has exactly one entry per known command", () => {
+    const want = ALL_COMMANDS.map((c) => c.name.toLowerCase()).sort();
+    expect(Object.keys(COMMAND_DESCRIPTIONS).sort()).toEqual(want);
   });
 });
 

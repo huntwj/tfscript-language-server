@@ -168,3 +168,15 @@ describe("structural rules (structure.ts)", () => {
     expect(found("/alias tt tell %{target %{*}\n")).toEqual(["unclosed-substitution@0:15"]);
   });
 });
+
+describe("structural rules and the rules they overlap", () => {
+  const found = (text: string) => getDiagnostics(text).map((d) => d.code);
+
+  it("reports %{foo%; once, as bad-substitution-selector", () => {
+    expect(found("/def foo = /echo %{foo%; /echo x\n")).toEqual(["bad-substitution-selector"]);
+  });
+
+  it("finds the body of a /def whose trigger pattern holds an =", () => {
+    expect(found("/def -t*hp=* -i sh = /if (1) /echo ok%; /endif\n")).toEqual([]);
+  });
+});

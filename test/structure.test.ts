@@ -72,6 +72,38 @@ describe("checkStructure in a macro body", () => {
     expect(issue("/echo ok %-L %-2 %{-L2} 50%%-off")).toBe("");
   });
 
+  it("knows %\\ separates, like %; and %|", () => {
+    expect(issue("/echo a%\\/echo b")).toBe("");
+    expect(issue("/if (1) /echo ok%\\/endif")).toBe("");
+    expect(issue("/if (1) /echo ok%; /endif%\\/echo b")).toBe("");
+  });
+
+  it("reads $(...), ${...} and {var-default} in an expression as a body does, where quotes are text", () => {
+    expect(issue("/if ($(/echo it's) =~ \"it's\") /echo ok%; /endif")).toBe("");
+    expect(issue("/if ({1-it's} =~ \"it's\") /echo ok%; /endif")).toBe("");
+    expect(issue("/echo ok $[ ${it's} ]")).toBe("");
+  });
+
+  it("reports a ) with nothing to close in /test and $[...]", () => {
+    expect(issue("/test 1)%; /echo after")).toBe("bracket@)"); // expected end of expression, found ')'
+    expect(issue("/echo $[ 1 ) ]")).toBe("bracket@)"); // expected operator or ']', found ')'
+  });
+
+  it("only points at a mid-statement keyword that would fix the error", () => {
+    // The real error is the second /else, not the /then in the first /echo's text.
+    expect(issue("/if (a) /echo use /then here %; /else /echo b %; /else /echo c %; /endif")).toBe("block@/else");
+    expect(issue("/echo see /else docs %; /endif")).toBe("block@/endif");
+    // An /endif inside $(...) or a closed block is no help to the /if outside it.
+    expect(issue("/if (1) /echo x $(/echo /endif)")).toBe("block@/if");
+    expect(issue("/if (1) /if (2) /echo /endif%; /endif")).toBe("block@/if");
+  });
+
+  it("leaves only the /endif after a /let name=value to let-swallows-endif", () => {
+    expect(issue("/if (1) /let v=1 /endif")).toBe("");
+    // tf: expected /endif, found end of body; let-swallows-endif doesn't match "/let y 1"
+    expect(issue("/if (1) /let y 1 /endif")).toBe("block@/endif");
+  });
+
   it("reads backtick strings in expressions", () => {
     expect(issue("/test regmatch(`a'b\"c`, \"x\")%; /echo ok")).toBe("");
     expect(issue("/echo ok $[strlen(`a]`)]")).toBe("");
@@ -152,6 +184,13 @@ describe("macroBodyStart", () => {
     const def = '/def -t"a=b" foo = /echo x';
     expect(def.slice(macroBodyStart(def))).toBe(" /echo x");
     expect("/alias foo /echo x".slice(macroBodyStart("/alias foo /echo x"))).toBe("/echo x");
+    // An unquoted option argument runs to the next blank, = and all (macro_spec(), nextopt()).
+    const trig = "/def -t*hp=* -i foo = /echo x";
+    expect(trig.slice(macroBodyStart(trig))).toBe(" /echo x");
+    const regexp = "/def -mregexp -t^HP=(\\d+) hp = /echo x";
+    expect(regexp.slice(macroBodyStart(regexp))).toBe(" /echo x");
+    // /bind, /hook and /trig take the first = of all (split_args()), quotes or not.
+    expect("/trig a\"=b\" = /echo x".slice(macroBodyStart("/trig a\"=b\" = /echo x"))).toBe("b\" = /echo x");
     expect(macroBodyStart("/def foo")).toBe(-1);
     expect(macroBodyStart("/echo a = b")).toBe(-1);
   });

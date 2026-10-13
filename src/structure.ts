@@ -1,4 +1,5 @@
 import { isTfSpace, type LogicalEntry } from "./logicalEntries";
+import { defOptionsEnd } from "./symbols";
 
 /**
  * A model of how tf compiles a command list (`list()`, `statement()`, `expand()` and the
@@ -70,7 +71,12 @@ interface MidKeyword {
   word: string;
   /** The command the keyword sits in, lowercase without its slash, or "" for plain text. */
   command: string;
+  /** Where that statement starts. */
+  stmt: number;
 }
+
+/** let-swallows-endif's own pattern: it explains an /endif swallowed by an assignment like this. */
+const LET_ASSIGNMENT_RE = /^\/(?:let|set)\b\s+[^\s=]+\s*=/i;
 
 interface Open {
   keyword: "if" | "while";
@@ -109,8 +115,12 @@ class Parser {
   private readonly open: Open[] = [];
   private readonly mids: MidKeyword[] = [];
   readonly issues: StructureIssue[] = [];
+  /** When tf reports what this parser finds, and what then happens. */
+  timing: string;
 
-  constructor(private readonly s: string, private readonly mode: StructureMode) {}
+  constructor(private readonly s: string, private readonly mode: StructureMode) {
+    this.timing = TIMING[mode];
+  }
 
   run(): void {
     try {
@@ -121,8 +131,10 @@ class Parser {
     }
   }
 
+  /** `is_end_of_statement()`: `%` then `;`, `|` or `\` (`IS_STATEND` in util.c; `%\` proven to separate). */
   private isStatEnd(p: number): boolean {
-    return this.s[p] === "%" && (this.s[p + 1] === ";" || this.s[p + 1] === "|");
+    const next = this.s[p + 1];
+    return this.s[p] === "%" && (next === ";" || next === "|" || next === "\\");
   }
 
   private isCmdsubEnd(p: number): boolean {
@@ -151,32 +163,35 @@ class Parser {
   }
 
   /**
-   * A block error. When a keyword that would have fixed it sits in the middle of a statement
-   * since the innermost block opened, point at that instead: the likely fix is a `%;` before it.
+   * A block error. When `fix`, the keyword that would have fixed it, sits in the middle of a
+   * statement since the innermost block opened, point at that instead: the likely fix is a `%;`
+   * before it. Keywords inside a block that has since closed, or inside a `$(...)`, don't count.
    */
   private blockError(
     start: number,
     end: number,
     problem: string,
     tf: string,
+    fix: string | undefined,
     kind: StructureKind = "block",
     searchTo = start,
   ): never {
     const since = this.open.length > 0 ? (this.open[this.open.length - 1] as Open).start : -1;
-    const mid = this.mids.find((m) => m.start > since && m.start < searchTo);
+    const fixer = fix ? this.mids.find((m) => m.word === fix && m.start > since && m.start < searchTo) : undefined;
+    // Point at the first keyword of that statement: in "/echo a /else /echo b /endif" it is the /else.
+    const mid = fixer && this.mids.find((m) => m.stmt === fixer.stmt && m.start > since);
     if (mid) {
-      // let-swallows-endif already explains an /endif swallowed by /let or /set.
-      if (mid.word === "endif" && ["let", "set", "setenv"].includes(mid.command)) throw new Stop();
+      if (fix === "endif" && LET_ASSIGNMENT_RE.test(this.s.slice(mid.stmt, mid.start))) throw new Stop();
       const where = mid.command ? `the /${mid.command} statement` : "the statement before it";
       this.fail(
         "block",
         mid.start,
         mid.end,
         `/${mid.word} is part of ${where}, not a keyword: tf only reads keywords at the start of a ` +
-          `statement. Put %; before it. (tf: "${tf}") ${TIMING[this.mode]}`,
+          `statement. Put %; before it. (tf: "${tf}") ${this.timing}`,
       );
     }
-    this.fail(kind, start, end, `${problem} (tf: "${tf}") ${TIMING[this.mode]}`);
+    this.fail(kind, start, end, `${problem} (tf: "${tf}") ${this.timing}`);
   }
 
   private list(subsIn: number): void {
@@ -263,7 +278,7 @@ class Parser {
           this.i,
           end,
           `Expected %; or the end of the line${after}, but found more text. (tf: "macro syntax error: ` +
-            `expected end of statement${after}... Possibly missing '%;'") ${TIMING[this.mode]}`,
+            `expected end of statement${after}... Possibly missing '%;'") ${this.timing}`,
         );
       }
     } while (this.i < this.s.length);
@@ -276,11 +291,11 @@ class Parser {
     this.list(subs);
     // Where the list stopped: /endif or /done if it closed, else whatever block it was in.
     const ended = this.block as Block;
-    const found = this.i < this.s.length ? `'${this.s.slice(this.i, this.i + 1)}'` : "end of body";
+    const found = this.errorText(this.i);
     const to = this.i + 1;
     if (keyword === "if") {
       if (ended === "if" || ended === "elseif") {
-        this.blockError(start, end, "This /if's condition list has no /then.", `macro syntax error: expected /then, found ${found}.`, "block", to);
+        this.blockError(start, end, "This /if's condition list has no /then.", `macro syntax error: expected /then, found ${found}.`, "then", "block", to);
       } else if (ended === "then" || ended === "else") {
         const top = this.mode === "top" && this.cmdsub === 0 && found === "end of body";
         this.blockError(
@@ -293,17 +308,32 @@ class Parser {
                 "the last."
             : "This /if has no /endif.",
           `macro syntax error: expected /endif, found ${found}.`,
+          "endif",
           top ? "if-top" : "block",
           to,
         );
       }
     } else if (ended === "while") {
-      this.blockError(start, end, "This /while's condition list has no /do.", `macro syntax error: expected /do, found ${found}.`, "block", to);
+      this.blockError(start, end, "This /while's condition list has no /do.", `macro syntax error: expected /do, found ${found}.`, "do", "block", to);
     } else if (ended === "do") {
-      this.blockError(start, end, "This /while has no /done.", `macro syntax error: expected /done, found ${found}.`, "block", to);
+      this.blockError(start, end, "This /while has no /done.", `macro syntax error: expected /done, found ${found}.`, "done", "block", to);
     }
     this.open.pop();
+    this.dropMids(start);
     this.block = outer;
+  }
+
+  /** Forget mid-statement keywords after `from`: they sit in a block or `$(...)` that has closed. */
+  private dropMids(from: number): void {
+    while (this.mids.length > 0 && (this.mids[this.mids.length - 1] as MidKeyword).start > from) this.mids.pop();
+  }
+
+  /** What tf's `error_text()` quotes for the text at `p`: a word, one character, or "end of body". */
+  private errorText(p: number): string {
+    if (p >= this.s.length) return "end of body";
+    let end = p + 1;
+    if (/[A-Za-z0-9"'`/]/.test(this.s[p] as string)) while (end < this.s.length && /[A-Za-z0-9]/.test(this.s[end] as string)) end += 1;
+    return `'${this.s.slice(p, end)}'`;
   }
 
   private unexpected(word: string, start: number, end: number): never {
@@ -323,17 +353,20 @@ class Parser {
     if (this.mode === "top" && !outer && (word === "endif" || word === "else" || word === "elseif")) {
       problem += " If it belongs to an /if on an earlier line, join the lines with a trailing \\.";
     }
-    this.blockError(start, end, problem, tf);
+    // Only a missing /then or /do can explain a keyword turning up early in a condition list.
+    const fix = outer === "if" || outer === "elseif" ? "then" : outer === "while" ? "do" : undefined;
+    this.blockError(start, end, problem, tf, fix);
   }
 
   private blankLine(after: string, at: number): void {
+    const sep = this.s.slice(at, at + 2);
     this.issues.push({
       kind: "blank-line",
       start: at,
       end: at + 2,
       message:
-        `%; straight after ${after} ends an empty statement, which sends a blank line to the world. ` +
-        `Drop the %;. (tf warns: "\\"%;\\" following \\"${after.toUpperCase()}\\" sends blank line to server, ` +
+        `${sep} straight after ${after} ends an empty statement, which sends a blank line to the world. ` +
+        `Drop the ${sep}. (tf warns: "\\"${sep}\\" following \\"${after.toUpperCase()}\\" sends blank line to server, ` +
         `which is probably not what was intended.")`,
     });
   }
@@ -349,7 +382,7 @@ class Parser {
     const digits = this.i;
     while (isDigit(this.s[this.i])) this.i += 1;
     if (this.i === digits || Number(this.s.slice(digits, this.i)) <= 0) {
-      this.fail("block", start, end, `/break takes a positive number of loops. (tf: "/BREAK syntax error: expected positive integer") ${TIMING[this.mode]}`);
+      this.fail("block", start, end, `/break takes a positive number of loops. (tf: "/BREAK syntax error: expected positive integer") ${this.timing}`);
     }
     if (this.isStatEnd(this.i)) {
       this.i += 2;
@@ -364,6 +397,10 @@ class Parser {
     const text = this.s.slice(start, this.i);
     if (/[%$\\]/.test(text)) return; // generated at runtime: compiled then
     const sub = new Parser(text, this.mode);
+    sub.timing =
+      this.mode === "body"
+        ? "tf reports this when the macro first runs, then carries on with the expression's value as 0."
+        : "tf reports this as it loads the file, then carries on with the expression's value as 0.";
     try {
       sub.expression(undefined, 0);
     } catch (e) {
@@ -408,7 +445,7 @@ class Parser {
       }
       if (ch === "/" && this.i > stmtStart && isTfSpace(s[this.i - 1])) {
         const kw = this.keywordAt(this.i + 1);
-        if (kw && INNER_KEYWORDS.has(kw.word)) this.mids.push({ start: this.i, end: kw.end, word: kw.word, command });
+        if (kw && INNER_KEYWORDS.has(kw.word)) this.mids.push({ start: this.i, end: kw.end, word: kw.word, command, stmt: stmtStart });
       }
       this.i += 1;
     }
@@ -458,8 +495,10 @@ class Parser {
           "bracket",
           percent,
           this.i,
-          `%- starts a substitution (%-1, %-L), but no selector follows it; write %%- for a literal %-. ` +
-            `(tf: "illegal character '-' in substitution") ${TIMING[this.mode]}`,
+          (star || pee || n === 0
+            ? "A leading - only goes with a positive number or L (%-1, %-L2), not with *, P or 0. "
+            : "%- starts a substitution (%-1, %-L), but no selector follows it; write %%- for a literal %-. ") +
+            `(tf: "illegal character '-' in substitution") ${this.timing}`,
         );
       }
     }
@@ -491,15 +530,15 @@ class Parser {
         return;
       }
       // bad-substitution-selector already explains a substitution glued onto the selector.
-      if (!hasDefault && !this.isStatEnd(this.i) && (s[this.i] === "%" || s[this.i] === "$")) throw new Stop();
+      if (!hasDefault && (s[this.i] === "%" || s[this.i] === "$")) throw new Stop();
       const tf = this.i < s.length ? `unmatched { or illegal character '${s[this.i]}'` : "unmatched { or bad substitution";
       this.fail(
         "bracket",
         percent,
         percent + 2,
         this.i < s.length && !this.isStatEnd(this.i)
-          ? `This %{ is never closed: tf expects } here. (tf: "${tf}") ${TIMING[this.mode]}`
-          : `This %{ is never closed. (tf: "${tf}") ${TIMING[this.mode]}`,
+          ? `This %{ is never closed: tf expects } here. (tf: "${tf}") ${this.timing}`
+          : `This %{ is never closed. (tf: "${tf}") ${this.timing}`,
       );
     }
   }
@@ -520,7 +559,8 @@ class Parser {
       this.list(FULL);
       this.block = outer;
       this.cmdsub -= 1;
-      if (s[this.i] !== ")") this.fail("bracket", dollar, dollar + 2, `This $( is never closed. (tf: "unmatched (") ${TIMING[this.mode]}`);
+      this.dropMids(dollar);
+      if (s[this.i] !== ")") this.fail("bracket", dollar, dollar + 2, `This $( is never closed. (tf: "unmatched (") ${this.timing}`);
       this.i += 1;
     } else {
       this.macsub(dollar);
@@ -558,7 +598,7 @@ class Parser {
       }
     }
     if (bracket) {
-      if (s[this.i] !== "}") this.fail("bracket", dollar, dollar + 2, `This \${ is never closed. (tf: "unmatched \${") ${TIMING[this.mode]}`);
+      if (s[this.i] !== "}") this.fail("bracket", dollar, dollar + 2, `This \${ is never closed. (tf: "unmatched \${") ${this.timing}`);
       this.i += 1;
     } else if (s[this.i] === "$") {
       this.i += 1;
@@ -587,28 +627,42 @@ class Parser {
         this.i += 1;
         while (this.i < s.length && s[this.i] !== ch) this.i += s[this.i] === "\\" ? 2 : 1;
         if (this.i >= s.length) {
-          this.fail("bracket", quote, quote + 1, `This string is never closed. (tf: "unmatched ${ch} in string literal") ${TIMING[this.mode]}`);
+          this.fail("bracket", quote, quote + 1, `This string is never closed. (tf: "unmatched ${ch} in string literal") ${this.timing}`);
         }
         this.i += 1;
         continue;
       }
       if (close && this.isStatEnd(this.i)) break;
-      if (ch === "$" && s[this.i + 1] === "[") {
-        const inner = this.i;
-        this.i += 2;
-        this.expression("]", inner);
+      // primary_expr() (expr.c) hands these to the body scanners, where quotes are plain text.
+      if (ch === "$") {
+        this.i += 1;
+        this.dollarsub(this.i - 1);
+        continue;
+      }
+      if (ch === "{") {
+        this.varsub(this.i);
         continue;
       }
       if (ch === "(") depth += 1;
       else if (ch === ")") {
-        if (depth === 0 && close === ")") {
-          this.i += 1;
-          return;
+        if (depth === 0) {
+          if (close === ")") {
+            this.i += 1;
+            return;
+          }
+          this.fail(
+            "bracket",
+            this.i,
+            this.i + 1,
+            close === "]"
+              ? `This ) has no ( to close inside the $[...]. (tf: "expression syntax error: expected operator or ']', found ')'") ${this.timing}`
+              : `This ) has no ( to close. (tf: "expression syntax error: expected end of expression, found ')'") ${this.timing}`,
+          );
         }
-        depth = Math.max(0, depth - 1);
+        depth -= 1;
       } else if (ch === "]" && close === "]") {
         if (depth > 0) {
-          this.fail("bracket", this.i, this.i + 1, `A ( in this $[...] is never closed before its ]. (tf: "expression syntax error: expected ')' after '(...', found ']'") ${TIMING[this.mode]}`);
+          this.fail("bracket", this.i, this.i + 1, `A ( in this $[...] is never closed before its ]. (tf: "expression syntax error: expected ')' after '(...', found ']'") ${this.timing}`);
         }
         this.i += 1;
         return;
@@ -616,16 +670,16 @@ class Parser {
       this.i += 1;
     }
     if (close === "]") {
-      this.fail("bracket", open, open + 2, `This $[ is never closed. (tf: "unmatched $[") ${TIMING[this.mode]}`);
+      this.fail("bracket", open, open + 2, `This $[ is never closed. (tf: "unmatched $[") ${this.timing}`);
     } else if (close === ")") {
       this.fail(
         "bracket",
         open,
         open + 1,
-        `The ${keyword ?? ""} condition's ( is never closed. (tf: "condition syntax error: expected operator or ')'") ${TIMING[this.mode]}`,
+        `The ${keyword ?? ""} condition's ( is never closed. (tf: "condition syntax error: expected operator or ')'") ${this.timing}`,
       );
     } else if (depth > 0) {
-      this.fail("bracket", open, s.length, `A ( in this expression is never closed. (tf: "expression syntax error: expected ')'") ${TIMING[this.mode]}`);
+      this.fail("bracket", open, s.length, `A ( in this expression is never closed. (tf: "expression syntax error: expected ')'") ${this.timing}`);
     }
   }
 }
@@ -637,28 +691,25 @@ export function checkStructure(text: string, mode: StructureMode): StructureIssu
   return parser.issues;
 }
 
-const MACRO_ENTRY_RE = /^\s*\/(?:def|bind|hook|trigpc|trigc|trigp|trig)\b/i;
+const DEF_RE = /^\s*\/def\b/i;
+const SPLIT_ARGS_RE = /^\s*\/(?:bind|hook|trigpc|trigc|trigp|trig)\b/i;
 const ALIAS_RE = /^(\s*\/alias\s+\S+\s+)\S/i;
 
 /**
- * Where the body of a macro-defining entry starts (after `/def ... =`, or after an `/alias`'s
- * name), or -1. The `=` search skips quoted option arguments such as `-t"a=b"`.
+ * Where the body of a macro-defining entry starts, or -1. `/def` reads its options first, so an
+ * option argument may hold an `=` (`-t*hp=*`, `-t"a=b"`), then takes the first `=` after them
+ * (`macro_spec()`). `/bind`, `/hook` and `/trig*` take the first `=` of all, quotes or not
+ * (`split_args()` in command.c). `/alias NAME` takes the rest of the line (lib/tf/alias.tf).
  */
 export function macroBodyStart(text: string): number {
   const alias = ALIAS_RE.exec(text);
   if (alias) return (alias[1] as string).length;
-  if (!MACRO_ENTRY_RE.test(text)) return -1;
-  let quote = "";
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i] as string;
-    if (quote) {
-      if (ch === "\\") i += 1;
-      else if (ch === quote) quote = "";
-    } else if (ch === '"' || ch === "'" || ch === "`") quote = ch;
-    else if (ch === "\\") i += 1;
-    else if (ch === "=") return i + 1;
-  }
-  return -1;
+  let from: number;
+  if (DEF_RE.test(text)) from = defOptionsEnd(text, text.search(/\/def/i) + 4);
+  else if (SPLIT_ARGS_RE.test(text)) from = 0;
+  else return -1;
+  const eq = text.indexOf("=", from);
+  return eq < 0 ? -1 : eq + 1;
 }
 
 const cache = new WeakMap<LogicalEntry, StructureIssue[]>();

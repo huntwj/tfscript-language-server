@@ -85,6 +85,11 @@ interface DefOptions {
   key?: string;
 }
 
+/** Where a `/def`'s options end and its name (or `=`) begins, with `i` just after `/def`. */
+export function defOptionsEnd(text: string, i: number): number {
+  return skipDefOptions(text, i).end;
+}
+
 function skipDefOptions(text: string, i: number): DefOptions {
   const result: DefOptions = { end: i };
   while (true) {

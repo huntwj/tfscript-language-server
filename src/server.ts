@@ -10,12 +10,15 @@ import {
   DiagnosticSeverity,
   type DocumentSymbol,
   type DocumentSymbolParams,
+  type FoldingRange,
+  type FoldingRangeParams,
   type InitializeResult,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { getDiagnostics } from "./diagnostics";
 import { getCommandCompletions } from "./completions";
 import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
+import { getFoldingRanges, toFoldingRange } from "./folding";
 
 // Explicit streams rather than relying on a `--stdio`/`--node-ipc`/`--socket` command-line
 // flag: createConnection() alone throws "Connection input stream is not set" without one.
@@ -27,6 +30,7 @@ connection.onInitialize((): InitializeResult => ({
     textDocumentSync: TextDocumentSyncKind.Incremental,
     completionProvider: { triggerCharacters: ["/"] },
     documentSymbolProvider: true,
+    foldingRangeProvider: true,
   },
 }));
 
@@ -64,6 +68,12 @@ connection.onDocumentSymbol((params: DocumentSymbolParams): DocumentSymbol[] => 
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
   return getDocumentSymbols(document.getText()).map(toDocumentSymbol);
+});
+
+connection.onFoldingRanges((params: FoldingRangeParams): FoldingRange[] => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return [];
+  return getFoldingRanges(document.getText()).map(toFoldingRange);
 });
 
 documents.listen(connection);

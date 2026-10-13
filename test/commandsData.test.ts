@@ -7,6 +7,8 @@ import { STDLIB_COMMANDS } from "../src/data/stdlibCommands.generated";
 import { ALL_COMMANDS } from "../src/data/commands";
 import { COMMAND_DESCRIPTIONS } from "../src/data/commandDescriptions";
 import { COMMAND_USAGES } from "../src/data/commandUsages.generated";
+import { FUNCTIONS } from "../src/data/functions.generated";
+import { SPECIAL_VARIABLES } from "../src/data/variables.generated";
 import { splitLogicalEntries } from "../src/logicalEntries";
 
 // Plain JS, required rather than imported: test files aren't in tsconfig's `include`, so
@@ -48,6 +50,37 @@ describeOrSkip("command tables (vs. the sibling tinyfugue checkout)", () => {
   it("matches htmldoc/commands/*.html's usage synopses", () => {
     const pages = extractor.readCommandPages(join(TINYFUGUE_DIR, "htmldoc", "commands"));
     expect(COMMAND_USAGES).toEqual(extractor.extractCommandUsages(pages));
+  });
+
+  it("matches src/funclist.h's functions and functions.html's synopses", () => {
+    expect(FUNCTIONS).toEqual(extractor.extractFunctions(...extractor.readFunctionSources(TINYFUGUE_DIR)));
+  });
+
+  it("matches src/varlist.h's special variables and their enum values", () => {
+    expect(SPECIAL_VARIABLES).toEqual(extractor.extractVariables(...extractor.readVariableSources(TINYFUGUE_DIR)));
+  });
+});
+
+describe("FUNCTIONS and SPECIAL_VARIABLES", () => {
+  it("keep funclist.h's argument counts, conditions and every form of a synopsis", () => {
+    const byName = new Map(FUNCTIONS.map((f) => [f.name, f]));
+    expect(byName.get("regmatch")).toMatchObject({ min: 2, max: 2, synopses: ["regmatch(s1, s2)"] });
+    expect(byName.get("substr")?.synopses).toEqual(["substr(s, i1)", "substr(s, i1, i2)"]);
+    expect(byName.get("strcat")).toMatchObject({ min: 1, max: null });
+    expect(byName.get("gmcp")?.requires).toBe("ENABLE_GMCP");
+  });
+
+  it("type each variable, with the values an enum or flag takes", () => {
+    const byName = new Map(SPECIAL_VARIABLES.map((v) => [v.name, v]));
+    expect(byName.get("wrap")).toEqual({ name: "wrap", type: "flag", values: ["off", "on"], default: "on" });
+    expect(byName.get("matching")?.values).toEqual(["simple", "glob", "regexp", "substr"]);
+    expect(byName.get("binary_eol")?.values).toEqual(["LF", "CR", "CRLF"]);
+    // Inside `#if 0` in varlist.h, so tf never has it.
+    expect(byName.has("auto_fg")).toBe(false);
+    // Defined under both sides of `#if ENABLE_ATCP`; listed once, as the flag it is when built in.
+    expect(SPECIAL_VARIABLES.filter((v) => v.name === "atcp")).toEqual([
+      { name: "atcp", type: "flag", values: ["off", "on"], default: "on", requires: "ENABLE_ATCP" },
+    ]);
   });
 });
 

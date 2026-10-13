@@ -29,10 +29,13 @@ source). Node and npm are only needed to *build* this extension from source.
 - Line-comment toggling and bracket matching (`language-configuration.json`) — `;` is the
   default toggle-comment character; `#` also works in tf but VS Code only supports one
   toggle-comment string per language.
-- Diagnostics, `/`-triggered completion, the Outline/breadcrumbs (document symbols), folding,
-  quick fixes, hover, go-to-definition, find-references, Go to Symbol in Workspace (Ctrl+T)
-  and rename (F2), via the LSP server, same as any
-  other client.
+- Diagnostics, completion (commands, expression functions, variables, `%{` selectors), the
+  Outline/breadcrumbs (document symbols), folding, quick fixes, hover, signature help,
+  semantic highlighting, go-to-definition, find-references, Go to Symbol in Workspace
+  (Ctrl+T), rename (F2) and Format Document, via the LSP server, same as any other client.
+- A status bar item on tf files showing the load context the file is seen in and the chain of
+  `/load`s that reaches it; click it (or run **tfscript: Choose Load Context**) to switch
+  between the contexts listed in `tfscript.contexts`.
 - `tfscript.*` settings, so a folder can say how tf loads it. The server follows your tfrc's
   `/load` and `/require` lines to know which macros each file can see. For a script repo that
   your tfrc loads from elsewhere, list what it loads first in the folder's

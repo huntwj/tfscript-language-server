@@ -1,6 +1,6 @@
 {
   "name": "tfscript-language-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Language server for tfscript, TinyFugue's macro language.",
   "license": "MIT",
   "author": "Wil Hunt",

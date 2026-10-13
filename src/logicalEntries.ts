@@ -60,6 +60,8 @@ export interface LogicalEntry {
    * just reorder arguments onto the real builtin, `/trigpc` — see lib/tf/stdlib.tf). Confirmed
    * live for `/bind`, `/hook` and `/trig` directly: a `%{var}` in each one's body is accepted
    * with no "not expanded" complaint, same deferred-substitution behaviour as a `/def` body.
+   * `/alias` (lib/tf/alias.tf, `/def -i alias`) is the same: its `%-1` becomes the body of
+   * `~alias_body_NAME`, so a `%{*}` in the alias text stays literal until the alias runs.
    * Checked and deliberately NOT included: `/trigger` (runs existing triggers, does not define
    * one) and `/redef` (a `/set redef` toggle, nothing to do with macro bodies) — both looked
    * plausible by name alone, which is exactly why they were checked instead of assumed.
@@ -86,7 +88,7 @@ export interface LogicalEntry {
 
 const DEF_RE = /^\s*\/def\b/i;
 const FOR_RE = /^\s*\/for\b/i;
-const OTHER_MACRO_BODY_RE = /^\s*\/(?:bind|hook|trigpc|trigc|trigp|trig)\b/i;
+const OTHER_MACRO_BODY_RE = /^\s*\/(?:alias|bind|hook|trigpc|trigc|trigp|trig)\b/i;
 
 /**
  * Matches tf's own `is_space()` (`port.h`: `isspace((unsigned char)c)`), minus `\n` — already

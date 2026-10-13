@@ -25,6 +25,13 @@
   "activationEvents": ["onLanguage:tf"],
   "main": "./dist/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "tfscript.chooseContext",
+        "title": "Choose Load Context",
+        "category": "tfscript"
+      }
+    ],
     "languages": [
       {
         "id": "tf",
@@ -49,6 +56,19 @@
           "default": [],
           "scope": "resource",
           "markdownDescription": "Files tf loads after `stdlib.tf`, in order — normally your tfrc. The server follows their `/load` and `/require` lines to learn which macros each file can see. Relative paths are relative to the workspace folder; `~` is your home directory. When empty: a `.tfrc`, `tfrc` or `tfrc.tf` at the folder root, else `~/.tfrc`, else `~/tfrc`."
+        },
+        "tfscript.contexts": {
+          "type": "object",
+          "additionalProperties": { "type": "array", "items": { "type": "string" } },
+          "default": {},
+          "scope": "resource",
+          "markdownDescription": "Named ways tf might be started, each a list of entry files like `#tfscript.entryFiles#`: for example `{ \"wotmud\": [\"wot.tfrc\"], \"diku\": [\"diku.tfrc\"] }`. A file loaded by several is seen through `#tfscript.activeContext#`; one the active context doesn't load is seen through the first context that does. Empty: one context, `default`, from `#tfscript.entryFiles#`."
+        },
+        "tfscript.activeContext": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Which of `#tfscript.contexts#` is active. Set it from the status bar item shown for tf files (**tfscript: Choose Load Context**). Empty: the first."
         },
         "tfscript.libraryPath": {
           "type": "string",

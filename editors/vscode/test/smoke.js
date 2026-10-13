@@ -69,7 +69,8 @@ const timeout = setTimeout(() => {
   await request("initialize", { processId: process.pid, rootUri: null, capabilities: {} });
   send("initialized", {});
 
-  const uri = "file:///smoke-test.tf";
+  // A real absolute path (it need not exist): on Windows a file URI without a drive is no path at all.
+  const uri = require("node:url").pathToFileURL(path.join(__dirname, "smoke-test.tf")).href;
   send("textDocument/didOpen", {
     textDocument: { uri, languageId: "tf", version: 1, text: '/if (x =~ "")\n/ec' },
   });
@@ -80,6 +81,8 @@ const timeout = setTimeout(() => {
     position: { line: 1, character: 3 }, // right after "/ec"
   });
   const labels = (Array.isArray(completion) ? completion : completion.items).map((i) => i.label);
+  // The status bar's context picker relies on this non-LSP request.
+  const contexts = await request("tfscript/contextInfo", { uri });
 
   await request("shutdown", null);
   send("exit", null);
@@ -87,10 +90,14 @@ const timeout = setTimeout(() => {
   clearTimeout(timeout);
 
   const ok =
-    diag.diagnostics.some((d) => d.code === "if-multiline-top-level") && labels.includes("echo");
+    diag.diagnostics.some((d) => d.code === "if-multiline-top-level") &&
+    labels.includes("echo") &&
+    Array.isArray(contexts?.contexts) &&
+    contexts.contexts.length >= 1;
   if (!ok) {
     console.error("Unexpected server behaviour. diagnostics:", JSON.stringify(diag.diagnostics));
     console.error("completion labels:", labels.length, "includes echo:", labels.includes("echo"));
+    console.error("contextInfo:", JSON.stringify(contexts));
   }
   console.log(ok ? "smoke test passed" : "smoke test FAILED");
   process.exit(ok ? 0 : 1);

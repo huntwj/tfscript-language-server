@@ -24,6 +24,10 @@
   file on that path, and tf's installed library is read at runtime for `;;;` docs. A library
   macro the path never loads gets a "`/require` it" hint. New settings: `tfscript.entryFiles`,
   `libraryPath`, `tfPath`, `workingDirectory`, `homeDirectory`.
+- Hover reads the installed `tf-help` (beside `stdlib.tf`) for each command's usage and first
+  description paragraph, including library macros such as `/alias`. A hand-written
+  `commandDescriptions.ts` entry still takes precedence. Text from tf files and `tf-help` is
+  Markdown-escaped, so placeholders like `<name>` are no longer dropped by the editor.
 - New `bad-substitution-selector` diagnostic: `%{foo%{bar}}` is an error in tf (nesting only
   works through a `-` default value).
 - `load-no-expansion` no longer flags `/alias` bodies, or a `%{...}` after an `/eval` inside a

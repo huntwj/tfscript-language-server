@@ -132,7 +132,9 @@ under `tfscript`):
 | `homeDirectory` | what `~` means (tf's `HOME`) | your home directory |
 
 tf's library files are read from your installation at runtime, never copied into this
-package, so their `;;;` doc comments show up in hover without any licensing question. A macro
+package, so their `;;;` doc comments show up in hover without any licensing question. The same
+goes for `tf-help` in that directory, the file tf's own `/help` reads: hover takes each
+command's usage and first description paragraph from it (`src/workspace/tfHelp.ts`). A macro
 from a library file your path never loads still gets a hover, with a hint to `/require` it. A
 file no entry path reaches sees only what `stdlib.tf` loads. When a file is reached more than
 once, its first load sets its place in the order; every load site is recorded, for a future
@@ -158,7 +160,9 @@ Hover also shows each command's usage synopsis, from `src/data/commandUsages.gen
 extracted from `tinyfugue/htmldoc/commands/*.html`. Only the synopses come from there:
 TinyFugue's documentation is GPL and this project is MIT, so the one-line descriptions live
 in the hand-written `src/data/commandDescriptions.ts` instead. Fill in entries there; an
-empty one just shows no description. A macro defined in the file being edited documents
+empty one falls back to the installed `tf-help` when `tfscript.libraryPath` (or `TFLIBDIR`)
+points at a tf library, and to no description otherwise. With a library configured, most
+entries can simply stay empty. A macro defined in the file being edited documents
 itself: hover shows the `;;;` comment lines directly above its `/def` (stdlib.tf's own
 convention), so `;;` notes and commented-out `;/` code are left out.
 
@@ -301,7 +305,7 @@ Two layers, matching the private notes repo's own fast-loop/slow-run split:
 Following scripting.md's roadmap order: diagnostics done, completion started (command names;
 expression functions and special variables still needed), single-file document symbols,
 folding, quick fixes, and hover, go-to-definition and find-references across the load path
-done; then full built-in descriptions from the installed `tf-help`, workspace symbols, rename,
+done, with command descriptions from the installed `tf-help`; then workspace symbols, rename,
 and optional load-path diagnostics (unresolved `/load`, calls to names defined nowhere on the
 path); then formatting.
 

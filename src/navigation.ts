@@ -1,4 +1,4 @@
-import { ALL_COMMANDS, type CommandSource } from "./data/commands";
+import { ALL_COMMANDS, RESERVED_MACRO_NAMES, type CommandSource } from "./data/commands";
 import { COMMAND_DESCRIPTIONS } from "./data/commandDescriptions";
 import { COMMAND_USAGES } from "./data/commandUsages.generated";
 import { isCommentLine, splitRawLines } from "./logicalEntries";
@@ -126,7 +126,9 @@ export interface Def {
   loaded: boolean;
 }
 
+/** A `/def` of a reserved name (`/def if`, `/def eval`) is refused by tf, so it defines nothing. */
 export function definitionsOf(name: string, text: string, symbols: TfSymbol[], ctx: NavContext | undefined): Def[] {
+  if (RESERVED_MACRO_NAMES.has(name.toLowerCase())) return [];
   const lines = splitRawLines(text);
   const local: Def[] = symbols
     .filter((s) => s.kind === "def" && same(s.name, name))
@@ -242,7 +244,7 @@ export function getHover(text: string, pos: Position, ctx?: NavContext): TfHover
 
   if (userDefs.length > 0) {
     let note = "";
-    if (source === "builtin" || source === "keyword") {
+    if (source === "builtin") {
       note = `\n\nShadows the built-in \`/${key}\`; \`/@${key}\` calls the built-in.`;
     } else if (source === "stdlib" || libraryDefs.length > 0) {
       const from = libraryDefs[0]?.label ?? "stdlib.tf";

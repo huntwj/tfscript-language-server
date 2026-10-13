@@ -5,6 +5,7 @@ import { dollarBracketInIf } from "./dollarBracketInIf";
 import { indentedLineAfterCommand } from "./indentedLineAfterCommand";
 import { trailingSpaceAfterBackslash } from "./trailingSpaceAfterBackslash";
 import { badSubstitutionSelector } from "./badSubstitutionSelector";
+import { reservedMacroName } from "./reservedMacroName";
 import type { Rule } from "./types";
 
 // bareLineAfterCommand.ts is deliberately not in this list: it doesn't just report a
@@ -18,6 +19,7 @@ export const RULES: Rule[] = [
   indentedLineAfterCommand,
   trailingSpaceAfterBackslash,
   badSubstitutionSelector,
+  reservedMacroName,
 ];
 
 export type { EntryRule, FileRule, Rule, EntryMatch, LineMatch, Severity } from "./types";

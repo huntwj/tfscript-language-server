@@ -1,4 +1,5 @@
 import { isCommentLine, splitRawLines } from "./logicalEntries";
+import { RESERVED_MACRO_NAMES } from "./data/commands";
 import { COMMANDS, findUsages, type NavContext } from "./navigation";
 import { getDocumentSymbols } from "./symbols";
 
@@ -48,6 +49,7 @@ export function getSemanticTokens(text: string, ctx?: NavContext): SemanticToken
   const user = new Set<string>();
   const library = new Set<string>();
   for (const s of symbols) if (s.kind === "def") user.add(s.name.toLowerCase());
+  for (const r of RESERVED_MACRO_NAMES) user.delete(r);
   for (const m of ctx?.macros ?? []) {
     if (!m.loaded) continue;
     (m.library ? library : user).add(m.symbol.name.toLowerCase());

@@ -61,8 +61,10 @@ describe("getSignatureHelp", () => {
     const greet = ";;; /greet <name> [<greeting>]\n;;; Says hello.\n/def greet = /echo\n";
     expect(at(`${greet}/greet bob |`)).toBe("/greet <name> [<greeting>] → [<greeting>]");
     expect(at("/def echo = /@echo -p %*\n/echo |")).toBeUndefined();
-    expect(at("/def eval = /@eval -s0 %*\n/eval |")).toBeUndefined();
-    expect(at("/def eval = /@eval -s0 %*\n/@eval |")).toBe("/eval [-slevel] text → text");
+    expect(at("/def lcd = /echo\n/lcd |")).toBeUndefined();
+    expect(at("/def lcd = /echo\n/@lcd |")).toBe("/lcd [dir] → [dir]");
+    // tf refuses /def eval ("reserved word"), so /eval is still the builtin.
+    expect(at("/def eval = /echo\n/eval |")).toBe("/eval [-slevel] text → text");
   });
 
   it("says nothing while the name is still being typed, in comments, or for unknown commands", () => {

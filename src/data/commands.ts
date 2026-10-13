@@ -39,3 +39,12 @@ export const ALL_COMMANDS: readonly CommandInfo[] = dedupe([
   ...BUILTIN_COMMANDS.map((name): CommandInfo => ({ name, source: "builtin" })),
   ...STDLIB_COMMANDS.map((name): CommandInfo => ({ name, source: "stdlib" })),
 ]);
+
+/**
+ * Names `/def` refuses with `"name" is a reserved word.` (macro.c: `keyword(spec->name)` or a
+ * builtin whose cmdlist.h `reserved` flag is set — only EVAL). Lowercase; tf compares them
+ * case-insensitively, so `/def SET` is refused too. Proven 2026-10-12 with tf-script-check:
+ * `/def if`, `/def SET`, `/def let`, `/def test`, `/def endif` and `/def eval` were all refused,
+ * while `/def quote` and `/def lcd` were accepted with a "conflicts with the builtin" warning.
+ */
+export const RESERVED_MACRO_NAMES: ReadonlySet<string> = new Set([...KEYWORD_COMMANDS, "EVAL"].map((n) => n.toLowerCase()));

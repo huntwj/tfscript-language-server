@@ -4,6 +4,7 @@ import type { ExternalMacro, NavContext } from "../navigation";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
 import { buildLoadGraph, fileKey as keyOf, type LoadGraph, type LoadedFile } from "./loadGraph";
 import { resolveSettings, type Environment, type RawSettings, type ResolvedSettings } from "./settings";
+import { parseTfHelp, type HelpEntry } from "./tfHelp";
 
 export interface FileSystem {
   readFile(file: string): string | undefined;
@@ -33,6 +34,7 @@ export class WorkspaceIndex {
   private overlay = new Map<string, string>();
   private graphs = new Map<string, { settings: ResolvedSettings; graph: LoadGraph }>();
   private libraries = new Map<string, LibraryFile[]>();
+  private helps = new Map<string, ReadonlyMap<string, HelpEntry> | undefined>();
 
   constructor(
     private readonly fs: FileSystem,
@@ -48,6 +50,7 @@ export class WorkspaceIndex {
     this.raw.set(keyOf(folder), raw);
     this.invalidate();
     this.libraries.clear();
+    this.helps.clear();
   }
 
   setOverlay(file: string, text: string | undefined): void {
@@ -148,6 +151,16 @@ export class WorkspaceIndex {
       uri: uriOf(file),
       files: onPath ? loaded.filter((f) => !isLibrary(f.path)).map((f) => ({ uri: uriOf(f.path), text: f.text })) : [],
       macros,
+      help: lib ? this.help(lib) : undefined,
     };
+  }
+
+  private help(dir: string): ReadonlyMap<string, HelpEntry> | undefined {
+    const key = keyOf(dir);
+    if (!this.helps.has(key)) {
+      const text = this.fs.readFile(path.join(dir, "tf-help"));
+      this.helps.set(key, text === undefined ? undefined : parseTfHelp(text));
+    }
+    return this.helps.get(key);
   }
 }

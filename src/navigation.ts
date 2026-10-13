@@ -3,6 +3,7 @@ import { COMMAND_DESCRIPTIONS } from "./data/commandDescriptions";
 import { COMMAND_USAGES } from "./data/commandUsages.generated";
 import { isCommentLine, splitRawLines } from "./logicalEntries";
 import { getDocumentSymbols, type Position, type Range, type TfSymbol } from "./symbols";
+import type { HelpEntry } from "./workspace/tfHelp";
 
 /**
  * Single-file navigation: hover, go-to-definition and find-references for macro names.
@@ -106,6 +107,8 @@ export interface NavContext {
   uri: string;
   files: ContextFile[];
   macros: ExternalMacro[];
+  /** The installed tf-help, keyed by topic (`/let`), when a tf library is configured. */
+  help?: ReadonlyMap<string, HelpEntry>;
 }
 
 interface Def {
@@ -155,14 +158,30 @@ export interface TfHover {
   range: Range;
 }
 
-function commandHover(name: string): string | undefined {
+/**
+ * A command's synopsis and description. The installed tf-help, when there is one, supplies
+ * both (and covers library macros like /alias that aren't in the command tables); without it,
+ * the synopsis comes from the htmldoc extraction shipped in this package. A hand-written
+ * COMMAND_DESCRIPTIONS entry wins over tf-help's summary.
+ */
+function commandHover(name: string, help?: ReadonlyMap<string, HelpEntry>): string | undefined {
   const key = name.toLowerCase();
   const source = COMMANDS.get(key);
-  if (!source) return undefined;
-  const usages = COMMAND_USAGES[key];
+  const entry = help?.get(`/${key}`);
+  if (!source && !entry) return undefined;
+  const usages = entry && entry.usage.length > 0 ? entry.usage : COMMAND_USAGES[key];
   const synopsis = usages ? "```tf\n" + usages.join("\n") + "\n```\n\n" : "";
-  const description = COMMAND_DESCRIPTIONS[key];
-  return `${synopsis}${description ? `${description}\n\n` : ""}${SOURCE_LABEL[source]} — \`/help ${key}\``;
+  const description = COMMAND_DESCRIPTIONS[key] || (entry?.summary && escapeMarkdown(entry.summary));
+  const label = source ? `${SOURCE_LABEL[source]} — ` : "";
+  return `${synopsis}${description ? `${description}\n\n` : ""}${label}\`/help ${key}\``;
+}
+
+/**
+ * Text from a tf file or tf-help is plain text, not Markdown: `<name>` would otherwise be
+ * dropped as an unknown HTML tag by the editor, and `kb_push`/`%*` would turn italic.
+ */
+export function escapeMarkdown(text: string): string {
+  return text.replace(/[\\`*_{}[\]<>#|]/g, "\\$&");
 }
 
 const DOC_COMMENT_RE = /^\s*;;;(.*)$/;
@@ -190,7 +209,10 @@ function where(def: Def): string {
 
 function describeDefs(defs: Def[]): string {
   const code = "```tf\n" + defs.map((d) => `${d.symbol.detail} ${d.symbol.name}`).join("\n") + "\n```\n\n";
-  const docs = defs.map((d) => docCommentAbove(d.lines, d.symbol.range.start.line)).filter((d) => d !== undefined);
+  const docs = defs
+    .map((d) => docCommentAbove(d.lines, d.symbol.range.start.line))
+    .filter((d) => d !== undefined)
+    .map((d) => d.split("\n").map(escapeMarkdown).join("  \n"));
   return code + (docs.length > 0 ? `${docs.join("\n\n")}\n\n` : "") + `defined in ${defs.map(where).join("; ")}`;
 }
 
@@ -203,7 +225,7 @@ export function getHover(text: string, pos: Position, ctx?: NavContext): TfHover
 
   if (target.usage?.kind === "builtin-call") {
     if (source !== "builtin" && source !== "keyword") return undefined;
-    const doc = commandHover(target.name);
+    const doc = commandHover(target.name, ctx?.help);
     return doc ? { markdown: `${doc}\n\n\`/@\` calls the built-in even if a macro has the same name.`, range: target.range } : undefined;
   }
 
@@ -223,22 +245,24 @@ export function getHover(text: string, pos: Position, ctx?: NavContext): TfHover
     return { markdown: describeDefs(userDefs) + note, range: target.range };
   }
 
+  const command = commandHover(target.name, ctx?.help);
+  const withCommand = (rest: string): string => (command ? `${command}\n\n${rest}` : rest);
+
   if (libraryDefs.length > 0) {
-    const command = commandHover(target.name);
-    return { markdown: (command ? `${command}\n\n` : "") + describeDefs(libraryDefs), range: target.range };
+    return { markdown: withCommand(describeDefs(libraryDefs)), range: target.range };
   }
 
-  const command = target.usage?.kind === "call" ? commandHover(target.name) : undefined;
-  if (command) return { markdown: command, range: target.range };
-
-  if (unloaded.length > 0) {
+  // A library macro the load path never reaches (e.g. /alias without /require alias.tf). A
+  // name in the command tables is always available, so it never gets this note.
+  if (unloaded.length > 0 && !source) {
     const first = unloaded[0] as Def;
     return {
-      markdown: describeDefs(unloaded) + `\n\nNot loaded on this file's load path — \`/require ${first.label ?? ""}\` first.`,
+      markdown: withCommand(describeDefs(unloaded)) + `\n\nNot loaded on this file's load path — \`/require ${first.label ?? ""}\` first.`,
       range: target.range,
     };
   }
-  return undefined;
+
+  return command && target.usage?.kind === "call" ? { markdown: command, range: target.range } : undefined;
 }
 
 /**

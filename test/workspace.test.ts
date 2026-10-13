@@ -60,6 +60,27 @@ describe("cross-file navigation through the workspace index", () => {
     [p("lib", "stdlib.tf")]: "/def -i stdthing = /echo\n",
     [p("lib", "alias.tf")]: "/loaded __TFLIB__/alias.tf\n;;; /alias <name> <command>\n/def -i alias = /echo alias\n",
     [p("lib", "kbstack.tf")]: "/def -i kb_push = /echo\n",
+    [p("lib", "tf-help")]: [
+      "&/alias",
+      "",
+      "  Usage: ",
+      "",
+      "  /REQUIRE alias.tf",
+      "  /ALIAS [<name> [<command>]]",
+      "  ________________________________",
+      "",
+      "  Help text for alias.",
+      "",
+      "&/let",
+      "",
+      "  Usage: ",
+      "",
+      "  /LET <name>=<value>",
+      "  ________________________________",
+      "",
+      "  Help text for let.",
+      "",
+    ].join("\n"),
     [p("ws", "tfrc")]: "/require alias.tf\n/load helpers.tf\n/load main.tf\n",
     [p("ws", "helpers.tf")]: ";;; Greets someone.\n/def greet = /echo hi %1\n",
     [p("ws", "main.tf")]: "/alias n north\n/greet bob\n/kb_push\n/stdthing\n",
@@ -79,7 +100,7 @@ describe("cross-file navigation through the workspace index", () => {
     const { text, ctx } = doc(p("ws", "main.tf"));
     const hover = getHover(text, pos(0, 2), ctx)?.markdown ?? "";
     expect(hover).toContain("`alias.tf` (tf library) line 3");
-    expect(hover).toContain("/alias <name> <command>");
+    expect(hover).toContain("/alias \\<name\\> \\<command\\>");
     expect(hover).not.toContain("Not loaded");
     expect(getDefinition(text, pos(0, 2), ctx)).toEqual([
       { uri: uriOf(p("lib", "alias.tf")), range: { start: pos(2, 8), end: pos(2, 13) } },
@@ -106,6 +127,24 @@ describe("cross-file navigation through the workspace index", () => {
     expect(hover).toContain("Not loaded on this file's load path");
     expect(hover).toContain("/require kbstack.tf");
     expect(getDefinition(text, pos(2, 2), ctx).map((l) => path.basename(l.uri))).toEqual(["kbstack.tf"]);
+  });
+
+  it("describes commands from the installed tf-help", () => {
+    const { ctx } = doc(p("ws", "main.tf"));
+    const md = getHover("/let x 1\n", pos(0, 2), ctx)?.markdown ?? "";
+    expect(md).toContain("/let <name>=<value>");
+    expect(md).toContain("Help text for let.");
+    expect(md).toContain("control-flow keyword");
+  });
+
+  it("adds tf-help to a loaded library macro, and to the not-loaded hint", () => {
+    const loaded = doc(p("ws", "main.tf"));
+    expect(getHover(loaded.text, pos(0, 2), loaded.ctx)?.markdown).toContain("Help text for alias.");
+    const stray = doc(p("ws", "stray.tf"));
+    const md = getHover("/alias n north\n", pos(0, 2), stray.ctx)?.markdown ?? "";
+    expect(md).toContain("/require alias.tf\n/alias [<name> [<command>]]");
+    expect(md).toContain("Help text for alias.");
+    expect(md).toContain("Not loaded on this file's load path");
   });
 
   it("gives a file no entry point reaches only what stdlib.tf loads", () => {

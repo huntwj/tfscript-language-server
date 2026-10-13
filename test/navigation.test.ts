@@ -98,8 +98,13 @@ describe("getHover", () => {
       "",
     ].join("\n");
     const md = getHover(text, pos(4, 2))?.markdown ?? "";
-    expect(md).toContain("/greet <name>\n  Says hello to <name>.");
+    expect(md).toContain("/greet \\<name\\>  \n  Says hello to \\<name\\>.");
     expect(md).not.toContain("section notes");
+  });
+
+  it("escapes doc-comment text so <placeholders>, _ and * survive Markdown rendering", () => {
+    const text = [";;; /kb_push [-w<world>] %*", "/def kb_push = /echo", "/kb_push", ""].join("\n");
+    expect(getHover(text, pos(2, 2))?.markdown).toContain("/kb\\_push \\[-w\\<world\\>\\] %\\*");
   });
 
   it("ignores a ;;; block separated from the /def by a blank line, and ;/ code", () => {

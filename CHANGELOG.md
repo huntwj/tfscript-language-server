@@ -49,6 +49,14 @@
   `/if`/`/while` children indented a level, and continuation lines re-indented. Only whitespace
   tf ignores is changed, and each entry is checked by joining it again. New setting
   `tfscript.format.splitStatements` (default on) turns the splitting off.
+- Completion beyond command names: tf's expression functions (from `funclist.h`, with
+  synopses from htmldoc) and special variables (from `varlist.h`, with their types, defaults and
+  enum values) inside `$[...]`, `/if (...)`, `/test` and the like; `%{` selectors and
+  variables; variable names after `/set`/`/unset`; an enum or flag variable's values after
+  `/set name=`; and your own macros and the variables your scripts set. Nothing inside comments
+  or strings.
+- Signature help inside function calls (`regmatch(|`), and hover for functions, special
+  variables and `%{...}` selectors, with descriptions from the installed `tf-help`.
 - Load contexts: new settings `tfscript.contexts` (named entry-file lists, one per way tf is
   started) and `tfscript.activeContext`. Each context has its own load path; a file is seen
   through the active context when it loads the file, else the first that does. VS Code shows the

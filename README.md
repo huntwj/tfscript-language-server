@@ -5,7 +5,7 @@ tfscript, the macro language of [TinyFugue](https://tinyfugue.sourceforge.net/) 
 terminal MUD client. tf scripts are `.tf` files full of `/def` macros, triggers, and hooks.
 
 This is early, pre-1.0 software: diagnostics for the handful of rules proven so far (below),
-command-name completion, document symbols (an outline of every `/def`, `/alias`, `/bind`,
+completion (commands, functions, variables, selectors), document symbols (an outline of every `/def`, `/alias`, `/bind`,
 `/hook` and `/trig*`), folding, quick fixes for two of the diagnostics, and hover,
 go-to-definition and find-references for macros across every file your tfrc's `/load` and
 `/require` lines reach (see "Load paths"), signature help, semantic highlighting, workspace-wide
@@ -204,11 +204,28 @@ re-parses the same sources directly (not through `dist/`, so it never needs a pr
 when present, and fails on drift — the same sync-check shape as the private notes repo's own
 `tinyfugue.pin.json`.
 
-`src/completions.ts` wires this into `onCompletion`: right after typing `/` and an optional
-partial word, the server offers every known command name (lowercase, matching how every real
-script actually writes them, even though the source tables store uppercase). No `onHover` yet,
-and no completion for anything other than command names — a fourth data source (`expr.c`'s
-expression functions and `variable.c`'s special variables) is still needed for that.
+Two more tables come from the same checkout: `functions.generated.ts`, tf's expression
+functions from `src/funclist.h` (name, fewest and most arguments, the compile-time option a
+few need) with their argument synopses from `htmldoc/topics/functions.html`; and
+`variables.generated.ts`, tf's special variables from `src/varlist.h` with their type,
+default, and the values an enum or flag variable takes (`enumlist.h`, `variable.c`).
+
+`src/completions.ts` uses all of it, by where the cursor is (`src/expressions.ts`):
+
+- after `/`: tf's command names (lowercase, as every real script writes them, though the C
+  tables store uppercase) and your own macros;
+- in an expression — `$[...]`, the `(...)` of `/if`/`/elseif`/`/while`, the rest of
+  `/test`, `/expr`, `/result` and `/return` — tf's functions (inserted with their
+  parentheses, which opens signature help), special variables, the variables your scripts set
+  (`/set`, `/let`, `/setenv`, `name := ...`) and your macros, callable as functions;
+- after `%{`: the selectors (`*`, `#`, `1`, `-L`, `P0`...) and the variables; after `/set`,
+  `/unset` and friends: variable names; after `/set name=`: the values an enum or flag
+  variable takes.
+
+Nothing is offered inside comments or string literals. Signature help works inside a function
+call too (`regmatch(|` shows `regmatch(s1, s2)`), and hover explains a function, a special
+variable (`%{wrap}`, `wrap` in an expression, `/set wrap`) or a selector; the descriptions
+come from the installed `tf-help`'s entries for them, as for commands.
 
 ## Layout
 
@@ -217,9 +234,14 @@ src/
   logicalEntries.ts   splits a document into tf's "one command per (joined) line" units
   rules/              one file per diagnostic rule, plus the shared Rule type
   diagnostics.ts       runs every rule over every entry, maps offsets back to positions
-  server.ts            LSP server entry point (stdio): diagnostics on didOpen/didChange,
-                        command-name completion, document symbols, folding ranges, code actions
-  completions.ts        pure getCommandCompletions(linePrefix), used by server.ts
+  server.ts            LSP server entry point (stdio): wires everything below to the protocol
+  expressions.ts       where the cursor is: a command, a %{...}, a /set, or an expression and
+                        the function call in it
+  completions.ts        getCompletions(text, position, context) for each of those
+  signatureHelp.ts     command and function synopses with the current argument highlighted
+  expressionHover.ts   hover for functions, special variables and selectors
+  semanticTokens.ts    names coloured by what they resolve to
+  formatting.ts        re-indents and splits macro bodies, changing only whitespace tf ignores
   symbols.ts           getDocumentSymbols(text): one symbol per macro-defining entry; /def
                         names follow macro.c's macro_spec() option grammar
   folding.ts           getFoldingRanges(text): continued entries and comment runs
@@ -231,12 +253,14 @@ src/
   workspace/           loadGraph.ts (tf's load order, statically), settings.ts (tfscript.*
                         settings and their defaults), workspaceIndex.ts (per-folder graphs,
                         unsaved edits, library files) — see "Load paths" above
-  data/                command names, usage synopses and descriptions for completion/hover
-                        — see "Command data" above
+  data/                commands, functions, special variables and selectors, with usage
+                        synopses and descriptions — see "Command data" above
 test/
   diagnostics.test.ts   unit tests per rule
   logicalEntries.test.ts  regression tests for comment lines, backslash continuation, and CRLF
-  completions.test.ts   unit tests for getCommandCompletions
+  completions.test.ts   completion in every cursor context
+  signatureHelp.test.ts, expressionHover.test.ts, semanticTokens.test.ts, formatting.test.ts
+                        unit tests for those modules
   symbols.test.ts, folding.test.ts, codeActions.test.ts, navigation.test.ts  unit tests for
                         the four above
   loadGraph.test.ts, workspace.test.ts  load order and path resolution (each rule proven
@@ -269,9 +293,9 @@ npm test               # vitest, fast, no Docker
 node dist/server.js     # run the server directly (speaks LSP over stdio)
 ```
 
-The server advertises `completionProvider` (triggered on `/`), `documentSymbolProvider`,
+The server advertises `completionProvider` (triggered on `/` and `{`), `documentSymbolProvider`,
 `foldingRangeProvider`, `codeActionProvider` (quick fixes only), `hoverProvider`,
-`definitionProvider`, `referencesProvider`, `signatureHelpProvider` (triggered on space), `semanticTokensProvider`
+`definitionProvider`, `referencesProvider`, `signatureHelpProvider` (triggered on space, `(` and `,`), `semanticTokensProvider`
 (full documents), `documentFormattingProvider`, `documentRangeFormattingProvider`,
 `workspaceSymbolProvider` and `renameProvider` (with prepare), and publishes diagnostics
 tagged `source: "tfscript"`. Many editors' LSP clients also pass a `--stdio` flag by
@@ -334,8 +358,8 @@ Two layers, matching the private notes repo's own fast-loop/slow-run split:
   above was found, and how that fix (and several others) was confirmed against all 46
   tinyfugue/lib/tf files plus the 3 WoTMUD ones.
 
-Following scripting.md's roadmap order: diagnostics done, completion started (command names;
-expression functions and special variables still needed), single-file document symbols,
+Following scripting.md's roadmap order: diagnostics done, completion of commands, functions and
+variables, single-file document symbols,
 folding, quick fixes, and hover, go-to-definition and find-references across the load path
 done, with command descriptions from the installed `tf-help`, plus workspace symbols,
 rename, the load-path diagnostics, signature help, semantic highlighting and formatting.

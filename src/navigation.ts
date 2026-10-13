@@ -31,9 +31,11 @@ export interface NameUsage {
   kind: UsageKind;
   /** Just the name. */
   range: Range;
+  /** An unbraced `$name`, which only allows identifier characters. */
+  bare?: boolean;
 }
 
-const NAME = "[^\\s%;=()\\[\\]{}\"'`$\\\\]+";
+const NAME ="[^\\s%;=()\\[\\]{}\"'`$\\\\]+";
 const CALL_RE = new RegExp(`(^|[\\s;|(])\\/(@?)(${NAME})`, "g");
 const BRACED_SUBST_RE = /(?<!\$)\$\{([^}\s]+)\}/g;
 const BARE_SUBST_RE = /(?<!\$)\$([A-Za-z_][A-Za-z0-9_]*)/g;
@@ -42,11 +44,12 @@ export function findUsages(text: string): NameUsage[] {
   const usages: NameUsage[] = [];
   splitRawLines(text).forEach((line, lineNo) => {
     if (isCommentLine(line)) return;
-    const push = (name: string, kind: UsageKind, start: number): void => {
+    const push = (name: string, kind: UsageKind, start: number, bare = false): void => {
       usages.push({
         name,
         kind,
         range: { start: { line: lineNo, character: start }, end: { line: lineNo, character: start + name.length } },
+        ...(bare ? { bare } : {}),
       });
     };
     for (const m of line.matchAll(CALL_RE)) {
@@ -56,7 +59,7 @@ export function findUsages(text: string): NameUsage[] {
       push(name, at ? "builtin-call" : "call", start);
     }
     for (const m of line.matchAll(BRACED_SUBST_RE)) push(m[1] as string, "substitution", (m.index ?? 0) + 2);
-    for (const m of line.matchAll(BARE_SUBST_RE)) push(m[1] as string, "substitution", (m.index ?? 0) + 1);
+    for (const m of line.matchAll(BARE_SUBST_RE)) push(m[1] as string, "substitution", (m.index ?? 0) + 1, true);
   });
   return usages;
 }
@@ -303,4 +306,80 @@ export function getReferences(text: string, pos: Position, includeDeclaration: b
     (a, b) =>
       a.uri.localeCompare(b.uri) || a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character,
   );
+}
+
+export interface TextEditAt {
+  uri: string;
+  range: Range;
+  newText: string;
+}
+
+type RenameTarget = { ok: true; target: Target; defs: Def[]; symbols: TfSymbol[] } | { ok: false; reason: string };
+
+function renameTarget(text: string, pos: Position, ctx: NavContext | undefined): RenameTarget {
+  const symbols = getDocumentSymbols(text);
+  const target = targetAt(text, pos, symbols);
+  if (!target) return { ok: false, reason: "Put the cursor on a macro name to rename it." };
+  if (target.usage?.kind === "builtin-call") {
+    return { ok: false, reason: `/@${target.name} always calls the built-in, which can't be renamed.` };
+  }
+  const defs = definitionsOf(target.name, text, symbols, ctx).filter((d) => d.loaded);
+  const library = defs.find((d) => d.library);
+  if (library) {
+    return { ok: false, reason: `/${target.name} is defined in tf's library (${library.label ?? "stdlib.tf"}), which isn't yours to rename.` };
+  }
+  if (defs.length === 0) {
+    const builtin = COMMANDS.has(target.name.toLowerCase());
+    return {
+      ok: false,
+      reason: builtin
+        ? `/${target.name} is a tf command, not a macro defined in your scripts.`
+        : `No /def of ${target.name} on this file's load path, so there is nothing to rename it consistently with.`,
+    };
+  }
+  return { ok: true, target, defs, symbols };
+}
+
+const NEW_NAME_RE = new RegExp(`^${NAME}$`);
+const IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** The range of the name under the cursor, if it can be renamed; otherwise why not. */
+export function prepareRename(text: string, pos: Position, ctx?: NavContext): { range: Range; placeholder: string } | { error: string } {
+  const r = renameTarget(text, pos, ctx);
+  return r.ok ? { range: r.target.range, placeholder: r.target.name } : { error: r.reason };
+}
+
+/**
+ * Renames a macro you defined: its `/def` names, and every `/name`, `${name}` and `$name` in
+ * this file and the others on its load path. A bare `$old` becomes `${new}` when the new name
+ * isn't a plain identifier, since only the braced form allows other characters.
+ *
+ * Not renamed, because nothing here can tell them from ordinary text: names inside strings or
+ * built at runtime (`/undef name`, `ismacro("name")`, `/def ~body_%1`), and comments —
+ * `;;;` doc lines included.
+ */
+export function getRenameEdits(text: string, pos: Position, newName: string, ctx?: NavContext): TextEditAt[] | { error: string } {
+  const r = renameTarget(text, pos, ctx);
+  if (!r.ok) return { error: r.reason };
+  if (!NEW_NAME_RE.test(newName)) {
+    return { error: `"${newName}" can't be a macro name here: no spaces, and none of % ; = ( ) [ ] { } " ' \` $ \\.` };
+  }
+  const { target, defs } = r;
+  const self = ctx?.uri ?? "";
+  const edits: TextEditAt[] = defs.map((d) => ({ uri: d.uri, range: d.symbol.selectionRange, newText: newName }));
+
+  const usesIn = (uri: string, fileText: string): void => {
+    for (const u of findUsages(fileText)) {
+      if (u.kind === "builtin-call" || !same(u.name, target.name)) continue;
+      if (u.bare && !IDENTIFIER_RE.test(newName)) {
+        const start = { line: u.range.start.line, character: u.range.start.character - 1 };
+        edits.push({ uri, range: { start, end: u.range.end }, newText: `\${${newName}}` });
+      } else {
+        edits.push({ uri, range: u.range, newText: newName });
+      }
+    }
+  };
+  usesIn(self, text);
+  for (const f of ctx?.files ?? []) usesIn(f.uri, f.text);
+  return edits;
 }

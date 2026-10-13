@@ -36,9 +36,9 @@ describe("getDefinition", () => {
 
   it("jumps from a call to its /def name, case-insensitively", () => {
     const want = [{ start: pos(0, 8), end: pos(0, 13) }];
-    expect(getDefinition(text, pos(1, 3))).toEqual(want);
-    expect(getDefinition(text, pos(2, 3))).toEqual(want);
-    expect(getDefinition(text, pos(4, 9))).toEqual(want);
+    expect(getDefinition(text, pos(1, 3)).map((l) => l.range)).toEqual(want);
+    expect(getDefinition(text, pos(2, 3)).map((l) => l.range)).toEqual(want);
+    expect(getDefinition(text, pos(4, 9)).map((l) => l.range)).toEqual(want);
   });
 
   it("does not treat /@name as a reference to the macro", () => {
@@ -59,8 +59,8 @@ describe("getReferences", () => {
   const text = ["/def greet = /echo hi", "/greet", "/@greet", "/echo ${greet} $greet", ""].join("\n");
 
   it("lists calls and substitutions, not /@ calls, with or without the declaration", () => {
-    expect(getReferences(text, pos(1, 2), false).map((r) => r.start)).toEqual([pos(1, 1), pos(3, 8), pos(3, 16)]);
-    expect(getReferences(text, pos(1, 2), true).map((r) => r.start)).toEqual([
+    expect(getReferences(text, pos(1, 2), false).map((r) => r.range.start)).toEqual([pos(1, 1), pos(3, 8), pos(3, 16)]);
+    expect(getReferences(text, pos(1, 2), true).map((r) => r.range.start)).toEqual([
       pos(0, 5),
       pos(1, 1),
       pos(3, 8),

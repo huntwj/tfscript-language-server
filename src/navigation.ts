@@ -66,10 +66,66 @@ function contains(range: Range, pos: Position): boolean {
   return afterStart && beforeEnd;
 }
 
+
 const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
-function macroDefinitions(symbols: TfSymbol[], name: string): TfSymbol[] {
-  return symbols.filter((s) => s.kind === "def" && same(s.name, name));
+export interface Location {
+  uri: string;
+  range: Range;
+}
+
+/** Another file on this file's load path, for references. */
+export interface ContextFile {
+  uri: string;
+  text: string;
+}
+
+/** A `/def` in some other file. */
+export interface ExternalMacro {
+  uri: string;
+  /** How to name the file in a hover: a workspace-relative path, or a library file's name. */
+  label: string;
+  symbol: TfSymbol;
+  /** That file's lines, for its `;;;` doc comment. */
+  lines: string[];
+  /** Part of tf's own library (TFLIBDIR) rather than the user's scripts. */
+  library: boolean;
+  /**
+   * False for a library file that is not on this file's load path at all: shown as a hint
+   * ("not loaded — /require it"), and as a last-resort definition target, never as a
+   * reference.
+   */
+  loaded: boolean;
+}
+
+/**
+ * What the rest of the workspace contributes. Without one, everything is single-file.
+ * `uri` is the document's own URI, used in the returned locations.
+ */
+export interface NavContext {
+  uri: string;
+  files: ContextFile[];
+  macros: ExternalMacro[];
+}
+
+interface Def {
+  uri: string;
+  label?: string;
+  symbol: TfSymbol;
+  lines: string[];
+  library: boolean;
+  loaded: boolean;
+}
+
+function definitionsOf(name: string, text: string, symbols: TfSymbol[], ctx: NavContext | undefined): Def[] {
+  const lines = splitRawLines(text);
+  const local: Def[] = symbols
+    .filter((s) => s.kind === "def" && same(s.name, name))
+    .map((symbol) => ({ uri: ctx?.uri ?? "", symbol, lines, library: false, loaded: true }));
+  const external: Def[] = (ctx?.macros ?? [])
+    .filter((m) => same(m.symbol.name, name))
+    .map((m) => ({ uri: m.uri, label: m.label, symbol: m.symbol, lines: m.lines, library: m.library, loaded: m.loaded }));
+  return [...local, ...external];
 }
 
 interface Target {
@@ -126,61 +182,101 @@ export function docCommentAbove(lines: string[], defLine: number): string | unde
   return doc.length > 0 ? doc.join("\n") : undefined;
 }
 
-export function getHover(text: string, pos: Position): TfHover | undefined {
+function where(def: Def): string {
+  const line = def.symbol.range.start.line + 1;
+  if (!def.label) return `this file, line ${line}`;
+  return `\`${def.label}\`${def.library ? " (tf library)" : ""} line ${line}`;
+}
+
+function describeDefs(defs: Def[]): string {
+  const code = "```tf\n" + defs.map((d) => `${d.symbol.detail} ${d.symbol.name}`).join("\n") + "\n```\n\n";
+  const docs = defs.map((d) => docCommentAbove(d.lines, d.symbol.range.start.line)).filter((d) => d !== undefined);
+  return code + (docs.length > 0 ? `${docs.join("\n\n")}\n\n` : "") + `defined in ${defs.map(where).join("; ")}`;
+}
+
+export function getHover(text: string, pos: Position, ctx?: NavContext): TfHover | undefined {
   const symbols = getDocumentSymbols(text);
   const target = targetAt(text, pos, symbols);
   if (!target) return undefined;
+  const key = target.name.toLowerCase();
+  const source = COMMANDS.get(key);
 
   if (target.usage?.kind === "builtin-call") {
-    const source = COMMANDS.get(target.name.toLowerCase());
     if (source !== "builtin" && source !== "keyword") return undefined;
     const doc = commandHover(target.name);
     return doc ? { markdown: `${doc}\n\n\`/@\` calls the built-in even if a macro has the same name.`, range: target.range } : undefined;
   }
 
-  const defs = macroDefinitions(symbols, target.name);
-  if (defs.length > 0) {
-    const lines = defs.map((d) => `${d.detail} ${d.name}`).join("\n");
-    const where = defs.map((d) => d.range.start.line + 1).join(", ");
-    const source = COMMANDS.get(target.name.toLowerCase());
-    const shadow =
-      source === "builtin" || source === "keyword"
-        ? `\n\nShadows the built-in \`/${target.name.toLowerCase()}\`; \`/@${target.name.toLowerCase()}\` calls the built-in.`
-        : source === "stdlib"
-          ? `\n\nRedefines stdlib.tf's \`/${target.name.toLowerCase()}\`.`
-          : "";
-    const rawLines = splitRawLines(text);
-    const docs = defs.map((d) => docCommentAbove(rawLines, d.range.start.line)).filter((d) => d !== undefined);
-    const doc = docs.length > 0 ? `${docs.join("\n\n")}\n\n` : "";
-    return {
-      markdown: "```tf\n" + lines + "\n```\n\n" + doc + `macro defined in this file (line ${where})${shadow}`,
-      range: target.range,
-    };
+  const all = definitionsOf(target.name, text, symbols, ctx);
+  const userDefs = all.filter((d) => d.loaded && !d.library);
+  const libraryDefs = all.filter((d) => d.loaded && d.library);
+  const unloaded = all.filter((d) => !d.loaded);
+
+  if (userDefs.length > 0) {
+    let note = "";
+    if (source === "builtin" || source === "keyword") {
+      note = `\n\nShadows the built-in \`/${key}\`; \`/@${key}\` calls the built-in.`;
+    } else if (source === "stdlib" || libraryDefs.length > 0) {
+      const from = libraryDefs[0]?.label ?? "stdlib.tf";
+      note = `\n\nRedefines \`/${key}\` from \`${from}\`.`;
+    }
+    return { markdown: describeDefs(userDefs) + note, range: target.range };
   }
 
-  if (target.usage?.kind === "call") {
-    const doc = commandHover(target.name);
-    return doc ? { markdown: doc, range: target.range } : undefined;
+  if (libraryDefs.length > 0) {
+    const command = commandHover(target.name);
+    return { markdown: (command ? `${command}\n\n` : "") + describeDefs(libraryDefs), range: target.range };
+  }
+
+  const command = target.usage?.kind === "call" ? commandHover(target.name) : undefined;
+  if (command) return { markdown: command, range: target.range };
+
+  if (unloaded.length > 0) {
+    const first = unloaded[0] as Def;
+    return {
+      markdown: describeDefs(unloaded) + `\n\nNot loaded on this file's load path — \`/require ${first.label ?? ""}\` first.`,
+      range: target.range,
+    };
   }
   return undefined;
 }
 
-/** Where `/name` (or `${name}`) under the cursor is defined: every `/def` of it in this file. */
-export function getDefinition(text: string, pos: Position): Range[] {
+/**
+ * Where `/name` (or `${name}`) under the cursor is defined: every `/def` of it in this file
+ * and in the files on its load path — or, failing those, in a tf library file that isn't
+ * loaded, so go-to-definition still finds `/alias` before its `/require alias.tf` is added.
+ */
+export function getDefinition(text: string, pos: Position, ctx?: NavContext): Location[] {
   const symbols = getDocumentSymbols(text);
   const target = targetAt(text, pos, symbols);
   if (!target || target.usage?.kind === "builtin-call") return [];
-  return macroDefinitions(symbols, target.name).map((d) => d.selectionRange);
+  const all = definitionsOf(target.name, text, symbols, ctx);
+  const loaded = all.filter((d) => d.loaded);
+  return (loaded.length > 0 ? loaded : all).map((d) => ({ uri: d.uri, range: d.symbol.selectionRange }));
 }
 
-/** Every call and substitution of the macro under the cursor, plus its /def names if asked. */
-export function getReferences(text: string, pos: Position, includeDeclaration: boolean): Range[] {
+/**
+ * Every call and substitution of the macro under the cursor, in this file and the others on
+ * its load path, plus the `/def` names if asked.
+ */
+export function getReferences(text: string, pos: Position, includeDeclaration: boolean, ctx?: NavContext): Location[] {
   const symbols = getDocumentSymbols(text);
   const target = targetAt(text, pos, symbols);
   if (!target || target.usage?.kind === "builtin-call") return [];
-  const uses = findUsages(text)
-    .filter((u) => u.kind !== "builtin-call" && same(u.name, target.name))
-    .map((u) => u.range);
-  const decls = includeDeclaration ? macroDefinitions(symbols, target.name).map((d) => d.selectionRange) : [];
-  return [...decls, ...uses].sort((a, b) => a.start.line - b.start.line || a.start.character - b.start.character);
+
+  const uses = (uri: string, fileText: string): Location[] =>
+    findUsages(fileText)
+      .filter((u) => u.kind !== "builtin-call" && same(u.name, target.name))
+      .map((u) => ({ uri, range: u.range }));
+
+  const decls = includeDeclaration
+    ? definitionsOf(target.name, text, symbols, ctx)
+        .filter((d) => d.loaded)
+        .map((d) => ({ uri: d.uri, range: d.symbol.selectionRange }))
+    : [];
+  const all = [...decls, ...uses(ctx?.uri ?? "", text), ...(ctx?.files ?? []).flatMap((f) => uses(f.uri, f.text))];
+  return all.sort(
+    (a, b) =>
+      a.uri.localeCompare(b.uri) || a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character,
+  );
 }

@@ -10,6 +10,8 @@ export interface FileSystem {
   readFile(file: string): string | undefined;
   /** `.tf` files directly inside `dir` (absolute paths), or none if it can't be read. */
   listTfFiles(dir: string): string[];
+  /** Every tf script under `dir`, recursively: `.tf` files plus `tfrc`/`.tfrc`. */
+  walkTfFiles(dir: string): string[];
 }
 
 interface LibraryFile {
@@ -66,6 +68,34 @@ export class WorkspaceIndex {
   private read = (file: string): string | undefined => this.overlay.get(keyOf(file)) ?? this.fs.readFile(file);
 
   /** The workspace folder holding `file` (the innermost one), or the file's own directory. */
+  /**
+   * Every macro-defining entry (`/def`, `/alias`, `/bind`, `/hook`, `/trig*`) in every tf
+   * script under the workspace folders — reached by a load path or not — whose name contains
+   * the query's characters in order, ignoring case (the editor ranks them further).
+   */
+  workspaceSymbols(query: string): { file: string; folder: string; symbol: TfSymbol }[] {
+    const q = query.toLowerCase();
+    const matches = (name: string): boolean => {
+      let i = 0;
+      for (const ch of name.toLowerCase()) if (ch === q[i]) i += 1;
+      return i === q.length;
+    };
+    const seen = new Set<string>();
+    const results: { file: string; folder: string; symbol: TfSymbol }[] = [];
+    for (const folder of this.folders) {
+      for (const file of this.fs.walkTfFiles(folder)) {
+        if (seen.has(keyOf(file))) continue;
+        seen.add(keyOf(file));
+        const text = this.read(file);
+        if (text === undefined) continue;
+        for (const symbol of getDocumentSymbols(text)) {
+          if (matches(symbol.name)) results.push({ file: path.resolve(file), folder, symbol });
+        }
+      }
+    }
+    return results;
+  }
+
   folderFor(file: string): string {
     const inside = this.folders.filter((f) => isInside(file, f));
     return inside.sort((a, b) => b.length - a.length)[0] ?? path.dirname(path.resolve(file));

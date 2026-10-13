@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { getDefinition, getHover, getReferences } from "../src/navigation";
+import { getDefinition, getHover, getReferences, getRenameEdits, prepareRename } from "../src/navigation";
 import { resolveSettings, type Environment } from "../src/workspace/settings";
 import { WorkspaceIndex } from "../src/workspace/workspaceIndex";
 
@@ -14,6 +14,8 @@ function memoryFs(files: Record<string, string>) {
     readFile: (f: string) => byKey.get(key(f)),
     listTfFiles: (dir: string) =>
       Object.keys(files).filter((f) => key(path.dirname(f)) === key(dir) && f.endsWith(".tf")),
+    walkTfFiles: (dir: string) =>
+      Object.keys(files).filter((f) => key(f).startsWith(key(dir) + path.sep) && /(\.tf|[/\\]\.?tfrc)$/.test(f)),
     exists: (f: string) => byKey.has(key(f)),
   };
 }
@@ -145,6 +147,27 @@ describe("cross-file navigation through the workspace index", () => {
     expect(md).toContain("/require alias.tf\n/alias [<name> [<command>]]");
     expect(md).toContain("Help text for alias.");
     expect(md).toContain("Not loaded on this file's load path");
+  });
+
+  it("renames a macro across the files on the load path, and refuses library macros", () => {
+    const { text, ctx } = doc(p("ws", "main.tf"));
+    const edits = getRenameEdits(text, pos(1, 2), "hello", ctx);
+    if ("error" in edits) throw new Error(edits.error);
+    expect(edits.map((e) => `${path.basename(e.uri)}:${e.range.start.line}:${e.newText}`).sort()).toEqual([
+      "helpers.tf:1:hello",
+      "main.tf:1:hello",
+    ]);
+    expect(prepareRename(text, pos(0, 2), ctx)).toMatchObject({ error: expect.stringContaining("tf's library") });
+  });
+
+  it("lists every macro in the workspace's scripts, reached or not, filtered by query", () => {
+    const fs = memoryFs(files);
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    const all = index.workspaceSymbols("").map((s) => s.symbol.name);
+    expect(all.sort()).toEqual(["greet", "n"]);
+    expect(index.workspaceSymbols("grt").map((s) => s.symbol.name)).toEqual(["greet"]);
+    expect(index.workspaceSymbols("xyz")).toEqual([]);
   });
 
   it("gives a file no entry point reaches only what stdlib.tf loads", () => {

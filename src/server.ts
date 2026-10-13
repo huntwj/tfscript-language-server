@@ -21,7 +21,15 @@ import {
   type InitializeResult,
   type Location,
   MarkupKind,
+  type PrepareRenameParams,
   type ReferenceParams,
+  type RenameParams,
+  ResponseError,
+  ErrorCodes,
+  type SymbolInformation,
+  type TextEdit,
+  type WorkspaceEdit,
+  type WorkspaceSymbolParams,
   type TextDocumentPositionParams,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
@@ -34,7 +42,7 @@ import { getCommandCompletions } from "./completions";
 import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
 import { getCodeActions } from "./codeActions";
-import { getDefinition, getHover, getReferences, type NavContext } from "./navigation";
+import { getDefinition, getHover, getReferences, getRenameEdits, prepareRename, type NavContext } from "./navigation";
 import type { RawSettings } from "./workspace/settings";
 import { fileKey } from "./workspace/loadGraph";
 import { WorkspaceIndex } from "./workspace/workspaceIndex";
@@ -62,7 +70,31 @@ function listTfFiles(dir: string): string[] {
   }
 }
 
-const index = new WorkspaceIndex({ readFile, listTfFiles }, { env: process.env, homedir: homedir(), exists: existsSync });
+const SKIP_DIRS = new Set([".git", ".jj", "node_modules"]);
+
+function walkTfFiles(dir: string): string[] {
+  const out: string[] = [];
+  const visit = (d: string): void => {
+    let entries;
+    try {
+      entries = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) {
+        if (!SKIP_DIRS.has(e.name)) visit(full);
+      } else if (e.name.endsWith(".tf") || e.name === "tfrc" || e.name === ".tfrc") {
+        out.push(full);
+      }
+    }
+  };
+  visit(dir);
+  return out;
+}
+
+const index = new WorkspaceIndex({ readFile, listTfFiles, walkTfFiles }, { env: process.env, homedir: homedir(), exists: existsSync });
 let folders: string[] = [];
 let hasConfiguration = false;
 
@@ -122,6 +154,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       hoverProvider: true,
       definitionProvider: true,
       referencesProvider: true,
+      workspaceSymbolProvider: true,
+      renameProvider: { prepareProvider: true },
     },
   };
 });
@@ -237,6 +271,36 @@ connection.onReferences((params: ReferenceParams): Location[] => {
     uri: l.uri || document.uri,
     range: l.range,
   }));
+});
+
+connection.onWorkspaceSymbol((params: WorkspaceSymbolParams): SymbolInformation[] =>
+  index.workspaceSymbols(params.query).map(({ file, folder, symbol }) => ({
+    name: symbol.name,
+    kind: toDocumentSymbol(symbol).kind,
+    location: { uri: toUri(file), range: symbol.selectionRange },
+    containerName: path.relative(folder, file).replace(/\\/g, "/"),
+  })),
+);
+
+connection.onPrepareRename((params: PrepareRenameParams) => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return null;
+  const result = prepareRename(document.getText(), params.position, contextFor(document));
+  if ("error" in result) throw new ResponseError(ErrorCodes.InvalidRequest, result.error);
+  return result;
+});
+
+connection.onRenameRequest((params: RenameParams): WorkspaceEdit | null => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return null;
+  const result = getRenameEdits(document.getText(), params.position, params.newName, contextFor(document));
+  if ("error" in result) throw new ResponseError(ErrorCodes.InvalidRequest, result.error);
+  const changes: Record<string, TextEdit[]> = {};
+  for (const edit of result) {
+    const uri = edit.uri || document.uri;
+    (changes[uri] ??= []).push({ range: edit.range, newText: edit.newText });
+  }
+  return { changes };
 });
 
 documents.listen(connection);

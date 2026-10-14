@@ -177,6 +177,8 @@ class Parser {
   readonly issues: StructureIssue[] = [];
   /** Every plain command statement read, in order (not `/test`, `/return` or `/result`). */
   readonly statements: Statement[] = [];
+  /** Compiling stopped at an error, so tf runs none of this text. */
+  stopped = false;
   constructor(private readonly s: string, private readonly mode: StructureMode) {}
 
   run(): void {
@@ -185,6 +187,7 @@ class Parser {
       else this.list(KEYWORD);
     } catch (e) {
       if (!(e instanceof Stop)) throw e;
+      this.stopped = true;
     }
   }
 
@@ -956,20 +959,29 @@ export function macroBodyStart(text: string): number {
 }
 
 /**
+ * The command statements tf runs from `text`, read as a macro body (`mode` "body", as `/eval` and
+ * a macro read their text) or a top-level command. None when compiling stops at an error: tf
+ * then runs nothing of it (proven 2026-10-13: a top-level `/if (1) /load a.tf%; /echo x` with
+ * no `/endif` loaded nothing and echoed nothing).
+ */
+export function parseStatements(text: string, mode: StructureMode): Statement[] {
+  const parser = new Parser(text, mode);
+  parser.run();
+  return parser.stopped ? [] : parser.statements;
+}
+
+/**
  * The command statements of a top-level entry, with offsets into `entry.text`: the entry as tf
  * reads a top-level line (one statement to the end of the line, unless it is an `/if` or
- * `/while`), then, for a macro-defining entry, the statements of its body. Parsing stops at the
- * first error, as tf's compiler does, so statements after it are missing.
+ * `/while`), then, for a macro-defining entry, the statements of its body.
  */
 export function entryStatements(entry: LogicalEntry): Statement[] {
-  const top = new Parser(entry.text, "top");
-  top.run();
-  const statements = [...top.statements];
+  const statements = parseStatements(entry.text, "top");
   const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(entry.text) : -1;
   if (body >= 0) {
-    const inner = new Parser(entry.text.slice(body), "body");
-    inner.run();
-    for (const st of inner.statements) statements.push({ ...st, start: st.start + body, end: st.end + body });
+    for (const st of parseStatements(entry.text.slice(body), "body")) {
+      statements.push({ ...st, start: st.start + body, end: st.end + body });
+    }
   }
   return statements;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkStructure, macroBodyStart, type StructureMode } from "../src/structure";
+import { checkStructure, macroBodyStart, parseStatements, type StructureMode } from "../src/structure";
 
 /**
  * Every input here was run through real tf (tf-script-check, 2026-10-13): the macro bodies as
@@ -202,5 +202,21 @@ describe("macroBodyStart", () => {
     expect("/trig a\"=b\" = /echo x".slice(macroBodyStart("/trig a\"=b\" = /echo x"))).toBe("b\" = /echo x");
     expect(macroBodyStart("/def foo")).toBe(-1);
     expect(macroBodyStart("/echo a = b")).toBe(-1);
+  });
+});
+
+describe("parseStatements", () => {
+  const texts = (text: string, mode: StructureMode) => parseStatements(text, mode).map((st) => text.slice(st.start, st.end));
+
+  it("splits a body on %; but reads a plain top-level command to the end of the line", () => {
+    expect(texts("/load a.tf%; /echo x", "body")).toEqual(["/load a.tf", "/echo x"]);
+    expect(texts("/load a.tf%; /echo x", "top")).toEqual(["/load a.tf%; /echo x"]);
+    expect(texts("/if (1) /load a.tf%; /endif", "top")).toEqual(["/load a.tf"]);
+  });
+
+  it("gives nothing when compiling stops at an error, since tf then runs none of it", () => {
+    // Real tf: this top-level line loaded nothing and echoed nothing.
+    expect(texts("/if (1) /load a.tf%; /echo x", "top")).toEqual([]);
+    expect(texts("/echo a%; /if (1) /echo b", "body")).toEqual([]);
   });
 });

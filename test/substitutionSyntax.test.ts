@@ -285,6 +285,9 @@ describe("not-substituted-here and nested or malformed %{", () => {
     );
     expect(ifLine?.fix).toBeUndefined();
     expect(fixOf("/if (1) /eval -s0 /echo %% X2:%{x} %%{y%; /endif\n")?.fix).toBeUndefined();
+    // Proven live (s2/r/esc.tf): an /if line hands /eval %%{x} as %{x}, which it then substitutes,
+    // where the line as written leaves it as text.
+    expect(fixOf("/if (1) /echo E1:%{y} %%{x}%; /endif\n")?.fix).toBeUndefined();
     // %%{y reaches /eval as text, but a run of %s is more than a plain variable: no fix offered.
     expect(fixOf("/if (1) /echo %% X3:%{x} %%%{y%; /endif\n")?.fix).toBeUndefined();
   });

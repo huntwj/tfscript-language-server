@@ -231,7 +231,9 @@ export const notSubstitutedHere: EntryRule = {
         while (to < s.length && !isTfSpace(s[to])) to += 1;
         return { kind: "rejected", bad: written.slice(map[from], to > from ? (map[to - 1] as number) + 1 : map[from]) };
       }
-      return plainSubstitutions(s) ? { kind: "plain" } : { kind: "other" };
+      // A run of %s as written is an escape someone meant, even where an /if line shortens it: in
+      // `/if (1) /echo %%{x}%; /endif` the %%{x} would be substituted under /eval (review rev-s2d c.tf).
+      return plainSubstitutions(s) && !written.includes("%%") ? { kind: "plain" } : { kind: "other" };
     };
     // Once per statement: a line can hold thousands of %{...}, each asking about the same statement.
     const judged = new Map<ContextStatement | undefined, Judgement>();

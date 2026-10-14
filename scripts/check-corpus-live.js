@@ -92,7 +92,8 @@ function runThisEngine(filesDir, files) {
     const text = readFileSync(path.join(filesDir, file), "utf8");
     const diags = getDiagnostics(text);
     perFile[file] = diags;
-    if (diags.length > 0) anyProblem = true;
+    // As in groundTruth.test.ts: an information note is on something tf runs without complaint.
+    if (diags.some((d) => d.severity !== "information")) anyProblem = true;
   }
   return { verdict: anyProblem ? "problem" : "clean", perFile };
 }

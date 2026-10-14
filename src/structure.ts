@@ -165,8 +165,10 @@ interface Open {
   end: number;
   /** Where the current part of its body (after a condition, /then, /do or /else) starts. */
   body?: number;
-  /** An /endif that would have closed it has been found in a /let or /set value. */
-  swallowed?: boolean;
+  /** The first /endif that would have closed it, found in a /let or /set value instead. */
+  swallowed?: Swallowed;
+  /** How many `$(...)` it is inside. */
+  cmdsub: number;
 }
 
 function isNameChar(ch: string | undefined): boolean {
@@ -504,7 +506,7 @@ class Parser {
   private openBlock(keyword: "if" | "while", start: number, end: number, subs: number): void {
     const outer = this.block;
     this.block = keyword;
-    this.open.push({ keyword, start, end });
+    this.open.push({ keyword, start, end, cmdsub: this.cmdsub });
     this.list(subs);
     // Where the list stopped: /endif or /done if it closed, else whatever block it was in.
     const ended = this.block as Block;
@@ -528,6 +530,10 @@ class Parser {
       if (ended === "if" || ended === "elseif") {
         this.blockError(start, end, conditionList("if", "then"), "then", "block", to);
       } else if (ended === "then" || ended === "else") {
+        // Never closed: an /endif swallowed by a /let or /set value is what should have closed it.
+        // The text (or the $(...)) ended, so every /if open around it in the same $(...) is
+        // unclosed too, and compiling stops here: record theirs as well.
+        for (const o of this.open) if (o.cmdsub === this.cmdsub && o.swallowed) this.swallowed.push(o.swallowed);
         const top = this.mode === "top" && this.cmdsub === 0 && this.i >= this.s.length;
         this.blockError(
           start,
@@ -757,15 +763,19 @@ class Parser {
    * Records an `/if` or `/endif` in a /let or /set value (for let-swallows-endif), with the `%;`s
    * that make it a statement of its own, placed as separateSwallowed() places them. An `/endif`
    * counts only while its `/if` is open, and only the first one per `/if`: at most one can close
-   * it, so fixing a later one too would leave that one stray.
+   * it, so fixing a later one too would leave that one stray. It is kept pending on the `/if`, and
+   * recorded only if the `/if` reaches its end unclosed (openBlock): when a real `/endif` closes it
+   * later, the swallowed one is just text, and putting `%;` before it would close the `/if` early
+   * (proven live: "unexpected /ENDIF in outer block").
    */
   private swallow(word: string, start: number, end: number, command: string, stmt: number, separates: boolean): boolean {
+    const edits = separates ? this.separateSwallowed([{ start, end, word, command, stmt }]) : [];
     if (word === "endif") {
       const open = this.open[this.open.length - 1];
       if (!open || (this.block !== "then" && this.block !== "else") || open.swallowed) return false;
-      open.swallowed = true;
+      open.swallowed = { start, end, word, stmt, edits };
+      return true;
     }
-    const edits = separates ? this.separateSwallowed([{ start, end, word, command, stmt }]) : [];
     this.swallowed.push({ start, end, word, stmt, edits });
     return true;
   }

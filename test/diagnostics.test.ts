@@ -107,6 +107,19 @@ describe("let-swallows-endif (rule 5)", () => {
     expect(codes("/def -i a = /if(x) /let v=1 /endif\n")).not.toContain("let-swallows-endif");
   });
 
+  // Proven live: each of these runs clean, and with a %; before the swallowed /endif it fails
+  // ("unexpected /ENDIF in outer block"): a real /endif closes the /if later, so that one is text.
+  it("says nothing about a swallowed /endif when a real one closes the /if later", () => {
+    for (const text of [
+      "/def -i p1 = /if (1) /let x=1 /endif%; /endif%; /echo p1 x=%x\n",
+      "/def -i p2 = /if (1) /let x=1 /endif%; /else /echo no%; /endif%; /echo p2 x=%x\n",
+      "/def -i p3 = /if (1) /let x=1 /endif%; /elseif (2) /echo no%; /endif%; /echo p3 x=%x\n",
+      "/def -i p4 = /if (1) /if (2) /let x=1 /endif%; /endif%; /endif%; /echo p4 x=%x\n",
+    ]) {
+      expect(codes(text), text).toEqual([]);
+    }
+  });
+
   // At most one /endif can close the /if, so fixing a later one too would leave it stray (proven live).
   it("flags only the first /endif swallowed while the /if is open", () => {
     const found = getDiagnostics("/def a = /if (1) /let x=1 /endif%; /let y=2 /endif\n").filter((d) => d.code === "let-swallows-endif");

@@ -28,4 +28,4 @@ export const RULES: Rule[] = [
   separatorSendsBlankLine,
 ];
 
-export type { EntryRule, FileRule, Rule, EntryMatch, LineMatch, Severity } from "./types";
+export type { EntryRule, FileRule, Rule, EntryMatch, LineMatch, LineSpan, Severity } from "./types";

@@ -156,7 +156,7 @@ function isDigit(ch: string | undefined): boolean {
 }
 
 /** `text` as a Markdown code span, for the hover explanations (which are Markdown). */
-function code(text: string): string {
+export function code(text: string): string {
   return text.includes("`") ? `\`\` ${text} \`\`` : `\`${text}\``;
 }
 

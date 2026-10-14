@@ -1,6 +1,6 @@
 import { splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { RULES, type Severity } from "./rules";
-import type { EntryMatch } from "./rules/types";
+import type { EntryMatch, LineMatch, LineSpan } from "./rules/types";
 import { findAbortEntry } from "./rules/bareLineAfterCommand";
 
 export interface Position {
@@ -71,6 +71,19 @@ function entryDiagnostic(entry: LogicalEntry, match: EntryMatch, code: string, s
   return d;
 }
 
+function spanRange(s: LineSpan): Range {
+  return { start: { line: s.line, character: s.startChar }, end: { line: s.line, character: s.endChar } };
+}
+
+function lineDiagnostic(match: LineMatch, code: string, severity: Severity): TfDiagnostic {
+  const d: TfDiagnostic = { range: spanRange(match), message: match.message, code, severity };
+  if (match.label) d.label = match.label;
+  if (match.explanation) d.explanation = match.explanation;
+  if (match.related && match.related.length > 0) d.related = match.related.map((n) => ({ range: spanRange(n), message: n.message }));
+  if (match.fix) d.fix = { title: match.fix.title, edits: match.fix.edits.map((e) => ({ range: spanRange(e), newText: e.newText })) };
+  return d;
+}
+
 export function getDiagnostics(text: string): TfDiagnostic[] {
   const entries = splitLogicalEntries(text);
   const diagnostics: TfDiagnostic[] = [];
@@ -100,31 +113,11 @@ export function getDiagnostics(text: string): TfDiagnostic[] {
         }
       }
     } else {
-      for (const match of rule.check(textForFileRules)) {
-        diagnostics.push({
-          range: {
-            start: { line: match.line, character: match.startChar },
-            end: { line: match.line, character: match.endChar },
-          },
-          message: match.message,
-          code: rule.id,
-          severity: rule.severity,
-        });
-      }
+      for (const match of rule.check(textForFileRules)) diagnostics.push(lineDiagnostic(match, rule.id, rule.severity));
     }
   }
 
-  if (abort) {
-    diagnostics.push({
-      range: {
-        start: { line: abort.line, character: abort.startChar },
-        end: { line: abort.line, character: abort.endChar },
-      },
-      message: abort.message,
-      code: "bare-line-after-command",
-      severity: "error",
-    });
-  }
+  if (abort) diagnostics.push(lineDiagnostic(abort, "bare-line-after-command", "error"));
 
   return diagnostics;
 }

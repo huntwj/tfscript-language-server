@@ -12,12 +12,23 @@ export interface EntryMatch extends IssueDetail {
   end: number;
 }
 
-/** A direct document position, used by file-scoped rules (they see raw lines, not offsets). */
-export interface LineMatch {
+/** A span of one physical line. */
+export interface LineSpan {
   line: number;
   startChar: number;
   endChar: number;
+}
+
+/**
+ * A direct document position, used by file-scoped rules (they see raw lines, not offsets). The
+ * optional details mirror EntryMatch's, with line positions in place of offsets.
+ */
+export interface LineMatch extends LineSpan {
   message: string;
+  label?: string;
+  explanation?: string;
+  related?: (LineSpan & { message: string })[];
+  fix?: { title: string; edits: (LineSpan & { newText: string })[] };
 }
 
 export interface EntryRule {

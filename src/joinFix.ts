@@ -54,8 +54,8 @@ const TOP_BLOCK_RE = /^\/(?:if|while)\b/i;
 const OWN_SEPARATOR_RE = /(?<!%)%[;|\\]/;
 /** A line whose last statement is a lone /do or /then. */
 const KEYWORD_END_RE = /(?:^|%;[ \t]*)\/(?:do|then)$/i;
-/** A command whose last statement is an /endif or /done, with only blanks or `%;` after it. */
-const CLOSES_RE = /(?:^|[ \t;|\\])\/(?:endif|done)(?:[ \t\r\f\v]|%;)*$/i;
+/** A command whose last statement is an /endif or /done, with only blanks or separators after it. */
+const CLOSES_RE = /(?:^|[ \t;|\\])\/(?:endif|done)(?:[ \t\r\f\v]|%[;|\\])*$/i;
 /** A line that starts with a keyword of a block: it can only belong to one opened above it. */
 const STRAY_KEYWORD_RE = /^\/(?:then|else|elseif|endif|do|done)(?![^ \t\r\f\v%])/i;
 /** Structural fixes the settle step applies; not "Add %; /endif ...", which would close a block early. */

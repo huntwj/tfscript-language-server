@@ -241,7 +241,8 @@ describe("rule fixes", () => {
 
   it("counts a block ending in /endif%; or /done%; as closed too, and joins nothing onto it", () => {
     // v01, v03, v04, v05 (tf dev, 2026-10-14): joined on, the lines run after the block whatever it decides.
-    for (const first of ["/if (0) /echo % a%; /endif%;", "/while (0) /echo % a%; /done%;", "/if (0) /echo % a%; /endif %;"]) {
+    // v06: after %| tf reports "Piping output of a special command" for the joined line.
+    for (const first of ["/if (0) /echo % a%; /endif%;", "/while (0) /echo % a%; /done%;", "/if (0) /echo % a%; /endif %;", "/if (0) /echo % a%; /endif%|"]) {
       const text = `${first}\n    /echo % b\n/echo % after\n`;
       const d = getDiagnostics(text).find((x) => x.code === "indented-line-after-command");
       expect(d?.fix?.title).toBe("Remove the indentation");

@@ -913,19 +913,40 @@ interface Scanned {
   functionCalls: MacroCall[];
 }
 
+/**
+ * By text, most recently used last. Find-references, rename and the lenses read every file on
+ * the load path (often hundreds) on each request, so this holds that many: past it, every
+ * request scanned them all again. Each edit of a file is a new text, so the total size is capped
+ * too, or a big file being typed in would fill it with old versions of itself.
+ */
 const cache = new Map<string, Scanned>();
+const CACHE_SIZE = 2000;
+const CACHE_CHARS = 16_000_000;
+let cachedChars = 0;
+
+/** How many texts have been scanned (not found in the cache), for tests. */
+export const scanStats = { scans: 0 };
 
 function scan(text: string): Scanned {
   let result = cache.get(text);
-  if (!result) {
+  if (result) {
+    cache.delete(text);
+    cache.set(text, result);
+  } else {
+    scanStats.scans += 1;
     const entries = splitLogicalEntries(text).flatMap((entry, i) => (entry.incomplete ? [] : [entryVariables(entry, i)]));
     result = {
       variables: entries.flatMap((e) => e.variables),
       calls: entries.flatMap((e) => e.calls),
       functionCalls: entries.flatMap((e) => e.functionCalls),
     };
-    if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
+    while (cache.size > 0 && (cache.size >= CACHE_SIZE || cachedChars + text.length > CACHE_CHARS)) {
+      const oldest = cache.keys().next().value as string;
+      cache.delete(oldest);
+      cachedChars -= oldest.length;
+    }
     cache.set(text, result);
+    cachedChars += text.length;
   }
   return result;
 }

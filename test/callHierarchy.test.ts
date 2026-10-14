@@ -246,3 +246,17 @@ describe("WorkspaceIndex.callerFiles for a /def outside every workspace folder",
     );
   });
 });
+
+describe("the cost of reading many files", () => {
+  it("scans each file once across requests, even with hundreds on the load path", async () => {
+    const { getReferences } = await import("../src/navigation");
+    const { scanStats } = await import("../src/variables");
+    const files = Array.from({ length: 300 }, (_, i) => ({ uri: `file:///ws/f${i}.tf`, text: `/def -i m${i} = /greet%; /echo $[greet(${i})]\n` }));
+    const text = "/def -i greet = /echo hi\n";
+    const ctx: NavContext = { uri: "file:///ws/a.tf", files, macros: [] };
+    expect(getReferences(text, pos(0, 9), false, ctx)).toHaveLength(600);
+    const before = scanStats.scans;
+    for (let i = 0; i < 5; i += 1) getReferences(text, pos(0, 9), false, ctx);
+    expect(scanStats.scans - before).toBe(0);
+  });
+});

@@ -1,6 +1,6 @@
 import { isTfSpace, type LogicalEntry } from "./logicalEntries";
 import { evalMode, shortened, type Source } from "./loadCommands";
-import { macroBodyStart, parseRegions, type ExpressionRegion, type StructureIssue, type StructureMode, type SubLevel } from "./structure";
+import { code, macroBodyStart, parseRegions, type ExpressionRegion, type StructureIssue, type StructureMode, type SubLevel } from "./structure";
 
 /**
  * Which text of a top-level entry tf substitutes, and how: one table the rules ask, rather than
@@ -369,6 +369,43 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
   };
 
   /**
+   * A `/for`'s END, compiled where stdlib puts it: `/while ( VAR <= END )` (stdlib.tf). A problem
+   * the parser finds in END itself is kept as it is. One it reports at the text around END (a `)`
+   * of stdlib's that END's own `(` or `$[` takes, say) is no character the file holds, so it is
+   * said of END as a whole; one in VAR was already said of the `/let`.
+   */
+  const forEnd = (h: Source, name: { start: number; end: number }, to: { start: number; end: number }): void => {
+    // A body, as stdlib has, so a ) END leaves over starts it rather than meeting /done.
+    const wrapped = built(h, ["/while ( ", name, " <= ", to, " ) x%; /done"]);
+    const endStart = "/while ( ".length + (name.end - name.start) + " <= ".length;
+    const endEnd = endStart + (to.end - to.start);
+    const written = h.text.slice(to.start, to.end);
+    const incomplete: StructureIssue = {
+      kind: "expression",
+      start: endStart,
+      end: endEnd,
+      message: `This /for's END, ${written}, isn't a complete expression: write a number, or an expression that closes.`,
+      label: "not a complete expression",
+      explanation:
+        `stdlib's ${code("/for")} compares the loop variable with END in a condition, ${code("/while ( VAR <= END )")}, ` +
+        `so END has to be a whole expression of its own. This one leaves something open that the condition ` +
+        `around it would have to close.`,
+    };
+    const kept: StructureIssue[] = [];
+    let said = false;
+    const nameStart = "/while ( ".length;
+    for (const issue of parseRegions(wrapped.text, "body").issues) {
+      if (issue.start >= endStart && issue.start < endEnd) kept.push(issue);
+      else if (issue.start >= nameStart && issue.start < nameStart + (name.end - name.start)) continue;
+      else if (!said) {
+        kept.push(incomplete);
+        said = true;
+      }
+    }
+    collect(wrapped, kept);
+  };
+
+  /**
    * `src.text`, read as `mode` reads it; later (inner) reads overwrite earlier ones. `issues`
    * false for a read that only marks how the text is substituted, not how it is compiled.
    */
@@ -417,7 +454,7 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
         for (let w = nextWord(h.text, 0, h.text.length); w && words.length < 4; w = nextWord(h.text, w.end, h.text.length)) words.push(w);
         const [name, from, to, command] = words;
         if (name && from) read(built(h, ["/let ", name, "=", from]), "body", depth + 1, undefined);
-        if (to) read(built(h, ["/if (0 <= ", to, ") /endif"]), "body", depth + 1, undefined);
+        if (name && to) forEnd(h, name, to);
         if (command) read(sub(h, command.start), "body", depth + 1, undefined);
       } else if (word === "repeat") {
         const h = handed(argStart);

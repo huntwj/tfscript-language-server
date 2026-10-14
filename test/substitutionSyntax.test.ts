@@ -68,10 +68,23 @@ describe("substitution-syntax only where tf substitutes", () => {
         .filter((d) => d.severity === "error")
         .map((d) => `${d.code}@${d.range.start.character}`);
     expect(found("/for i %{q 2 /echo %% R1:%i\n")).toEqual(["substitution-syntax@7"]);
-    expect(found("/for i 1 $[1+ /echo %% R2:%i\n")).toEqual(["expression-syntax@12"]);
+    expect(found("/for i 1 $[1+ /echo %% R2:%i\n")).toEqual(["expression-syntax@9"]);
     expect(found("/for %{x 1 1 /echo %% R10:%i\n")).toEqual(["substitution-syntax@5"]);
     expect(getDiagnostics("/for %{x 1 1 /echo x\n")[0]?.message).toBe("This %{ needs its } before the '='.");
     expect(found("/for i 1 1 /echo %% R11 $[1+\n")).toEqual(["expression-syntax@24"]);
+  });
+
+  // Proven live (review rev-s2c f1.tf): tf rejects A1 and A12, whose END leaves the condition open,
+  // and runs A11 and A13, whose ) closes it early and leaves stdlib's ) to start the loop body.
+  it("blames END as a whole, never a ) of stdlib's", () => {
+    const errors = (text: string) => getDiagnostics(text).filter((d) => d.severity === "error");
+    const incomplete = (end: string) => `This /for's END, ${end}, isn't a complete expression: write a number, or an expression that closes.`;
+    const [a1] = errors("/for i 1 $[1+ /echo %% A1:%i\n");
+    expect(a1?.message).toBe(incomplete("$[1+"));
+    expect([a1?.range.start.character, a1?.range.end.character]).toEqual([9, 13]);
+    expect(errors("/for i 1 (3 /echo %% A12:%i\n")[0]?.message).toBe(incomplete("(3"));
+    expect(errors("/for i 1 3) /echo %% A11:%i\n")).toEqual([]);
+    expect(errors("/for i 1 %{x-1}) /echo %% A13:%i\n")).toEqual([]);
   });
 
   // Proven live (review rev-s2 p3): tf runs these clean. Read as one body, the whole of /for's

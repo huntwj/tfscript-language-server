@@ -202,6 +202,20 @@ describe("missing-continuation: what a join can reach", () => {
     expect(getDiagnostics(fixed11)).toEqual([]);
   });
 
+  it("offers no join-and-close that would leave a branch empty", () => {
+    // r30, r31, r32, r55 (tf dev, 2026-10-14): joined only through the /else or /elseif, the
+    // branch is empty and its unindented body runs whatever the /if decides, and tf loads that
+    // without a word.
+    const shapes = [
+      ["/if (1)", "    /echo % then-branch", "/else", "/echo % ELSE-BODY", "/echo % after"],
+      ["/if (0)", "    /echo % a", "/elseif (1)", "/echo % ELSEIF-BODY", "/echo % after"],
+      ["/if (1)", "    /echo % then-branch", "/else", "; the else body", "/echo % ELSE-BODY", "/echo % after"],
+    ];
+    for (const shape of shapes) expect(opener(text(shape)).fix?.title ?? "").not.toMatch(/and end it/);
+    // r32: no closer of its own taken in, so the add-a-closer fix stays, and tf still reports the /else.
+    expect(opener(text(["/if (1) /echo % then-branch", "/else", "/echo % ELSE-BODY"])).fix?.title).toBe("Add %; /endif at the end of the line");
+  });
+
   it("offers no join-and-close after a stray /do or /then", () => {
     // Joined to the /do line it would read /while (i < 3) /done, which never ends.
     expect(opener(text(["/set i=0", "/while (i < 3)", "/do", "    /test ++i", "/echo % i"])).fix).toBeUndefined();

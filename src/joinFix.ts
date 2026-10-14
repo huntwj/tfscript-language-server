@@ -9,7 +9,7 @@ import {
   splitRawLines,
   type LogicalEntry,
 } from "./logicalEntries";
-import { macroBodyStart } from "./structure";
+import { macroBodyStart, parseRegions } from "./structure";
 
 /**
  * Fixes that join physical lines into one command with trailing `\`s: for a top-level `/if` or
@@ -303,7 +303,15 @@ function joinAndClose(lines: string[], entry: LogicalEntry, last: number, closer
   const settled = settle(candidate, diagnose(original.join("\n")), diagnose);
   if (settled.diagnostics.some((d) => d.severity === "error")) return undefined;
   if (emptyStatements(settled.lines, separate) > emptyStatements(original, separate)) return undefined;
+  // Nor a branch with nothing in it (`/else /endif`): its body was left out, below, where it runs
+  // whatever the block decides, and tf loads that without a word.
+  if (hasEmptyBranch(joinedText(settled.lines, 0, settled.lines.length - 1))) return undefined;
   return { edits: lineEdits(original, settled.lines, base), clean: true, from: base, to: last };
+}
+
+/** Whether a block in this top-level command has a part with no statement in it. */
+function hasEmptyBranch(text: string): boolean {
+  return parseRegions(text, "top").blocks.some((b) => b.parts.some((p) => text.slice(p.start, p.end).replace(/%[;|\\]/g, "").trim() === ""));
 }
 
 /** The entry holding `line` (entries are in line order, so a binary search). */

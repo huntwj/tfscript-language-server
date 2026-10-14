@@ -22,11 +22,16 @@ const TAB = 8;
 /** The most lines between the first and last mark that are shown whole. */
 const CONTEXT = 8;
 
-/** `text` with tabs expanded to 8-column stops, and the display column of each character. */
+/**
+ * `text` with tabs expanded to 8-column stops, and the display column of each UTF-16 unit (LSP
+ * positions count those). A character outside the BMP is two units, and in a monospace font it is
+ * usually two columns wide too, so counting units keeps the marks lined up.
+ */
 function expand(text: string): { shown: string; column: (character: number) => number } {
   const columns: number[] = [];
   let shown = "";
-  for (const ch of text) {
+  for (let k = 0; k < text.length; k += 1) {
+    const ch = text[k] as string;
     columns.push(shown.length);
     shown += ch === "\t" ? " ".repeat(TAB - (shown.length % TAB)) : ch;
   }
@@ -58,11 +63,15 @@ function put(row: string[], at: number, text: string): void {
 function annotate(marks: Mark[]): string[] {
   const sorted = [...marks].sort((a, b) => a.from - b.from);
   const underline: string[] = [];
-  for (const m of sorted) put(underline, m.from, (m.primary ? "^" : "-").repeat(m.to - m.from));
+  // Related marks first, so where they overlap the primary its ^s win.
+  for (const m of [...sorted].sort((a, b) => Number(a.primary) - Number(b.primary))) {
+    put(underline, m.from, (m.primary ? "^" : "-").repeat(m.to - m.from));
+  }
   const labelled = sorted.filter((m) => m.label);
   const last = sorted[sorted.length - 1];
-  // The rightmost mark's label fits on the underline row itself.
-  if (last && last.label && labelled[labelled.length - 1] === last) {
+  const reach = Math.max(...sorted.map((m) => m.to));
+  // The rightmost mark's label fits on the underline row itself, unless another mark runs past it.
+  if (last && last.label && labelled[labelled.length - 1] === last && last.to === reach) {
     put(underline, last.to + 1, last.label);
     labelled.pop();
   }

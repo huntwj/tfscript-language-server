@@ -63,6 +63,18 @@ describe("explainDiagnostic", () => {
     expect(excerpt).toContain("1 | /def a = /echo  $[1\n  |                 ^^ never closed");
   });
 
+  it("keeps the primary ^s where a related mark overlaps it, and its label off a wider mark", () => {
+    const text = "/def a = /echo 50%{foo bar}\n";
+    const [excerpt] = (explain(text) ?? "").split("\n\n");
+    expect(excerpt).toContain("  |                  ^^   - the name stops at this space\n");
+  });
+
+  it("counts columns in UTF-16 units, as LSP positions do", () => {
+    const [, source, marks] = (explain("/def a = /echo 😀😀%; /if (a) /echo b /endif\n") ?? "").split("\n");
+    expect(marks?.indexOf("---")).toBe(source?.indexOf("/if"));
+    expect(marks?.indexOf("^^^^^^ ")).toBe(source?.indexOf("/endif"));
+  });
+
   it("has nothing to add for a diagnostic with only a message", () => {
     const [d] = getDiagnostics("/load %{d}/x.tf\n");
     expect(d && explainDiagnostic("/load %{d}/x.tf\n", d)).toBeUndefined();

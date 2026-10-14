@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Call hierarchy for macros: who calls a macro (in every tf script in the workspace folder and on
+  the load path, grouped by the macro, trigger, hook or file top level each call is in) and what
+  it calls. Calls are what tf runs: `/name` statements, and `name(...)` in an expression when name
+  isn't a builtin function.
+- "N references" above each `/def`, opening the references peek; `tfscript.codeLens.references`
+  turns them off.
 - Expand and shrink selection: from the word under the cursor out through a substitution
   (`%{x}`, `$[...]`, `$(...)`, `${...}`), a string or parenthesis in an expression, a condition, the
   statement, a part of a block's body and the whole `/if` or `/while`, the macro body, the whole

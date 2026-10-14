@@ -9,7 +9,8 @@ completion (commands, functions, variables, selectors), document symbols (an out
 `/hook` and `/trig*`), folding, expand/shrink selection, quick fixes for many of the diagnostics, and hover,
 go-to-definition and find-references for macros and variables across every file your tfrc's
 `/load` and `/require` lines reach (see "Load paths"), signature help, semantic highlighting,
-highlighting every use of the name under the cursor, workspace-wide symbol search, rename, clickable `/load` and `/require` filenames, formatting that only
+highlighting every use of the name under the cursor, call hierarchy and "N references" lenses
+for macros, workspace-wide symbol search, rename, clickable `/load` and `/require` filenames, formatting that only
 changes whitespace tf ignores, and refactorings that split a macro body onto separate lines or
 join it onto one. There is a VS Code
 extension (`editors/vscode/`) for syntax highlighting plus everything the server does; other editors can wire up the stdio server
@@ -351,6 +352,8 @@ src/
   variables.ts         findVariables(text): every variable a file names, and whether it is a
                         global or a macro body's own /let (or getopts()) local
   variableNavigation.ts  definition, references, rename and highlights for those
+  callHierarchy.ts     incoming and outgoing calls between macros: /name statements and
+                        name(...) in expressions
   workspace/           loadGraph.ts (tf's load order, statically), settings.ts (tfscript.*
                         settings and their defaults), workspaceIndex.ts (per-folder graphs,
                         unsaved edits, library files) — see "Load paths" above
@@ -370,6 +373,7 @@ test/
   variables.test.ts, variableNavigation.test.ts, highlights.test.ts  variable scopes,
                         lookups, rename and highlights
   documentLinks.test.ts  which /load and /require filenames link, and where to
+  callHierarchy.test.ts  what counts as a call, and who calls what
   loadGraph.test.ts, workspace.test.ts  load order and path resolution (each rule proven
                         against real tf), settings defaults, cross-file navigation
   tokenize.test.ts       unit tests for extract-command-tables.js's shell-style tokenizer
@@ -404,7 +408,8 @@ The server advertises `completionProvider` (triggered on `/` and `{`), `document
 `foldingRangeProvider`, `selectionRangeProvider`, `codeActionProvider` (quick fixes and `refactor.rewrite`), `hoverProvider`,
 `definitionProvider`, `referencesProvider`, `documentHighlightProvider`, `signatureHelpProvider` (triggered on space, `(` and `,`), `semanticTokensProvider`
 (full documents), `documentFormattingProvider`, `documentRangeFormattingProvider`,
-`workspaceSymbolProvider`, `renameProvider` (with prepare) and `documentLinkProvider`, and publishes diagnostics
+`workspaceSymbolProvider`, `renameProvider` (with prepare), `documentLinkProvider`, `callHierarchyProvider` and
+`codeLensProvider` (resolved lazily), and publishes diagnostics
 tagged `source: "tfscript"`. Many editors' LSP clients also pass a `--stdio` flag by
 convention — this server doesn't need it (it talks over stdio either way) but accepts and
 ignores it.
@@ -509,6 +514,23 @@ names built at run time (`cylon%i`, `%%{stack_%{n}}`) and `/listvar` patterns ar
 
 Highlighting the name under the cursor marks every use of that variable or macro in the file,
 with `/set`s, `/let`s, assignments and `/def` names shown as writes.
+
+Call hierarchy shows, for a macro, the macros, triggers, hooks and files that call it, and the
+macros it calls. A call is what tf runs as one: a `/name` statement (in a body, a trigger or hook,
+`/eval`, `/for` or `/repeat` text, a `$(...)`, or a file's top level; `/!name` too, but not
+`/@name`, which calls the builtin, nor `/echo try /name`), or `name(...)` in an expression when
+name isn't one of tf's builtin functions, which tf tries first (proven: `$[sq(3)]` ran a macro
+`sq`, while `$[strlen("ab")]` gave 2 with a macro named strlen defined). Callers are looked for in
+every tf script in the workspace folder and on the load path; what a macro calls resolves the way
+go-to-definition does. Builtin commands have no `/def`, so they aren't shown, and a redefined
+macro's calls are shown under each of its `/def`s. A `/def` inside another command isn't an item
+of its own: its calls count as its file's top level, or the definition around it.
+
+Above each `/def`, a lens counts its references, as find-references does (calls and `${name}`
+substitutions in the files on the load path), and opens them in the references peek. The count
+is worked out only when the lens is shown. `tfscript.codeLens.references` turns them off. In VS
+Code the lens runs the extension's `tfscript.showReferences` command; another editor's client
+would need a command of that name taking a URI, a position and a list of locations.
 
 Signature help shows a command's usage synopsis while you type its arguments, with the one
 under the cursor highlighted. Synopses come from the installed `tf-help` (else the htmldoc

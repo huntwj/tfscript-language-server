@@ -89,6 +89,45 @@ describe("load-no-expansion", () => {
   });
 });
 
+describe("structural fixes", () => {
+  // Each fix is the one the diagnostic's hover shows, and leaves the file clean.
+  const cases: [string, string][] = [
+    ["/def -i a = /if (1) /echo yes /else /echo no /endif", "/def -i a = /if (1) /echo yes%; /else /echo no%; /endif"],
+    ["/def -i a = /if /test 1 /then /echo x%; /endif", "/def -i a = /if /test 1%; /then /echo x%; /endif"],
+    ["/def -i a = /if (1) /echo a%; /endif /echo b", "/def -i a = /if (1) /echo a%; /endif%; /echo b"],
+    ["/def -i a = /if (1) /echo a", "/def -i a = /if (1) /echo a%; /endif"],
+    ["/def -i a = /while (0) /echo a ", "/def -i a = /while (0) /echo a%; /done "],
+    ["/def -i a = /if (1) /then /echo x%; /endif", "/def -i a = /if (1) /echo x%; /endif"],
+    ["/def -i a = /if (1)%; /echo a%; /endif", "/def -i a = /if (1) /echo a%; /endif"],
+    ["/def -i a = /echo $[1 + 2", "/def -i a = /echo $[1 + 2]"],
+    ["/def -i a = /echo $[1 + 2 %; /echo b", "/def -i a = /echo $[1 + 2] %; /echo b"],
+    ["/def -i a = /echo $[(1+2]", "/def -i a = /echo $[(1+2)]"],
+    ["/def -i a = /test (1 + 2", "/def -i a = /test (1 + 2)"],
+    ["/def -i a = /test 1)", "/def -i a = /test 1"],
+    ["/def -i a = /echo $(/echo x", "/def -i a = /echo $(/echo x)"],
+    ["/def -i a = /echo ${foo", "/def -i a = /echo ${foo}"],
+    ["/def -i a = /echo %{foo", "/def -i a = /echo %{foo}"],
+    ["/def -i a = /echo %{target %{*}", "/def -i a = /echo %{target} %{*}"],
+    ["/def -i a = /echo 50%-off", "/def -i a = /echo 50%%-off"],
+  ];
+  for (const [before, after] of cases) {
+    it(`fixes ${before.slice(12)}`, () => {
+      const actions = getCodeActions(`${before}\n`, WHOLE_FILE);
+      expect(actions).toHaveLength(1);
+      const fixed = applyEdits(`${before}\n`, actions[0]!.edits);
+      expect(fixed).toBe(`${after}\n`);
+      expect(codes(fixed)).toEqual([]);
+    });
+  }
+
+  it("puts the %; on the right physical line of a continued body", () => {
+    const text = ["/def -i a = \\", "    /if (1) \\", "        /echo yes \\", "    /else \\", "        /echo no \\", "    /endif", ""].join("\n");
+    const fixed = applyEdits(text, getCodeActions(text, WHOLE_FILE)[0]!.edits);
+    expect(fixed.split("\n").slice(2, 5)).toEqual(["        /echo yes%; \\", "    /else \\", "        /echo no%; \\"]);
+    expect(codes(fixed)).toEqual([]);
+  });
+});
+
 describe("range filtering", () => {
   const text = ["/load %{d}/one.tf", "/echo plain", "/echo x \\ ", ""].join("\n");
 

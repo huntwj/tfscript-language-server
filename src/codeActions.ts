@@ -1,4 +1,4 @@
-import { getDiagnostics, type Position, type TfDiagnostic } from "./diagnostics";
+import { getDiagnostics, type Position, type Range, type TfDiagnostic, type TfTextEdit } from "./diagnostics";
 import { splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 
 /**
@@ -12,17 +12,11 @@ import { splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logical
  *    remedy there is converting the whole file, which is the editor's job.
  *  - load-no-expansion: insert `/eval ` before the command, forcing the substitution pass the
  *    diagnostic's own message suggests. One fix per entry, however many `%{...}` it holds.
+ *  - any diagnostic that carries its own `fix` (the structural rules: a missing %;, }, ] or ),
+ *    a stray /then or ), %- written for a literal %-).
  */
 
-export interface Range {
-  start: Position;
-  end: Position;
-}
-
-export interface TfTextEdit {
-  range: Range;
-  newText: string;
-}
+export type { Range, TfTextEdit };
 
 export interface TfCodeAction {
   title: string;
@@ -81,6 +75,8 @@ export function getCodeActions(text: string, range: Range): TfCodeAction[] {
       if (!entry || evalFixed.has(entry)) continue;
       evalFixed.add(entry);
       action = fixNoExpansion(diagnostic, entry);
+    } else if (diagnostic.fix) {
+      action = { title: diagnostic.fix.title, edits: diagnostic.fix.edits, diagnostic };
     }
     if (action) actions.push(action);
   }

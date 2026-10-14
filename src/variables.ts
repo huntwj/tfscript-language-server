@@ -53,9 +53,9 @@ import { defOptionsEnd, type Range } from "./symbols";
  *    its own scope or one around it; anything else counts as global.
  *  - tf's scoping is dynamic: a macro also sees the locals of the macro that called it (proven:
  *    a callee's `%y` read the caller's `/let y`). That isn't followed here: a read in a body
- *    without its own `/let` counts as global (rename refuses the cases it would get wrong). The
- *    same goes for a `/def` inside a body: its body gets a scope of its own, though called from
- *    the macro that defined it, it would see that macro's locals.
+ *    without its own `/let` counts as global (rename refuses the cases it would get wrong). A
+ *    `/def` inside a body is the one call that is followed: when the defining macro runs
+ *    `/name`, the inner body is read inside its scopes (proven); otherwise in a scope of its own.
  *  - A `/let` in a branch that doesn't run still counts, and a `/repeat` while the `lpquote`
  *    variable is on (its first run is then at once) is read as one that runs later.
  *  - `/listvar` takes a pattern, so it isn't followed.

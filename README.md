@@ -444,9 +444,9 @@ a `$(...)` get scopes of their own inside the macro's, and `/for VAR` makes VAR 
 A `/repeat` command runs later on its own, seeing no local of the macro around it, unless it is a
 `/repeat -S` or `-P`, which runs at once inside the macro. A `$[...]` or `%x` the macro evaluates
 before handing text to one of these is read in the macro's scope; a doubled `$$[...]` or `%%x` is
-read one level down. A `/def` inside a body gets a scope of its own here, though called from the
-macro that defined it, it would see that macro's locals too. So renaming a global leaves a body's own `/let x` alone, and renaming that local
-changes only its scope. Definitions include tf's library. Rename refuses tf's special variables,
+read one level down. A `/def` inside a body gets a scope of its own, inside the defining macro's
+when that macro calls it, as it then sees that macro's locals. So renaming a global leaves a
+body's own `/let x` alone, and renaming that local changes only its scope. Definitions include tf's library. Rename refuses tf's special variables,
 variables the library uses, `getopts()` variables, a new name tf would read as a selector (`L`,
 `R`, `P1`), and a new name that is already taken where the rename would merge two variables or let
 a body's `/let` capture the renamed one. tf's scoping is dynamic, so a macro also sees the locals

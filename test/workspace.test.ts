@@ -633,3 +633,35 @@ describe("macroNameTaken", () => {
     expect(taken("go_extracted2")).toBe(false);
   });
 });
+
+describe("macroDefinedOutside and macroMentionedOutside", () => {
+  const files: Record<string, string> = {
+    [p("lib", "stdlib.tf")]: "/def -i stdthing = /echo\n",
+    [p("ws", "tfrc")]: "/load main.tf\n",
+    [p("ws", "main.tf")]: "/def go = /echo go\n/def helper = /echo\n/def solo = /echo\n",
+    [p("ws", "other.tf")]: "/def helper = /echo again\n/def build = /def ~body_%1 = /echo\n/def user = /solo\n",
+  };
+
+  it("sees the load path's, the library's and the rest of the folder's /defs, but not the file's own", () => {
+    const fs = memoryFs(files);
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    index.setSettings(p("ws"), { libraryPath: p("lib") });
+    const outside = index.macroDefinedOutside(p("ws", "main.tf"));
+    expect(["stdthing", "helper", "~body_x"].filter((n) => !outside(n))).toEqual([]);
+    expect(["go", "solo"].filter((n) => outside(n))).toEqual([]);
+    const mentioned = index.macroMentionedOutside(p("ws", "main.tf"));
+    expect(mentioned("solo")).toBe(true);
+    expect(mentioned("go")).toBe(false);
+  });
+
+  it("sees a library macro redefined in a workspace folder, and knows a library file", () => {
+    const fs = memoryFs({ ...files, [p("ws", "over.tf")]: "/def -i stdthing = /echo mine\n" });
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    index.setSettings(p("ws"), { libraryPath: p("lib") });
+    expect(index.macroDefinedOutside(p("lib", "stdlib.tf"))("stdthing")).toBe(true);
+    expect(index.isLibraryFile(p("lib", "stdlib.tf"))).toBe(true);
+    expect(index.isLibraryFile(p("ws", "main.tf"))).toBe(false);
+  });
+});

@@ -82,6 +82,22 @@ export function macroNames(text: string): MacroNames {
   return { names, prefixes };
 }
 
+/**
+ * How many `/def`s in `text` may define `name` (lower case), counted the way macroNames() reads
+ * them: a `/def` of exactly that name, anywhere, and one whose name is built when it runs and
+ * starts the same. Like macroNames(), a name built entirely when it runs (a `/def %1` in a
+ * macro that defines macros for its caller, as stdlib's do) isn't counted.
+ */
+export function countDefsOf(text: string, name: string): number {
+  let n = 0;
+  for (const m of text.matchAll(ANY_DEF_RE)) {
+    const written = (m[2] as string).toLowerCase();
+    const dynamic = written.search(/[%$]/);
+    if (dynamic === -1 ? written === name : dynamic > 0 && name.startsWith(written.slice(0, dynamic))) n += 1;
+  }
+  return n;
+}
+
 function defines(defs: MacroNames, name: string): boolean {
   return defs.names.has(name) || defs.prefixes.some((p) => name.startsWith(p));
 }

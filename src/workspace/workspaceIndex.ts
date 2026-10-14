@@ -358,6 +358,43 @@ export class WorkspaceIndex {
   }
 
   /**
+   * Whether a macro name (lower case) may be defined in a file other than `file`: on its load path
+   * (tf's library among them), or anywhere in its workspace folder, by name or by a name built
+   * when the /def runs. For inlining, which needs the one /def a call runs.
+   */
+  macroDefinedOutside(file: string): (name: string) => boolean {
+    const { folder, graph, settings } = this.contextFor(file);
+    const self = keyOf(file);
+    const sets: MacroNames[] = graph.files.filter((f) => keyOf(f.path) !== self).map((f) => this.macroNamesOf(f.path, f.text));
+    for (const e of this.macroContext(file, folder, graph, settings).elsewhere ?? []) if (keyOf(e.file) !== self) sets.push(e.defs);
+    // A file outside every workspace folder (tf's library) is redefined over from all of them.
+    for (const f of this.callerFiles(file, (p) => p)) if (keyOf(f.uri) !== self) sets.push(this.macroNamesOf(f.uri, f.text));
+    return (name) => sets.some((d) => d.names.has(name) || d.prefixes.some((p) => name.startsWith(p)));
+  }
+
+  /** Whether `file` is in tf's library (the folder's libraryPath, or TFLIBDIR). */
+  isLibraryFile(file: string): boolean {
+    // A library file is usually outside every folder, so its own context has no library setting.
+    const libs = [this.contextFor(file).settings.libraryDir, ...this.folders.map((f) => this.settingsFor(f).libraryDir)];
+    return libs.some((lib) => lib !== undefined && lib !== "" && isInside(file, lib));
+  }
+
+  /**
+   * Whether a file other than `file`, of those a call to its macros may come from (callerFiles()),
+   * names `name` (lower case) as a whole word: before a /def is removed.
+   */
+  macroMentionedOutside(file: string): (name: string) => boolean {
+    const self = keyOf(file);
+    const texts = this.callerFiles(file, (f) => f)
+      .filter((f) => keyOf(f.uri) !== self)
+      .map((f) => f.text.toLowerCase());
+    return (name) => {
+      const re = new RegExp(`(?<![\\w~])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w~])`);
+      return texts.some((t) => re.test(t));
+    };
+  }
+
+  /**
    * Every tf script under a workspace folder (`walkTfFiles`), until a watched file changes:
    * walking the folder on every keystroke cost seconds in a big tree. Capped, so a folder like a
    * home directory can't take forever. A folder that isn't a workspace folder (a loose file's own

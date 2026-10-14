@@ -252,6 +252,12 @@ describe("rule fixes", () => {
       "/def -i lb = /set y=2 /let x=1 /endif /if (1) /echo%; /endif\n",
       "/def -i lc = /let a=1 /let b=2 /if (1) /echo%; /endif\n",
       "/def -i le = /if (1) /let x=1 /endif%; /if (2) /set y=2 /endif%; /echo\n",
+      // After an /else or /elseif a %; before the swallowed /endif would leave that one stray (proven live).
+      "/def -i e1 = /if (1) /let x=1 /endif%; /else /echo e\n",
+      "/def -i e2 = /if (1) /let x=1 /endif%; /elseif (0) /echo e\n",
+      "/def -i e3 = /if (0) /echo a%; /else /let x=1 /endif\n",
+      // The /if is unclosed even though the block left open at the end is a /while.
+      "/def -i w1 = /if (1) /let x=1 /endif%; /while (0) /echo y\n",
     ]) {
       const fixed = applyEdits(text, getCodeActions(text, WHOLE_FILE).flatMap((a) => a.edits));
       expect(codes(fixed), fixed).toEqual([]);

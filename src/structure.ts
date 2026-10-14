@@ -325,10 +325,12 @@ class Parser {
     const fixer = fix ? this.mids.find((m) => m.word === fix && m.start > since && m.start < searchTo) : undefined;
     // Point at the first keyword of that statement: in "/echo a /else /echo b /endif" it is the /else.
     const mid = fixer && this.mids.find((m) => m.stmt === fixer.stmt && m.start > since);
-    if (fixer && mid) {
-      if (fix === "endif" && LET_ASSIGNMENT_RE.test(this.s.slice(mid.stmt, mid.start))) throw new Stop();
-      this.fail("block", mid.start, mid.end, this.midKeyword(mid, fixer, since));
-    }
+    // An /endif swallowed by a /let or /set value is let-swallows-endif's to report, while it is
+    // still pending on the /if (swallow()). Once an /else or /elseif has dropped it, a %; before it
+    // would close the /if too early, so the plain error, with its closer at the end, is the one.
+    const swallowedByLet = fix === "endif" && !!mid && LET_ASSIGNMENT_RE.test(this.s.slice(mid.stmt, mid.start));
+    if (swallowedByLet && this.open[this.open.length - 1]?.swallowed) throw new Stop();
+    if (fixer && mid && !swallowedByLet) this.fail("block", mid.start, mid.end, this.midKeyword(mid, fixer, since));
     this.fail(kind, start, end, problem);
   }
 
@@ -450,6 +452,9 @@ class Parser {
           case "elseif":
             if (this.block !== "then") this.unexpected(word, stmtStart, kwEnd);
             this.block = word;
+            // An /endif swallowed before this was never going to close the /if: with a %; it
+            // would, and leave this /else or /elseif stray ("unexpected /ELSE in outer block").
+            (this.open[this.open.length - 1] as Open).swallowed = undefined;
             if (word === "else") this.bodyStarts();
             if (word === "else" && this.isStatEnd(this.i)) this.blankLine(label, this.i);
             continue;
@@ -523,6 +528,12 @@ class Parser {
     // Where the list stopped: /endif or /done if it closed, else whatever block it was in.
     const ended = this.block as Block;
     const to = this.i + 1;
+    // Never closed (the text, or the $(...), ended first; this /if or /while, and every block open
+    // around it in the same $(...), with it): an /endif a /let or /set value swallowed is what
+    // should have closed its /if. Compiling stops here, so record each one now.
+    if (ended !== "endif" && ended !== "done") {
+      for (const o of this.open) if (o.cmdsub === this.cmdsub && o.swallowed) this.swallowed.push(o.swallowed);
+    }
     // Where a missing /endif or /done would go: the end of the body, or before the $(...)'s ).
     const where = this.cmdsub > 0 ? "before the )" : this.mode === "top" ? "at the end of the line" : "at the end of the body";
     // Not when that part of the body is empty: after /if (x), /else or /while (x) the %; would
@@ -542,10 +553,6 @@ class Parser {
       if (ended === "if" || ended === "elseif") {
         this.blockError(start, end, conditionList("if", "then"), "then", "block", to);
       } else if (ended === "then" || ended === "else") {
-        // Never closed: an /endif swallowed by a /let or /set value is what should have closed it.
-        // The text (or the $(...)) ended, so every /if open around it in the same $(...) is
-        // unclosed too, and compiling stops here: record theirs as well.
-        for (const o of this.open) if (o.cmdsub === this.cmdsub && o.swallowed) this.swallowed.push(o.swallowed);
         const top = this.mode === "top" && this.cmdsub === 0 && this.i >= this.s.length;
         this.blockError(
           start,
@@ -918,6 +925,10 @@ class Parser {
       this.i += 1;
       this.cmdsub += 1;
       const outer = this.block;
+      // Known gap (found in review, 2026-10-14, left for later): a keyword such as /endif inside
+      // a $(...), as in `$(/endif)`, is reported as a block-structure error here, though tf
+      // doesn't treat it that way. Model how tf compiles a keyword in a command substitution
+      // before changing this.
       this.block = "";
       this.list(FULL);
       this.block = outer;

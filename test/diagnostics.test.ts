@@ -69,6 +69,14 @@ describe("not-substituted-here (rule 4)", () => {
     },
   );
 
+  // Proven 2026-10-14 (review probes p1 and p2): /@def and /@bind are the builtins, with a body.
+  it.each(["/@def pd = /echo %{x}", "/@def pd2 = /echo a%; /echo b", "/@bind ^a = /echo %{x}", "/@hook LOAD = /echo a%; /echo b"])(
+    "reads the body of %s as a macro body",
+    (line) => {
+      expect(codes(`${line}\n`)).not.toContain("not-substituted-here");
+    },
+  );
+
   // Proven 2026-10-14 (rule analysis p04, q05, p10 and r2.tf): tf substitutes each of these.
   it.each([
     "/if (%{x} == 5) /echo yes%; /endif",

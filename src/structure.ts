@@ -1332,8 +1332,9 @@ export function checkStructure(text: string, mode: StructureMode): StructureIssu
   return parser.issues;
 }
 
-const DEF_RE = /^\s*\/def\b/i;
-const SPLIT_ARGS_RE = /^\s*\/(?:bind|hook|trigpc|trigc|trigp|trig)\b/i;
+// `/@def`, `/@bind` and `/@hook` are the builtins themselves; the /trig family is stdlib's.
+const DEF_RE = /^\s*\/@?def\b/i;
+const SPLIT_ARGS_RE = /^\s*\/(?:@?(?:bind|hook)|trigpc|trigc|trigp|trig)\b/i;
 const ALIAS_RE = /^(\s*\/alias\s+\S+\s+)\S/i;
 
 /**
@@ -1346,7 +1347,8 @@ export function macroBodyStart(text: string): number {
   const alias = ALIAS_RE.exec(text);
   if (alias) return (alias[1] as string).length;
   let from: number;
-  if (DEF_RE.test(text)) from = defOptionsEnd(text, text.search(/\/def/i) + 4);
+  const def = DEF_RE.exec(text);
+  if (def) from = defOptionsEnd(text, def[0].length);
   else if (SPLIT_ARGS_RE.test(text)) from = 0;
   else return -1;
   const eq = text.indexOf("=", from);

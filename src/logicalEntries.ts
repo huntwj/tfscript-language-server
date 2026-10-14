@@ -85,9 +85,10 @@ export interface LogicalEntry {
   offsetMap: { line: number; character: number }[];
 }
 
-const DEF_RE = /^\s*\/def\b/i;
+// `/@def`, `/@bind` and `/@hook` are the builtins themselves; /alias and the /trig family are stdlib's.
+const DEF_RE = /^\s*\/@?def\b/i;
 const FOR_RE = /^\s*\/for\b/i;
-const OTHER_MACRO_BODY_RE = /^\s*\/(?:alias|bind|hook|trigpc|trigc|trigp|trig)\b/i;
+const OTHER_MACRO_BODY_RE = /^\s*\/(?:alias|@?(?:bind|hook)|trigpc|trigc|trigp|trig)\b/i;
 
 /**
  * Matches tf's own `is_space()` (`port.h`: `isspace((unsigned char)c)`), minus `\n` — already

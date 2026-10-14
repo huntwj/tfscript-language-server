@@ -155,14 +155,25 @@ describe("not-substituted-here (rule 4)", () => {
   });
 
   it("notes a %; on a plain line, as information", () => {
-    const [d, ...rest] = getDiagnostics("/set a=1%; /set b=2\n");
+    const [d, ...rest] = getDiagnostics("/echo a%; /echo b\n");
     expect(rest).toEqual([]);
     expect(d?.code).toBe("not-substituted-here");
     expect(d?.severity).toBe("information");
     expect(d?.message).toBe(
-      "%; doesn't end a command on a plain top-level line, so it and the rest of the line are part of /set: put each command on a line of its own, or start the line with /eval.",
+      "%; doesn't end a command on a plain top-level line, so it and the rest of the line are part of /echo: put each command on a line of its own, or start the line with /eval.",
     );
     expect(d?.fix?.edits[0]?.newText).toBe("\n");
+  });
+
+  // Review probe p2 (B5): a value holding %; can be meant, for a later /eval.
+  it("says a /set, /let or /setenv value includes the %;, and offers no fix", () => {
+    const [d, ...rest] = getDiagnostics("/set cmd=/echo a%; /echo b\n");
+    expect(rest).toEqual([]);
+    expect(d?.message).toBe(
+      "%; doesn't end a command on a plain top-level line, so the /set value includes it and the rest of the line: if they are meant as commands, put each on a line of its own.",
+    );
+    expect(d?.fix).toBeUndefined();
+    expect(getDiagnostics("/eval -soff /let v=a%; b\n")[0]?.fix).toBeUndefined();
   });
 
   // Review probes p3 (C5) and p4 (D1, D2): these %;s separate.

@@ -147,16 +147,42 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
     expect(defNames(g)).toEqual([]);
   });
 
-  it("stops trusting a variable a /set inside an /if or /while may change (wotmud.tf's shape)", () => {
-    // ~/ai/wotmud/tf/wotmud.tf: /if (wotmud_repo_dir =~ "") /set wotmud_repo_dir=/wotmud%; /endif.
-    // Real tf: with d already set, the /set didn't run and %{d}/p.tf loaded from the first value.
+  it("stops trusting a variable a /set inside an /if or /while may change", () => {
     const g = graph({
       [p("tfrc")]: `/set d=${p("real")}\n/load x.tf\n`,
-      [p("cwd", "x.tf")]: `/if (d =~ "") /set d=${p("wrong")}%; /endif\n/eval /load %{d}/a.tf\n`,
+      [p("cwd", "x.tf")]: `/if (d =~ "x") /set d=${p("wrong")}%; /endif\n/eval /load %{d}/a.tf\n`,
       [p("real", "a.tf")]: "/def a = 1\n",
     });
     expect(g.unresolved).toMatchObject([{ kind: "guarded-variable", raw: "%{d}/a.tf", variable: "d" }]);
     expect(g.unresolved[0]?.file).not.toContain("wrong");
+  });
+
+  describe("the default-value guard, /if (x =~ \"\") /set x=VALUE%; /endif (wotmud.tf's shape)", () => {
+    const loadsWith = (tfrc: string) =>
+      defNames(graph({ [p("tfrc")]: `${tfrc}/eval /load %{d}/a.tf\n`, [p("real", "a.tf")]: "/def real = 1\n", [p("wrong", "a.tf")]: "/def wrong = 1\n" }));
+
+    it("skips the /set when the variable is already set (real tf loaded from the first value)", () => {
+      expect(loadsWith(`/set d=${p("real")}\n/if (d =~ "") /set d=${p("wrong")}%; /endif\n`)).toEqual(["real"]);
+    });
+
+    it("runs it when nothing on the path set the variable, in each unset-test form", () => {
+      for (const cond of ['d =~ ""', "{d} =~ ''", 'd == ""', "!d", "!{d}"]) {
+        expect(loadsWith(`/if (${cond}) /set d=${p("real")}%; /endif\n`)).toEqual(["real"]);
+      }
+    });
+
+    it("runs it when the variable is set to nothing", () => {
+      expect(loadsWith(`/set d=\n/if (!d) /set d=${p("real")}%; /endif\n`)).toEqual(["real"]);
+    });
+
+    it("can't tell for == or ! on a set value (true for 0 and abc too), an upper-case name (an environment variable may set it), or another shape", () => {
+      const unknown = (tfrc: string) => loadsWith(tfrc).length === 0;
+      expect(unknown(`/set d=${p("real")}\n/if (d == "") /set d=${p("wrong")}%; /endif\n`)).toBe(true);
+      expect(unknown(`/if (D =~ "") /set D=${p("real")}%; /endif\n/eval /set d=%{D}\n`)).toBe(true);
+      expect(unknown(`/if (dd =~ "") /set dd=${p("real")}%; /endif\n/eval /set d=%{dd}\n`)).toBe(false);
+      expect(unknown(`/if (d =~ "") /set d=${p("real")}%; /echo x%; /endif\n`)).toBe(true);
+      expect(unknown(`/if (e =~ "") /set d=${p("real")}%; /endif\n`)).toBe(true);
+    });
   });
 
   it("keeps a variable a conditional /set would only set to the value it has", () => {

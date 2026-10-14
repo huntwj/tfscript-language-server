@@ -1,9 +1,11 @@
 import * as path from "node:path";
-import { entryCommands, shortenPercents, type LoadCommand } from "../loadCommands";
+import { entryCommands, shortenPercents, type LoadCommand, type SetCommand } from "../loadCommands";
 import type { SubLevel } from "../structure";
 import { splitLogicalEntries, type LogicalEntry } from "../logicalEntries";
 import { findAbortEntry } from "../rules/bareLineAfterCommand";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
+import { SPECIAL_VARIABLE_NAMES } from "../variables";
+import { toLocalPath, type PathMapping } from "./settings";
 
 /**
  * Replays tf's startup load order statically: stdlib.tf (tinyfugue/src/main.c's
@@ -24,7 +26,10 @@ import { getDocumentSymbols, type TfSymbol } from "../symbols";
  *  - A top-level line is not substituted, so a `%{var}` in a plain `/load` path is taken
  *    literally (and fails); `/eval /load %{dir}/x.tf` substitutes. `/set NAME=value` lines are
  *    tracked so `/eval` paths — and TFPATH/HOME changes made in a tfrc — resolve the way tf
- *    would, as long as the value was set to literal text.
+ *    would, as long as the value was set to literal text. One inside an `/if` or `/while` makes
+ *    the variable unknown, except the default-value idiom when it can be evaluated (guardRuns()).
+ *  - tf may run somewhere else (a container, WSL): its absolute paths go through the settings'
+ *    path mappings to find the file here (resolveLoadPath()).
  *  - Reading stops where tf aborts the file (a bare line; see bareLineAfterCommand.ts).
  * Loads inside `/def` (and other macro) bodies run later, if ever, so they are not followed. A
  * load inside a joined top-level `/if` is followed as if its branch were taken.
@@ -96,6 +101,7 @@ export interface ResolvedLoad {
   /** The path as written in the script, before any substitution. */
   raw: string;
   file: string;
+  kind: "load" | "require";
 }
 
 export interface LoadGraph {
@@ -115,10 +121,23 @@ export interface LoadGraphOptions {
   workingDir: string;
   /** The initial HOME variable, for `~`. */
   home?: string;
+  /** Where tf's absolute paths are here (settings.ts). */
+  pathMappings?: readonly PathMapping[];
   readFile(file: string): string | undefined;
 }
 
 const LOADED_RE = /^\s*\/loaded\s+(\S+)/i;
+
+const NAME = "[A-Za-z_][A-Za-z0-9_]*";
+/**
+ * A whole entry that is one `/if (<unset test of x>) <one statement>%; /endif`: `!x`, `!{x}`,
+ * `x =~ ""`, `{x} =~ ""`, `x == ""` or `{x} == ""` (either quote). Groups: the name (2-5),
+ * the operator (6), the statement (7).
+ */
+const GUARD_RE = new RegExp(
+  `^\\s*/if\\s*\\(\\s*(?:(!)\\s*(?:\\{(${NAME})\\}|(${NAME}))|(?:\\{(${NAME})\\}|(${NAME}))\\s*(=~|==)\\s*(?:""|''))\\s*\\)\\s*(/\\S[\\s\\S]*?)\\s*%;\\s*/endif\\s*$`,
+  "i",
+);
 
 /** A path's identity for comparisons: resolved, and case-folded where the filesystem is. */
 export function fileKey(file: string): string {
@@ -158,11 +177,20 @@ export interface LoadPathEnvironment {
   libraryDir?: string;
   /** tf's current directory. */
   workingDir: string;
+  /** Where tf's absolute paths are here, for a tf that runs somewhere else (settings.ts). */
+  pathMappings?: readonly PathMapping[];
   readFile(file: string): string | undefined;
 }
 
-/** Where tf finds the file `/load file` names (rules in the header comment), and every place it tries. */
+/**
+ * Where tf finds the file `/load file` names (rules in the header comment), and every place it
+ * tries, as files here: an absolute path tf would open (the file's, a TFPATH or TFLIBDIR entry,
+ * HOME) goes through the path mappings first.
+ */
 export function resolveLoadPath(file: string, env: LoadPathEnvironment): { found?: string; searched: string[] } {
+  const mappings = env.pathMappings ?? [];
+  // A directory tf names joined with a relative path, mapped if tf's directory is (as path.join when not).
+  const under = (dir: string, rel: string): string => path.normalize(toLocalPath(`${dir}/${rel}`, mappings));
   // tf counts any path starting with ~ as absolute (tfio.h is_absolute_path()), so it never
   // searches TFPATH for one. `~user/...` is user's home directory from the password file, which
   // this can't read; when there is no such user, expand_filename() leaves the name as it is and
@@ -173,19 +201,20 @@ export function resolveLoadPath(file: string, env: LoadPathEnvironment): { found
   // it if tf's ~ handling changes.
   if (file.startsWith("~")) {
     const named = file === "~" || file.startsWith("~/") ? env.home + file.slice(1) : file;
-    const target = path.resolve(env.workingDir, named);
+    const mapped = toLocalPath(named, mappings);
+    const target = mapped === named ? path.resolve(env.workingDir, named) : path.normalize(mapped);
     return { found: env.readFile(target) !== undefined ? target : undefined, searched: [target] };
   }
   const target = file;
   const candidates: string[] = [];
   if (path.isAbsolute(target)) {
-    candidates.push(target);
+    candidates.push(path.normalize(toLocalPath(target, mappings)));
   } else {
     candidates.push(path.join(env.workingDir, target));
     if (env.tfPath.length > 0) {
-      for (const dir of env.tfPath) if (path.isAbsolute(dir)) candidates.push(path.join(dir, target));
+      for (const dir of env.tfPath) if (path.isAbsolute(dir)) candidates.push(under(dir, target));
     } else if (env.libraryDir && path.isAbsolute(env.libraryDir)) {
-      candidates.push(path.join(env.libraryDir, target));
+      candidates.push(under(env.libraryDir, target));
     }
   }
   return { found: candidates.find((c) => env.readFile(c) !== undefined), searched: candidates };
@@ -201,6 +230,35 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   const unknown = new Set<string>();
   /** Variables whose value is unknown because a /set inside an /if or /while may have changed it. */
   const guarded = new Set<string>();
+  /** Every variable some /set on the path has set, or tried to: a default-value guard can't call them unset. */
+  const everSet = new Set<string>(vars.keys());
+
+  /**
+   * Whether the /if around `command` runs it, when the whole entry is the default-value idiom
+   * `/if (x =~ "") /set x=VALUE%; /endif`, or undefined when that can't be known. Proven in real
+   * tf (tf-script-check, 2026-10-14): for an unset variable, `x =~ ""`, `x == ""`, `!x` and the
+   * `{x}` forms are all true; for a set one, only `x =~ ""` is exact (true just for an empty
+   * value), since `==` and `!` compare numbers and are true for `0` and `abc` too. A variable is
+   * taken as unset when nothing on the path has set it, it isn't one of tf's special variables
+   * (`wrapspace` has a default), and its name has a lower-case letter: tf makes every environment
+   * variable a global (HOME, PATH and TERM were set at startup), and those are upper case by
+   * convention.
+   */
+  function guardRuns(entry: LogicalEntry, command: SetCommand): boolean | undefined {
+    const m = GUARD_RE.exec(entry.text);
+    if (!m) return undefined;
+    const name = (m[2] ?? m[3] ?? m[4] ?? m[5]) as string;
+    const body = m[7] as string;
+    if (name !== command.name || /%[;|\\]/.test(body) || !new RegExp(`^/@?set(?:env)?\\s+${name}(?:=|\\s)`, "i").test(body)) return undefined;
+    const exact = m[6] === "=~";
+    if (vars.has(name)) {
+      const value = vars.get(name) as string;
+      if (value === "") return true;
+      return exact ? false : undefined;
+    }
+    if (unknown.has(name) || everSet.has(name) || SPECIAL_VARIABLE_NAMES.has(name) || !/[a-z]/.test(name)) return undefined;
+    return true;
+  }
   const files = new Map<string, LoadedFile>();
   const tokens = new Set<string>();
   const unresolved: UnresolvedLoad[] = [];
@@ -215,6 +273,7 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
       tfPath,
       libraryDir: vars.get("TFLIBDIR") || undefined,
       workingDir: options.workingDir,
+      ...(options.pathMappings ? { pathMappings: options.pathMappings } : {}),
       readFile: options.readFile,
     });
     // Only the current directory is tried without a search variable; past it, an unknown one
@@ -280,7 +339,7 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
       if (user) return fail("user-home", `~${user} is user ${user}'s home directory, unless there is no such user`, searched);
       return fail("not-found", "file not found", searched);
     }
-    resolved.push({ from, line, offset: load.start, raw, file: path.resolve(found) });
+    resolved.push({ from, line, offset: load.start, raw, file: path.resolve(found), kind: load.kind });
     walk(found, { kind: load.kind, from, line });
   }
 
@@ -323,7 +382,10 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
           continue;
         }
         const value = valueAfter(command.value, command.pending);
-        if (value.ok && !command.conditional) {
+        const runs = command.conditional ? guardRuns(entry, command) : true;
+        everSet.add(command.name);
+        if (runs === false) continue; // the guard is known to skip it: nothing changes
+        if (value.ok && runs === true) {
           vars.set(command.name, value.value);
           unknown.delete(command.name);
           guarded.delete(command.name);

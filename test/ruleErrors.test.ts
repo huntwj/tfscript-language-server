@@ -27,3 +27,12 @@ describe("a rule that throws", () => {
     expect(reported).toEqual(["throws: Maximum call stack size exceeded"]);
   });
 });
+
+describe("a rule with very many diagnostics", () => {
+  // Review rev-s2d spread.js: push(...found) passed every diagnostic as an argument, and overflowed
+  // the stack at about 120000 of them.
+  it("keeps 150000 diagnostics from one command", () => {
+    const codes = getDiagnostics(`/echo ${"%{x} ".repeat(150000)}\n`).map((d) => d.code);
+    expect(codes.filter((c) => c === "not-substituted-here")).toHaveLength(150000);
+  });
+});

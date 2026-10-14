@@ -144,13 +144,13 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
             const d = entryDiagnostic(entry, match, rule.id, rule.severity);
             if (d) found.push(d);
           }
-          diagnostics.push(...found);
+          for (const d of found) diagnostics.push(d);
         });
       }
     } else {
       guarded(() => {
         const found = rule.check(textForFileRules).map((match) => lineDiagnostic(match, rule.id, rule.severity));
-        diagnostics.push(...found);
+        for (const d of found) diagnostics.push(d);
       });
     }
   }

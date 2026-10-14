@@ -415,7 +415,7 @@ function inlineAll(text: string, entries: LogicalEntry[], callee: Callee, option
     const p = plan(text, entries, site, callee, options, false);
     if (!p) return { disabled: `A call to /${name} on line ${(site.entry.offsetMap[site.bodyAt + site.unit.start]?.line ?? 0) + 1} can't be inlined.` };
     if ("disabled" in p) return { disabled: `The call on line ${(site.entry.offsetMap[site.bodyAt + site.unit.start]?.line ?? 0) + 1}: ${p.disabled}` };
-    edits.push(...p.edits);
+    for (const e of p.edits) edits.push(e);
   }
   edits.push(removalOf(splitRawLines(text), callee));
   const out = applyEdits(text, edits);

@@ -430,7 +430,7 @@ export function loadPathDiagnostics(
   const out: TfDiagnostic[] = [];
   if (options.undefinedMacros) {
     const unfollowed = context.unfollowed ?? (onPath ? unfollowedOnPath(graph) : []);
-    out.push(...undefinedMacros(file, text, lines, graph, onPath, { ...context, unfollowed }, options.ignoreMacros ?? []));
+    for (const d of undefinedMacros(file, text, lines, graph, onPath, { ...context, unfollowed }, options.ignoreMacros ?? [])) out.push(d);
   }
   if (!onPath) return out;
   const entries = splitLogicalEntries(text);

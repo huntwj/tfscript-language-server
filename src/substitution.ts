@@ -347,7 +347,7 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
     parts.forEach((part, k) => {
       if (typeof part !== "string") {
         text += src.text.slice(part.start, part.end);
-        map.push(...src.map.slice(part.start, part.end));
+        for (let k = part.start; k < part.end; k += 1) map.push(src.map[k] as number);
         return;
       }
       const next = parts.slice(k + 1).find((p) => typeof p !== "string") as { start: number } | undefined;

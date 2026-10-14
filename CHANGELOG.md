@@ -45,8 +45,9 @@
   writes `{x}`.
 - `not-substituted-here` ends a `%{...}` where tf does: `%{x-%{y}}` is one, and `%{x-{} and %{y}`
   is two, since a default ends at the first `}` a nested substitution doesn't take. It leaves a
-  `%{foo%{bar}}` alone, and offers no fix for a command `/eval` couldn't read: putting `/eval` in
-  front of either would only make tf reject the line.
+  `%{foo%{bar}}` alone. For a command `/eval` couldn't read, it offers no fix and doesn't advise
+  `/eval`: it says `/eval` would reject the command as written, and names what to fix first.
+  Putting `/eval` in front of either would only make tf reject the line.
 - "Inline /foo" (`refactor.inline`): replaces a `/foo` call in a macro body with foo's body, and
   "Inline all calls to /foo and remove it" does that for every call in the file and deletes the
   `/def`. It is shown disabled, with the reason, when the body wouldn't run the same in the caller:

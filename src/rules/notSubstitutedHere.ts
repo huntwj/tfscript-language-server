@@ -103,12 +103,26 @@ export const notSubstitutedHere: EntryRule = {
     const out: EntryMatch[] = [];
 
     /**
-     * Whether `st` can be substituted as written: its text, read as `/eval` reads it, has no
-     * substitution tf can't read. Else a fix that substitutes it would only make an error of a line
-     * that runs today (review rev-s2 p6: `/echo %{x-} %{x%{y}}`).
+     * What in `st` tf couldn't read if it substituted the command, as `/eval` does: the text of the
+     * first substitution or expression problem, or undefined when there is none. Where there is one,
+     * advice or a fix to substitute it would only make an error of a line that runs today (review
+     * rev-s2 p6: `/echo %{x-} %{x%{y}}`).
      */
-    const readable = (st: ContextStatement | undefined): boolean =>
-      !st || !parseRegions(text.slice(st.start, st.end), "body").issues.some((i) => i.kind === "substitution" || i.kind === "expression");
+    const unreadable = (st: ContextStatement | undefined): string | undefined => {
+      if (!st) return undefined;
+      const s = text.slice(st.start, st.end);
+      const issue = parseRegions(s, "body").issues.find((i) => i.kind === "substitution" || i.kind === "expression");
+      if (!issue) return undefined;
+      // From its opener (a related location, for a selector with something glued on) to the end of the word.
+      let from = Math.min(issue.start, ...(issue.related ?? []).map((n) => n.start));
+      let to = issue.end;
+      while (to < s.length && !isTfSpace(s[to])) to += 1;
+      while (from > 0 && !isTfSpace(s[from - 1]) && s[from] !== "%" && s[from] !== "$") from -= 1;
+      return s.slice(from, to);
+    };
+    const rejected = (bad: string): string =>
+      `It also holds ${code(bad)}, which tf can't read as a substitution or an expression. Substituting the ` +
+      `command as written would make tf reject it, where today it runs with the text as it is, so fix that first.`;
 
     const variable = (start: number, written: string): void => {
       const st = statementAt(statements, start);
@@ -118,32 +132,43 @@ export const notSubstitutedHere: EntryRule = {
         end: start + written.length,
         label: "not substituted",
       };
-      const safe = readable(st);
+      const bad = unreadable(st);
       if (st?.viaEval) {
         const name = evalName(st.viaEval);
+        const runs =
+          `${code(name)} runs its text ${st.viaEval.mode === "top" ? "as a plain line of a file is run" : "as a top-level /if line is run"}, ` +
+          `without substituting variables, so the command gets the text ${code(written)}.`;
         out.push({
           ...base,
-          message: `${written} stays as it is in ${name} text: leave out the -s option to substitute it.`,
-          explanation:
-            `${code(name)} runs its text ${st.viaEval.mode === "top" ? "as a plain line of a file is run" : "as a top-level /if line is run"}, ` +
-            `without substituting variables, so the command gets the text ${code(written)}. Without ${code("-s")}, ` +
-            (st.viaEval.command === "eval"
-              ? `${code("/eval")} substitutes its text once and then runs it.`
-              : `${code("/quote")} runs the command as a macro body is run, substituting it.`),
-          ...(safe ? { fix: { title: `Leave out ${optionName(text, st.viaEval.options.at(-1)!)}`, edits: dropOptions(st.viaEval) } } : {}),
+          message: bad
+            ? `${written} stays as it is in ${name} text, and without -s tf would reject this text as written: fix ${bad} first.`
+            : `${written} stays as it is in ${name} text: leave out the -s option to substitute it.`,
+          explanation: bad
+            ? `${runs} ${rejected(bad)}`
+            : `${runs} Without ${code("-s")}, ` +
+              (st.viaEval.command === "eval"
+                ? `${code("/eval")} substitutes its text once and then runs it.`
+                : `${code("/quote")} runs the command as a macro body is run, substituting it.`),
+          ...(bad ? {} : { fix: { title: `Leave out ${optionName(text, st.viaEval.options.at(-1)!)}`, edits: dropOptions(st.viaEval) } }),
         });
         return;
       }
+      const where = st?.level === "newline" ? "in a top-level /if or /while line" : "in a command at the top level of a file";
+      const runs =
+        `tf runs the commands in a file without substituting variables, so the command gets the text ${code(written)}, ` +
+        `not the variable's value. Inside a top-level ${code("/if")} or ${code("/while")} line, ${code("%;")} separates ` +
+        `commands but still nothing is substituted.`;
       out.push({
         ...base,
-        message: `${written} stays as it is ${st?.level === "newline" ? "in a top-level /if or /while line" : "in a command at the top level of a file"}: put /eval in front of the command to substitute it.`,
-        explanation:
-          `tf runs the commands in a file without substituting variables, so the command gets the text ${code(written)}, ` +
-          `not the variable's value. Inside a top-level ${code("/if")} or ${code("/while")} line, ${code("%;")} separates ` +
-          `commands but still nothing is substituted. In a ${code("/def")} body it would be substituted when the macro ` +
-          `runs, and in a condition or ${code("/test")} it is read as a variable. ${code("/eval")} substitutes the rest ` +
-          `of the command once and then runs it: ${code(`/eval ${text.slice(at).split(/\s/, 1)[0]} ...`)}`,
-        ...(safe ? { fix: { title: "Put /eval in front of the command", edits: [{ start: at, end: at, newText: "/eval " }] } } : {}),
+        message: bad
+          ? `${written} stays as it is ${where}, and /eval would reject this command as written: fix ${bad} first.`
+          : `${written} stays as it is ${where}: put /eval in front of the command to substitute it.`,
+        explanation: bad
+          ? `${runs} ${rejected(bad)}`
+          : `${runs} In a ${code("/def")} body it would be substituted when the macro ` +
+            `runs, and in a condition or ${code("/test")} it is read as a variable. ${code("/eval")} substitutes the rest ` +
+            `of the command once and then runs it: ${code(`/eval ${text.slice(at).split(/\s/, 1)[0]} ...`)}`,
+        ...(bad ? {} : { fix: { title: "Put /eval in front of the command", edits: [{ start: at, end: at, newText: "/eval " }] } }),
       });
     };
 

@@ -157,4 +157,22 @@ describe("not-substituted-here and nested or malformed %{", () => {
       "Put /eval in front of the command",
     );
   });
+
+  // Proven live (s2/r/w.tf): each line prints its text as it is, and each with /eval in front, or
+  // without its -soff, is an error ("unmatched { or illegal character", "expected operand").
+  it("words the message without the /eval advice there, naming what tf couldn't read", () => {
+    const message = (text: string) => getDiagnostics(text).find((d) => d.code === "not-substituted-here")?.message;
+    expect(message("/echo %{x-} %{x%{y}}\n")).toBe(
+      "%{x-} stays as it is in a command at the top level of a file, and /eval would reject this command as written: fix %{x%{y}} first.",
+    );
+    expect(message("/eval -soff /echo %{x-} %{x%{y}}\n")).toBe(
+      "%{x-} stays as it is in /eval -soff text, and without -s tf would reject this text as written: fix %{x%{y}} first.",
+    );
+    expect(message("/if (1) /echo %{x-} %{x y%; /endif\n")).toBe(
+      "%{x-} stays as it is in a top-level /if or /while line, and /eval would reject this command as written: fix %{x first.",
+    );
+    expect(message("/echo %{x-} $[1+\n")).toBe(
+      "%{x-} stays as it is in a command at the top level of a file, and /eval would reject this command as written: fix $[1+ first.",
+    );
+  });
 });

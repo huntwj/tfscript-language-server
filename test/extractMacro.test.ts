@@ -160,4 +160,26 @@ describe("extract to a new macro", () => {
     expect(extract("/def t = /let x=1%; /echo %x%; /echo b\n", "/let x=1%; /echo %x")).toBeDefined();
     expect(extract("/def t = /while (1) /break%; /done%; /echo b\n", "/while (1) /break%; /done")).toBeDefined();
   });
+
+  it("refuses a local the selection reads across a loop's turns", () => {
+    // In tf the loop's later turns saw `seen`; in a macro of its own it starts afresh each call.
+    const guard = "/def t = /let i=0%; /while (i<3) /if (seen) /echo s%; /endif%; /let seen=1%; /test ++i%; /done\n";
+    expect(reason(guard, "/if (seen) /echo s%; /endif%; /let seen=1")).toMatch(/inside a \/while and makes a local seen/);
+    const counter = "/def t = /while (i<3) /let n=$[n+1]%; /echo %n%; /test ++i%; /done\n";
+    expect(reason(counter, "/let n=$[n+1]%; /echo %n")).toMatch(/makes a local n/);
+    // Set first, unconditionally, from nothing of its own: each turn is the same either way.
+    expect(extract("/def t = /while (i<3) /let x=1%; /echo %x%; /test ++i%; /done\n", "/let x=1%; /echo %x")).toBeDefined();
+  });
+
+  it("refuses moving argument reads out of a macro that is called as a function", () => {
+    const text = "/def go = /echo %1%; /echo b\n";
+    const options = { calledAsFunction: (n: string) => n === "go" };
+    expect(getExtractActions(text, rangeOf(text, "/echo %1"), options)[0]?.disabled).toMatch(/called as a function, go\(\.\.\.\)/);
+    expect(getExtractActions(text, rangeOf(text, "/echo b"), options)[0]?.disabled).toBeUndefined();
+  });
+
+  it("isn't offered for /break 0, which tf refuses to compile", () => {
+    const action = getExtractActions("/def t = /while (1) /break 0%; /done%; /echo b\n", rangeOf("/def t = /while (1) /break 0%; /done%; /echo b\n", "/while (1) /break 0%; /done"))[0];
+    expect(action === undefined || action.disabled !== undefined).toBe(true);
+  });
 });

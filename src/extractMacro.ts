@@ -22,7 +22,8 @@ import { findFunctionCalls, findMacroCalls, findVariables, isNameChar, type Macr
  *  - tf's scoping is dynamic: a macro called from another sees the caller's `/let` locals, and an
  *    assignment in an expression (`x := 1`, `++x`) sets the nearest one, the caller's included
  *    (hsetnearestvar()). So reads and assignments in the moved statements still reach the caller's.
- *  - It is always called as `/name %*`, which gives it the caller's arguments word for word: `%1`,
+ *  - It is always called as `/name %*`, which gives it the caller's arguments word for word, when
+ *    the caller was called as a command (called as a function, see below): `%1`,
  *    `%*`, `%#`, `%L`, `%L2`, `%-1`, `%-L`, `{#}`, `{1}`, `{*}` and the braced and defaulted forms
  *    all came out the same, with arguments holding `"`, `%;`, `%%`, `$[...]` and `\`, and in a
  *    trigger's and a hook's body; with no arguments, passing `%*` on changes none of them. Always,
@@ -42,6 +43,11 @@ import { findFunctionCalls, findMacroCalls, findVariables, isNameChar, type Macr
  *  - `/return`, `/result` and `/exit` would end the new macro instead, `/shift` would shift its
  *    arguments, `getopts()` would read its arguments and set its locals, `%0` would be its name,
  *    and a `/break` that isn't inside a `/while` in the selection would end it instead of a loop.
+ *  - Inside a loop, a local the selection makes and reads lasts into the loop's next turn; a new
+ *    macro's starts afresh each call.
+ *  - Called as a function, `go("p q", "r")`, a macro keeps its arguments as passed; `%*` joins them
+ *    with blanks and the new macro splits them again (`%1=[p]` where go had `[p q]`), so moved text
+ *    that reads arguments is refused when the macro is called as a function anywhere seen.
  *  - A `%|` or `%\` beside the selection ties it to the next statement.
  *  - A tab in the moved text: tf turns it into spaces by column, and the column moves.
  *  - A file with CRLF line endings, where a `\` never continues a line (like the formatter).
@@ -59,9 +65,33 @@ export interface ExtractOptions {
   isTaken?: (name: string) => boolean;
   /** One level of indentation, for the new macro's body. */
   indent?: string;
+  /** Whether a macro (lower case) is called as a function, `name(...)`, anywhere that can be seen. */
+  calledAsFunction?: (name: string) => boolean;
 }
 
 const TITLE = "Extract to a new macro";
+
+/** An argument read: `%1`, `%*`, `%#`, `%L`, `%-1`, `%R`, braced or with a longer `%` run or `\` (read one level down), or `{1}`, `{#}`, `{*}`, `{L}` in an expression. */
+const ARGUMENT_RE = /(?:%+|\\%)\{?(?:-?[0-9]|\*|#|-?L[0-9]*(?![A-Za-z_])|R(?![A-Za-z_]))|\{(?:#|\*|-?[0-9]+|-?L[0-9]*)\}/;
+
+/**
+ * Whether macro text may read the running macro's arguments: it names one, or it runs text built
+ * when it runs, an `/eval` of a substitution or eval(), which can (`/eval %{cmd}` with cmd holding
+ * `%1` read the arguments of the macro running the /eval, in tf).
+ */
+export function readsArguments(text: string): boolean {
+  return ARGUMENT_RE.test(text) || /(^|[^\w])\/[@!]*eval\b[^%$]*?(?:%|\$[[({])/i.test(text) || /(^|[^\w])eval\s*\(/.test(text);
+}
+
+/** `/break 0`, which tf refuses to compile (the block-structure diagnostic says so). */
+export function breaksZero(text: string): boolean {
+  return /(^|[^\w])\/[@!]*break\s+0+(?![0-9])/i.test(text);
+}
+
+/** Whether a unit is inside a `/while` of the body (in its loop body or its condition list). */
+export function inLoop(units: Unit[], at: Unit, text: string): boolean {
+  return units.some((w) => w.block && w.word === "while" && w.start < at.start && trimEnd(text, w.start, w.end) >= trimEnd(text, at.start, at.end));
+}
 
 const COMMAND_NAMES: ReadonlySet<string> = new Set(ALL_COMMANDS.map((c) => c.name.toLowerCase()));
 /**
@@ -258,6 +288,13 @@ function plan(
   if (readsMacroName(moved)) {
     return { disabled: `%0 is the running macro's name, which in the new macro would be its own: leave it out of the selection.` };
   }
+  if (breaksZero(moved)) return { disabled: "tf refuses to compile /break 0: fix the /break first." };
+  // Called as a function, a macro keeps its arguments as tf passed them, but `%*` joins them
+  // with blanks and the new macro splits them again (in tf, `go("p q", "r")` gave %1=[p q] in
+  // go and [p] in a macro go called with %*).
+  if (symbol?.kind === "def" && readsArguments(moved) && options.calledAsFunction?.(symbol.name.toLowerCase())) {
+    return { disabled: `${owner} is called as a function, ${symbol.name}(...), whose arguments %* would split differently in a new macro: it can't be extracted.` };
+  }
   if (/(^|[^\w])regmatch\s*\(/.test(moved) && /%\{?P|\{P/.test(outsideText)) {
     return { disabled: `regmatch() in the selection would set %P1 and the rest only inside the new macro, but ${owner} reads them outside it: keep the regmatch() outside the selection.` };
   }
@@ -271,10 +308,25 @@ function plan(
   // isn't known, so any).
   const inMoved = (offset: number): boolean => offset >= body + xStart && offset < body + xEnd;
   const made = new Map<string, "let" | "assign">();
-  for (const o of findVariables(text)) {
-    if (o.entry !== entryIndex || !inMoved(o.offset)) continue;
+  const movedOccurrences = findVariables(text).filter((o) => o.entry === entryIndex && inMoved(o.offset));
+  for (const o of movedOccurrences) {
     if (o.access === "let") made.set(o.name, "let");
     else if (o.access === "assign" && o.scope === "global" && !made.has(o.name)) made.set(o.name, "assign");
+  }
+  // Inside a loop, a local the selection makes lasts into the loop's next turn, where the
+  // selection may read it before setting it again; in a macro of its own it starts afresh each
+  // call (in tf, `/if (seen) ...%; /let seen=1` in a /while saw `seen` on later turns; extracted,
+  // never). Fine only when the name's first use is an unconditional /let that doesn't read it.
+  if (made.size > 0 && inLoop(parsed.units, chosen[0] as Unit, bodyText)) {
+    for (const v of made.keys()) {
+      const uses = movedOccurrences.filter((o) => o.name === v).sort((a, b) => a.offset - b.offset);
+      const first = uses[0];
+      const letUnit = first && first.access === "let" ? within.find((u) => u.word === "let" && u.list === list && first.offset - body >= u.start && first.offset - body < u.end) : undefined;
+      const readsInOwnLet = letUnit !== undefined && uses.some((o) => o.access === "read" && o.offset - body >= letUnit.start && o.offset - body < letUnit.end);
+      if (!letUnit || readsInOwnLet) {
+        return { disabled: `The selection is inside a /while and makes a local ${v} that it reads: the loop's next turn sees the last turn's ${v}, but a new macro's ${v} would start afresh each call. Keep it in ${owner}.` };
+      }
+    }
   }
   if (made.size > 0) {
     const inBody = (r: Range): boolean => compare(r.start, bodyPos) >= 0 && r.start.line <= entry.endLine;

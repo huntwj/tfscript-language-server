@@ -507,8 +507,8 @@ class Parser {
     const afterCondition = this.conditionEnd?.at === start ? this.conditionEnd.keyword : undefined;
     if (afterCondition && ((word === "then" && outer === "then") || (word === "do" && outer === "do"))) {
       const list = word === "then" ? "/if" : "/while";
-      problem.message = `This /${word} is not needed: the (condition) after ${afterCondition} already ends it.`;
-      problem.label = "not needed";
+      problem.message = `This /${word} can't follow a (condition): the condition after ${afterCondition} already ends it.`;
+      problem.label = "not allowed after a (condition)";
       problem.explanation =
         `${code(`${afterCondition} (condition)`)} takes the next statement as its body, so this ${code(`/${word}`)} is ` +
         `read as the first statement of the body, where tf doesn't expect it. ${code(`/${word}`)} only follows a ` +

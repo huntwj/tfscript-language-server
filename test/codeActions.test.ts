@@ -141,7 +141,7 @@ describe("structural fixes", () => {
     expect(list?.message).toBe("This /then is inside the /if's body, where it doesn't belong: /then only ends a condition list.");
     expect(list?.fix).toBeUndefined();
     const [elseif] = getDiagnostics("/def a = /if (1) /echo a%; /elseif (2) /then /echo b%; /endif\n");
-    expect(elseif?.message).toBe("This /then is not needed: the (condition) after /elseif already ends it.");
+    expect(elseif?.message).toBe("This /then can't follow a (condition): the condition after /elseif already ends it.");
   });
 
   it("puts the %; on the right physical line of a continued body", () => {

@@ -184,6 +184,16 @@ describe("missing-continuation messages", () => {
     expect(only(["/if (1) /echo % 5%\\", "/endif"]).message).toBe(
       "This /if ends at the end of line 1, as a \\ after a % doesn't continue a line, so the /endif on line 2 is a separate command: end the line with a \\ that has no % before it.",
     );
+    // s52: %%\ too (load_file() looks only at the character before the \; tf dev, 2026-10-14).
+    expect(only(["/if (0) /echo % a %%\\", "    /echo % b", "/endif"]).message).toContain("as a \\ after a % doesn't continue a line");
+  });
+
+  it("advises LF line endings in a CRLF file even where no \\ was written", () => {
+    // c01 (tf dev, 2026-10-14): in a CRLF file, adding the \ alone wouldn't continue the line.
+    const d = getDiagnostics("/if (0)\r\n    /echo % a\r\n/endif\r\n/echo % after\r\n").find((x) => x.code === "missing-continuation");
+    expect(d?.message).toBe(
+      "This /if ends at the end of line 1, which has no \\, so the /endif on line 3 is a separate command: save the file with LF line endings, then end every line but the last with \\ (one before a carriage return doesn't continue a line).",
+    );
   });
 });
 

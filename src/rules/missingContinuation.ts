@@ -85,12 +85,13 @@ function entryIndexAt(entries: LogicalEntry[], line: number): number {
 }
 
 /**
- * How the opener's last line fails to continue: no `\` at all, a `%\` (an escaped `\`, which never
- * continues), or a `\` that whitespace (a CRLF's `\r` among it) follows.
+ * How the opener's last line fails to continue: no `\` at all (in a CRLF file, where one wouldn't
+ * work either), a `\` after a `%` (load_file() never continues a line ending in `%\`, `%%\` and all,
+ * command.c), or a `\` that whitespace (a CRLF's `\r` among it) follows.
  */
-function cutOff(line: string): "none" | "percent" | "whitespace" | "crlf" {
-  if (/(?<!%)%\\[ \t\f\v\r]*$/.test(line)) return "percent";
-  if (!/\\[ \t\f\v\r]+$/.test(line)) return "none";
+function cutOff(line: string): "none" | "none-crlf" | "percent" | "whitespace" | "crlf" {
+  if (/%\\[ \t\f\v\r]*$/.test(line)) return "percent";
+  if (!/\\[ \t\f\v\r]+$/.test(line)) return line.endsWith("\r") ? "none-crlf" : "none";
   return /\\\r$/.test(line) ? "crlf" : "whitespace";
 }
 
@@ -179,7 +180,8 @@ export function consolidateContinuations(text: string, entries: LogicalEntry[], 
     // The \ is there: backslash-not-last's fix (or LF line endings) is what's needed, not a closer
     // here. And with its own closer taken in, adding one here would leave that one an error: the
     // fix is the join, where there is one.
-    if ((how !== "none" || closer) && opener.d.fix?.title.startsWith("Add %; /")) delete opener.d.fix;
+    const backslash = how === "percent" || how === "whitespace" || how === "crlf";
+    if ((backslash || closer) && opener.d.fix?.title.startsWith("Add %; /")) delete opener.d.fix;
     if (related.length === 0) continue;
     related.sort(byPosition);
     opener.d.related = [...(opener.d.related ?? []), ...related];
@@ -195,6 +197,8 @@ export function consolidateContinuations(text: string, entries: LogicalEntry[], 
         ? `This /${opener.word} ends at the end of line ${n}, where the file's Windows (CRLF) line ending puts a carriage return after the \\, so ${what}: save the file with LF line endings.`
         : how === "whitespace"
           ? `This /${opener.word} ends at the end of line ${n}, where whitespace follows the \\, so ${what}: remove the whitespace.`
+          : how === "none-crlf"
+          ? `This /${opener.word} ends at the end of line ${n}, which has no \\, so ${what}: save the file with LF line endings, then end every line but the last with \\ (one before a carriage return doesn't continue a line).`
           : `This /${opener.word} ends at the end of line ${n}, which has no \\, so ${what}: end every line but the last with \\.`;
     opener.d.label = `its command ends on line ${n}`;
   }

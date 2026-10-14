@@ -1,0 +1,76 @@
+import { describe, expect, it } from "vitest";
+import { splitLogicalEntries } from "../src/logicalEntries";
+import { entrySubstitution, evalArguments, repeatArguments, type SubContext } from "../src/substitution";
+
+/** The context of the first character of `marker` in the one-line entry `line`. */
+function contextOf(line: string, marker: string, from = 0): SubContext | undefined {
+  const entry = splitLogicalEntries(`${line}\n`)[0]!;
+  return entrySubstitution(entry).contexts[line.indexOf(marker, from)];
+}
+
+describe("entrySubstitution", () => {
+  it("reads a plain top-level line at the keyword level", () => {
+    expect(contextOf("/echo %{x}", "%{x}")).toBe("keyword");
+  });
+
+  it("reads the rest of a top-level /if or /while line at the newline level", () => {
+    expect(contextOf("/if (1) /echo %{x}%; /endif", "%{x}")).toBe("newline");
+    expect(contextOf("/while (0) /echo %{x}%; /done", "%{x}")).toBe("newline");
+  });
+
+  it("substitutes macro bodies, /repeat commands, /for words and /eval text", () => {
+    expect(contextOf("/def a = /echo %{x}", "%{x}")).toBe("full");
+    expect(contextOf("/def -t%{p} a = /echo x", "%{p}")).toBe("keyword");
+    expect(contextOf("/repeat -0 1 /echo %{x}", "%{x}")).toBe("full");
+    expect(contextOf("/repeat -0 %{n} /echo x", "%{n}")).toBe("keyword");
+    expect(contextOf("/for i %{lo} 3 /echo %{i}", "%{lo}")).toBe("full");
+    expect(contextOf("/eval /echo %{x}", "%{x}")).toBe("full");
+  });
+
+  it("follows /eval's -s level", () => {
+    expect(contextOf("/eval -s0 /echo %{x}", "%{x}")).toBe("keyword");
+    expect(contextOf("/eval -son /echo %{x}", "%{x}")).toBe("newline");
+    expect(contextOf("/eval -s2 /echo %{x}", "%{x}")).toBe("full");
+    expect(contextOf("/eval -s0 /if (1) /eval /echo %%{x}%; /endif", "%%{x}")).toBe("full");
+  });
+
+  it("reads an /eval inside an /if line from the shortened text", () => {
+    expect(contextOf("/if (1) /eval /echo %%{x}%; /endif", "%%{x}")).toBe("full");
+  });
+
+  it("marks expressions, at any level", () => {
+    expect(contextOf("/if (%{x} == 5) /echo y%; /endif", "%{x}")).toBe("expression");
+    expect(contextOf("/test %{x} + 1", "%{x}")).toBe("expression");
+    expect(contextOf("/set y=$[%{x}+1]", "%{x}")).toBe("keyword");
+  });
+});
+
+describe("repeatArguments", () => {
+  const at = (args: string) => {
+    const r = repeatArguments(args, 0, args.length);
+    return r && { command: args.slice(r.command), now: r.now };
+  };
+
+  it("finds the command after the options and count", () => {
+    expect(at("-0 1 /echo x")).toEqual({ command: "/echo x", now: false });
+    expect(at("-S 1 /echo x")).toEqual({ command: "/echo x", now: true });
+    expect(at("-S -0 1 /echo x")).toEqual({ command: "/echo x", now: false });
+    expect(at("-0 -S 1 /echo x")).toEqual({ command: "/echo x", now: true });
+    expect(at("-wfoo i /echo x")).toEqual({ command: "/echo x", now: false });
+  });
+
+  it("is undefined for an invalid option or count, or no command", () => {
+    expect(at("-x 1 /echo x")).toBeUndefined();
+    expect(at("-0 0 /echo x")).toBeUndefined();
+    expect(at("-0 1")).toBeUndefined();
+  });
+});
+
+describe("evalArguments", () => {
+  it("reads -s and where the text starts", () => {
+    const args = "-soff -- /echo x";
+    expect(evalArguments(args, 0, args.length)).toEqual({ text: args.indexOf("/echo"), mode: "top" });
+    expect(evalArguments("-q x", 0, 4)).toBeUndefined();
+    expect(evalArguments("", 0, 0)).toEqual({ text: 0, mode: "body" });
+  });
+});

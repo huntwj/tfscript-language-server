@@ -103,9 +103,29 @@ describe("variable rename", () => {
   });
 
   it("renames a /let variable only in its own body", () => {
-    const text = "/def -i a = /let i=0%; /while (i < 3) /test ++i%; /done%; /echo %i\n/def -i b = /echo %i\n";
+    const text = "/set i=9\n/def -i a = /let i=0%; /while (i < 3) /test ++i%; /done%; /echo %i\n/def -i b = /echo %i\n";
     const edits = getRenameEdits(text, at(text, "/let i", 0, 5), "idx");
-    expect(apply(text, edits as never)).toBe("/def -i a = /let idx=0%; /while (idx < 3) /test ++idx%; /done%; /echo %idx\n/def -i b = /echo %i\n");
+    expect(apply(text, edits as never)).toBe(
+      "/set i=9\n/def -i a = /let idx=0%; /while (idx < 3) /test ++idx%; /done%; /echo %idx\n/def -i b = /echo %i\n",
+    );
+  });
+
+  it("refuses a local another macro probably reads through tf's dynamic scoping, from either end", () => {
+    // Real tf: /caller hello printed "show [hello]"; renaming only the /let would print "show []".
+    const text = "/def -i _show = /echo show [%_pattern]\n/def -i caller = /let _pattern=%1%; /_show\n";
+    expect(prepareRename(text, at(text, "/let _pattern", 0, 6))).toEqual({
+      error:
+        "Other macros read _pattern without a /let of their own, and nothing sets a global _pattern, so they probably " +
+        "read this macro's local: tf lets a macro's locals through to the macros it calls. Renaming it here would leave them behind.",
+    });
+    expect(prepareRename(text, at(text, "%_pattern", 0, 2))).toEqual({
+      error:
+        "Nothing sets a global _pattern, and some macros have their own /let _pattern, so this probably reads one of " +
+        "their locals: tf lets a macro's locals through to the macros it calls. Renaming it here would leave them behind.",
+    });
+    // Once something sets the global, the reads are taken to be of it.
+    const set = `/set _pattern=x\n${text}`;
+    expect(prepareRename(set, at(set, "/let _pattern", 0, 6))).toHaveProperty("range");
   });
 
   it("renames across the files on the load path", () => {

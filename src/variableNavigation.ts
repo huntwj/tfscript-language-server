@@ -86,7 +86,39 @@ function renameCheck(text: string, pos: Position, ctx?: NavContext): RenameCheck
       }
     }
   }
+  const passed = passedOn(target, text, ctx);
+  if (passed) return { ok: false, reason: passed };
   return { ok: true, target };
+}
+
+const WRITES = new Set(["set", "setenv", "assign"]);
+
+/**
+ * Why `target` may be a local one macro hands to another, which a rename can't follow: tf's
+ * scoping is dynamic, so a macro reads the locals of the macro that called it (proven: a callee's
+ * `%_pattern` read its caller's `/let _pattern`, as grep.tf, map.tf and stdlib.tf rely on). When
+ * nothing on the load path sets a global of the name, a read of it outside any `/let` is most
+ * likely such a callee, and a `/let` of it most likely such a caller.
+ */
+function passedOn(target: VariableOccurrence, text: string, ctx?: NavContext): string | undefined {
+  const name = target.name;
+  const all = [text, ...(ctx?.files ?? []).map((f) => f.text), ...(ctx?.libraryFiles ?? []).map((f) => f.text)].flatMap((t) =>
+    findVariables(t).filter((v) => v.name === name),
+  );
+  if (all.some((v) => v.scope === "global" && WRITES.has(v.access))) return undefined;
+  if (target.scope !== "global" && all.some((v) => v.scope === "global" && v.access === "read")) {
+    return (
+      `Other macros read ${name} without a /let of their own, and nothing sets a global ${name}, so they probably ` +
+      `read this macro's local: tf lets a macro's locals through to the macros it calls. Renaming it here would leave them behind.`
+    );
+  }
+  if (target.scope === "global" && all.some((v) => v.access === "let" || v.access === "getopts")) {
+    return (
+      `Nothing sets a global ${name}, and some macros have their own /let ${name}, so this probably reads one of ` +
+      `their locals: tf lets a macro's locals through to the macros it calls. Renaming it here would leave them behind.`
+    );
+  }
+  return undefined;
 }
 
 /**

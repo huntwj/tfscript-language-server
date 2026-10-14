@@ -2,12 +2,15 @@ import type { Position, Range, TfTextEdit } from "./diagnostics";
 import { getDiagnostics } from "./diagnostics";
 import {
   applyEdits,
+  breaksZero,
   ENDS_MACRO,
+  inLoop,
   isDefEntry,
   letName,
   mentions,
   ownerName,
   readerOutside,
+  readsArguments,
   readsMacroName,
   trimEnd,
 } from "./extractMacro";
@@ -26,8 +29,9 @@ import { countDefsOf } from "./workspace/loadPathDiagnostics";
  * Why the body runs the same in the caller, from what extract proved in real tf (2026-10-14):
  *  - tf's scoping is dynamic, so the body already reads and assigns the caller's `/let` locals;
  *    `%Pn` and `%?` already read the caller's.
- *  - Called as `/foo %*`, the body's arguments are the caller's word for word; called as `/foo`,
- *    it has none, so then a body that reads no argument is the only one that runs the same.
+ *  - Called as `/foo %*`, the body's arguments are the caller's word for word when the caller was
+ *    called as a command (not as a function: see below); called as `/foo`, it has none, so then a
+ *    body that reads no argument (nor runs /eval of text built when it runs) is the only one.
  *  - Both are top-level `/def` bodies, substituted the same way when they run.
  *
  * Refused (shown disabled, with the reason) when the body would run differently in the caller:
@@ -61,11 +65,11 @@ export interface InlineOptions {
   indent?: string;
   /** The file is in tf's library. */
   library?: boolean;
+  /** Whether a macro (lower case) is called as a function, `name(...)`, anywhere that can be seen. */
+  calledAsFunction?: (name: string) => boolean;
 }
 
 const CALL_RE = /^\/([@!]?)([^\s%$\\]+)(?:\s+(.*))?$/s;
-/** An argument read: `%1`, `%*`, `%#`, `%L`, `%-1`, `%R`, braced or with a longer `%` run or `\` (read one level down), or `{1}`, `{#}`, `{*}`, `{L}` in an expression. */
-const ARGUMENT_RE = /(?:%+|\\%)\{?(?:-?[0-9]|\*|#|-?L[0-9]*(?![A-Za-z_])|R(?![A-Za-z_]))|\{(?:#|\*|-?[0-9]+|-?L[0-9]*)\}/;
 const CHANGES_DEFS_RE = /\/@?(?:undef|undefn|undeft|purge|purgedef|edit)\b/i;
 const PLAIN_DEF_HEAD_RE = /^\s*\/@?def(?:\s+-i)*\s+\S+\s*=\s*$/i;
 
@@ -213,7 +217,16 @@ function plan(text: string, entries: LogicalEntry[], site: Site, callee: Callee,
   }
   if (/(^|[^\w])getopts\s*\(/.test(body)) return { disabled: `/${name} calls getopts(), which would read ${owner}'s arguments and set its locals once inlined: it can't be inlined.` };
   if (readsMacroName(body)) return { disabled: `/${name} reads %0, its own name, which would be ${owner}'s once inlined: it can't be inlined.` };
-  if (args === "" && ARGUMENT_RE.test(body)) return { disabled: `/${name} reads its arguments, which this call doesn't pass: inlined, it would read ${owner}'s. Call it with %* first if that's what it should get.` };
+  if (breaksZero(body)) return { disabled: `tf refuses to compile /${name}'s /break 0: fix it first.` };
+  if (args === "" && readsArguments(body)) return { disabled: `/${name} reads its arguments, which this call doesn't pass: inlined, it would read ${owner}'s. Call it with %* first if that's what it should get.` };
+
+  // Called as a function, the caller keeps its arguments as tf passed them, but `%*` joins them
+  // with blanks and /foo splits them again (in tf, `go("p q", "r")` gave /foo %1=[p] and go's
+  // own %1=[p q]), so the body reads them differently once inlined.
+  const callerSymbol = getDocumentSymbols(text).find((s) => s.range.start.line === entry.startLine);
+  if (args !== "" && callerSymbol?.kind === "def" && readsArguments(body) && options.calledAsFunction?.(callerSymbol.name.toLowerCase())) {
+    return { disabled: `${owner} is called as a function, ${callerSymbol.name}(...), whose arguments %* hands /${name} split differently: inlined, the body would read ${owner}'s as they were passed.` };
+  }
 
   // What the rest of the caller does, which a local the body makes would now reach.
   const outsideText = `${bodyText.slice(0, unit.start)} ${bodyText.slice(callEnd)}`;
@@ -250,6 +263,12 @@ function plan(text: string, entries: LogicalEntry[], site: Site, callee: Callee,
     const caller = site.units.filter((u) => u.word === "let" && u.list === 0 && u.start < unit.start).map((u) => letName(bodyText.slice(u.start, u.end)));
     for (const [v, how] of made) if (how === "assign" && caller.includes(v)) made.delete(v);
   }
+  // In a loop, the body's local would last into the next turn, where a call starts afresh (in tf,
+  // `/let n=$[n+1]` called in a /while gave 1,1,1; inlined it gave 1,2,3).
+  if (made.size > 0 && inLoop(site.units, unit, bodyText)) {
+    const v = [...made.keys()][0] as string;
+    return { disabled: `This call is inside a /while, and /${name} makes a local ${v}: inlined, the loop's next turn would see the last turn's ${v}, where each call starts without one.` };
+  }
   if (made.size > 0) {
     const reader = lazyReader();
     for (const [v, how] of made) {
@@ -277,7 +296,9 @@ function plan(text: string, entries: LogicalEntry[], site: Site, callee: Callee,
     if (laid && laid.length > 2) {
       // Statements end the way the caller's own lines do (`%; \` or `%;\`); the last laid-out
       // line ends the call's statement, and what followed the call on its line follows it.
-      const tail = /^%;( *)\\\s*$/.exec(callLine.slice(callLast.character + 1));
+      // The call's own line says how, or else the first of the caller's lines that ends a statement.
+      const ending = /%;( *)\\\s*$/;
+      const tail = /^%;( *)\\\s*$/.exec(callLine.slice(callLast.character + 1)) ?? lines.slice(entry.startLine, entry.endLine + 1).map((l) => ending.exec(l)).find((x) => x);
       const end = tail ? `%;${tail[1]}\\` : "%;\\";
       newText = laid
         .slice(1)
@@ -335,6 +356,27 @@ function removalOf(lines: string[], callee: Callee): TfTextEdit {
   return { range: { start: { line: first, character: 0 }, end: { line: last, character: 0 } }, newText: "" };
 }
 
+/** Where a call no statement of a body holds is, for the message: in /eval text, a nested /def, $(...), or at the top level. */
+function whereCalled(entries: LogicalEntry[], pos: Position): string {
+  const line = `on line ${pos.line + 1}`;
+  const entry = entries.find((e) => e.startLine <= pos.line && e.endLine >= pos.line);
+  if (!entry) return line;
+  const bodyAt = macroBodyStart(entry.text);
+  if (!isDefEntry(entry) || bodyAt < 0) return `at the top level of the file, ${line}`;
+  let offset = -1;
+  entry.offsetMap.forEach((p, k) => {
+    if (offset < 0 && compare(p, pos) >= 0) offset = k;
+  });
+  const bodyText = entry.text.slice(bodyAt);
+  const parsed = parseUnits(bodyText);
+  const o = offset - bodyAt;
+  const holder = parsed.units.filter((u) => !u.block && u.start <= o && o < u.end).sort((a, b) => b.start - a.start)[0];
+  if (holder && parsed.lists[holder.list]?.kind === "cmdsub") return `inside a $(...) ${line}`;
+  if (holder?.word === "def") return `from a /def inside another macro's body, ${line}`;
+  if (holder && ["eval", "for", "repeat", "quote", "not"].includes(holder.word)) return `from /${holder.word} text ${line}`;
+  return line;
+}
+
 function inlineAll(text: string, entries: LogicalEntry[], callee: Callee, options: InlineOptions): Plan {
   const name = callee.name;
   if (!PLAIN_DEF_HEAD_RE.test(callee.entry.text.slice(0, macroBodyStart(callee.entry.text)))) {
@@ -356,7 +398,12 @@ function inlineAll(text: string, entries: LogicalEntry[], callee: Callee, option
   }
   const calls = findMacroCalls(text).filter((c) => c.name.toLowerCase() === name);
   if (sites.length === 0) return { disabled: `/${name} has no calls in this file to inline.` };
-  if (calls.length !== sites.length) return { disabled: `/${name} is also run from text that can't take its body (in /eval, $(...), /repeat or at the top level of the file): inline its other calls one at a time.` };
+  if (calls.length !== sites.length) {
+    const at = (s: Site, o: number): Position => s.entry.offsetMap[s.bodyAt + o] ?? { line: -1, character: 0 };
+    const atSite = (r: Range): boolean => sites.some((s) => compare(at(s, s.unit.start), r.start) <= 0 && compare(r.start, at(s, s.unit.end - 1)) <= 0);
+    const other = calls.find((c) => !atSite(c.range));
+    return { disabled: `/${name} is also run ${other ? whereCalled(entries, other.range.start) : "from text that can't take its body"}, which can't take its body: inline its other calls one at a time.` };
+  }
   // Nothing else in the file may name it (/ismacro, a hook's body, a string), apart from comment lines.
   const mentionCount = text
     .split("\n")

@@ -148,6 +148,50 @@ describe("inline a macro", () => {
     expect(a("/def -i hi = /echo a\n/def -i go = /hi%; /test ismacro('hi')\n", "/hi%;")).toMatch(/names \/hi other than/);
     expect(a("/def -i hi = /echo a\n/def -i go = /hi%; /eval /hi\n", "/hi%;")).toMatch(/can't take its body/);
     expect(a("/def -i hi = /echo %1\n/def -i go = /hi %*%; /hi\n", "/hi %*")).toMatch(/^The call on line 2: /);
+    expect(a("/def -i hi = /echo a\n/def -i go = /hi%; /def -i inner = /hi\n", "/hi%;")).toMatch(/from a \/def inside another macro's body, on line 2/);
+    expect(a("/def -i hi = /echo a\n/def -i go = /hi%; /eval /hi\n", "/hi%;")).toMatch(/from \/eval text on line 2/);
+  });
+
+  it("removes only the ;;; doc block directly above, not one a blank line separates", () => {
+    const text = ";;; file notes\n\n/def -i hi = /echo shared\n\n/def -i one = /hi\n";
+    expect(inlineAll(text, "/hi\n")).toBe(";;; file notes\n\n/def -i one = /echo shared\n");
+  });
+});
+
+describe("inline: what the loop and the caller's callers see", () => {
+  it("refuses a body that makes a local, when the call is inside a /while", () => {
+    // In tf, `/let n=$[n+1]` called in a /while gave 1,1,1; inlined it gave 1,2,3.
+    const loop = (body: string): string => `/def -i hi = ${body}\n/def -i go = /let i=0%; /while (i<3) /hi%; /test ++i%; /done\n`;
+    expect(reason(loop("/let n=$[n+1]%; /echo %n"), "/hi%;")).toMatch(/inside a \/while, and \/hi makes a local n/);
+    expect(reason(loop("/test c := c + 1%; /echo %c"), "/hi%;")).toMatch(/makes a local c/);
+    expect(reason(loop("/if (seen) /echo s%; /endif%; /let seen=1"), "/hi%;")).toMatch(/makes a local seen/);
+    expect(inline(loop("/echo a"), "/hi%;")).toBeDefined();
+    // An assignment to the caller's own /let sets that local, in the loop or not.
+    expect(inline("/def -i hi = /test n := n + 1\n/def -i go = /let n=0%; /while (n<3) /hi%; /done\n", "/hi%;")).toBeDefined();
+  });
+
+  it("refuses %* when the caller is called as a function, whose arguments %* splits again", () => {
+    // In tf, go("p q", "r") gave /hi %1=[p], but the inlined body %1=[p q].
+    const text = "/def -i hi = /echo %1\n/def -i go = /hi %*\n";
+    expect(reason(text, "/hi %*", { calledAsFunction: (n) => n === "go" })).toMatch(/called as a function, go\(\.\.\.\)/);
+    expect(inline(text, "/hi %*")).toBeDefined();
+    expect(inline("/def -i hi = /echo a\n/def -i go = /hi %*\n", "/hi %*", { calledAsFunction: () => true })).toBeDefined();
+  });
+
+  it("refuses a body that runs text built when it runs, when the call passes no arguments", () => {
+    // In tf, `/eval %{cmd}` with cmd holding %1 read the arguments of the macro running it.
+    expect(reason("/def -i hi = /eval %{cmd}\n/def -i go = /hi\n", "/hi\n")).toMatch(/reads its arguments/);
+    expect(reason('/def -i hi = /test eval(x)\n/def -i go = /hi\n', "/hi\n")).toMatch(/reads its arguments/);
+    expect(inline("/def -i hi = /eval /echo plain\n/def -i go = /hi\n", "/hi\n")).toBeDefined();
+  });
+
+  it("refuses /break 0, which tf refuses to compile", () => {
+    expect(inline("/def -i hi = /while (1) /break 0%; /done\n/def -i go = /hi\n", "/hi\n")).toBeUndefined();
+  });
+
+  it("ends laid-out lines the way the caller's other lines do", () => {
+    const text = ["/def -i hi = /echo a%; /echo b", "/def -i go = \\", "    /echo x%; \\", "    /hi", ""].join("\n");
+    expect(inline(text, "/hi\n")).toBe(["/def -i hi = /echo a%; /echo b", "/def -i go = \\", "    /echo x%; \\", "    /echo a%; \\", "    /echo b", ""].join("\n"));
   });
 });
 

@@ -140,8 +140,7 @@ export const SPECIAL_VARIABLES: readonly TfVariable[] = [
   {
     "name": "default_charset",
     "type": "string",
-    "default": "UTF-8",
-    "requires": "WIDECHAR"
+    "default": "UTF-8"
   },
   {
     "name": "defcompile",
@@ -348,23 +347,19 @@ export const SPECIAL_VARIABLES: readonly TfVariable[] = [
   },
   {
     "name": "LANG",
-    "type": "string",
-    "requires": "HAVE_SETLOCALE"
+    "type": "string"
   },
   {
     "name": "LC_ALL",
-    "type": "string",
-    "requires": "HAVE_SETLOCALE"
+    "type": "string"
   },
   {
     "name": "LC_CTYPE",
-    "type": "string",
-    "requires": "HAVE_SETLOCALE"
+    "type": "string"
   },
   {
     "name": "LC_TIME",
-    "type": "string",
-    "requires": "HAVE_SETLOCALE"
+    "type": "string"
   },
   {
     "name": "local_assign",

@@ -190,6 +190,21 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
       for (const before of opaque) expect([before, loadsWith(`${before}${guard}`)]).toEqual([before, []]);
     });
 
+    it("only stops trusting it for what they may set: names, and the start of names built when they run", () => {
+      const guard = `/if (d =~ "") /set d=${p("real")}%; /endif\n`;
+      // tf's library does all of these at the top level before a tfrc runs (color.tf, stdlib.tf, tfstatus.tf).
+      const elsewhere = [
+        "/def other = /set elsewhere=1%; /let d=local\n/other\n",
+        "/for i 1 2 /set start_color%i=1\n",
+        "/test pi := 3\n",
+        "/test cylon%i := 1\n",
+        "/def deep = /eval /set deeper=1\n/def outer = /deep\n/outer\n",
+      ];
+      for (const before of elsewhere) expect([before, loadsWith(`${before}${guard}`)]).toEqual([before, ["real"]]);
+      const mine = ["/for i 1 2 /set d%i=1\n", "/test d%i := 1\n", "/def deep = /eval /set d=1\n/def outer = /deep\n/outer\n"];
+      for (const before of mine) expect([before, loadsWith(`${before}${guard}`)]).toEqual([before, []]);
+    });
+
     it("still trusts it after tf's own commands, and after a load of a folder here that finds nothing", () => {
       expect(loadsWith(`/echo hi\n/def x = /echo\n/set y=1\n/load ${p("nowhere", "gone.tf")}\n/if (d =~ "") /set d=${p("real")}%; /endif\n`)).toEqual(["real"]);
     });

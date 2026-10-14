@@ -1,11 +1,16 @@
 import * as path from "node:path";
-import { entryCommands, shortenPercents, type LoadCommand, type SetCommand } from "../loadCommands";
-import type { SubLevel } from "../structure";
+import { bodyEffects, entryCommands, shortenPercents, type Effects, type LoadCommand, type SetCommand } from "../loadCommands";
+import { macroBodyStart, type SubLevel } from "../structure";
 import { splitLogicalEntries, type LogicalEntry } from "../logicalEntries";
 import { findAbortEntry } from "../rules/bareLineAfterCommand";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
 import { SPECIAL_VARIABLE_NAMES } from "../variables";
 import { toLocalPath, type PathMapping } from "./settings";
+import { ALL_COMMANDS } from "../data/commands";
+
+/** tf's built-in commands and keywords (stdlib.tf's macros are read like any other). */
+const BUILTIN_COMMANDS: ReadonlySet<string> = new Set(ALL_COMMANDS.filter((c) => c.source !== "stdlib").map((c) => c.name.toLowerCase()));
+const STDLIB_COMMANDS: ReadonlySet<string> = new Set(ALL_COMMANDS.filter((c) => c.source === "stdlib").map((c) => c.name.toLowerCase()));
 
 /**
  * Replays tf's startup load order statically: stdlib.tf (tinyfugue/src/main.c's
@@ -257,11 +262,62 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   /** The search variables still holding the settings' folders here, which aren't mapped again. */
   const local = new Set(vars.keys());
   /**
-   * The first thing on the path that may have set variables this can't see (an OpaqueCommand, a
-   * top-level /for, an assignment in a condition, a load it can't follow), after which a
-   * default-value guard is no longer trusted.
+   * What ran on the path that may have set variables this can't follow, after which a
+   * default-value guard on them is no longer trusted: variables by name or by the start of a name
+   * built when it runs (an assignment, a macro whose body sets them), and the first thing that may
+   * have set any variable at all (a name built from nothing literal, text run from elsewhere, a call
+   * to a macro this can't read, a load it can't follow).
    */
-  let opaque: string | undefined;
+  const maybeSet = new Set<string>();
+  const maybeSetPrefixes: string[] = [];
+  let anything: string | undefined;
+  /** The body of each /def read so far, by lower-case name: the latest one counts. */
+  const bodies = new Map<string, string>();
+  const effectsMemo = new Map<string, Effects>();
+
+  /** What calling macro `name` may set, through the macros it calls. */
+  function callEffects(name: string, visiting = new Set<string>()): Effects {
+    const known = effectsMemo.get(name);
+    if (known) return known;
+    const body = bodies.get(name);
+    let result: Effects;
+    if (body === undefined) {
+      // tf's own commands set only their fixed variables (special ones, which a guard never
+      // trusts), and so do stdlib.tf's macros, read or not, but /toggle and /for, which set a
+      // variable named by their arguments; any other macro this hasn't read may do anything.
+      const harmless = BUILTIN_COMMANDS.has(name) || (STDLIB_COMMANDS.has(name) && name !== "toggle" && name !== "for");
+      result = { names: [], prefixes: [], calls: [], any: !harmless };
+    } else if (visiting.has(name)) {
+      return { names: [], prefixes: [], calls: [], any: false }; // a recursive call adds nothing new
+    } else {
+      visiting.add(name);
+      const effects = bodyEffects(body);
+      result = { names: [...effects.names], prefixes: [...effects.prefixes], calls: [], any: effects.any };
+      for (const call of effects.calls) {
+        const inner = callEffects(call, visiting);
+        result.names.push(...inner.names);
+        result.prefixes.push(...inner.prefixes);
+        result.any ||= inner.any;
+      }
+      visiting.delete(name);
+    }
+    effectsMemo.set(name, result);
+    return result;
+  }
+
+  function apply(effects: Effects, what: string): void {
+    const all = [effects, ...effects.calls.map((call) => callEffects(call))];
+    for (const e of all) {
+      for (const n of e.names) maybeSet.add(n);
+      maybeSetPrefixes.push(...e.prefixes);
+      if (e.any) anything ??= what;
+    }
+  }
+
+  /** Whether something on the path so far may have set `name` unseen. */
+  function maybeSetUnseen(name: string): boolean {
+    return anything !== undefined || maybeSet.has(name) || maybeSetPrefixes.some((p) => name.startsWith(p));
+  }
 
   function searchEnv(): SearchEnvironment {
     const libraryDir = vars.get("TFLIBDIR") || undefined;
@@ -287,10 +343,10 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   function guardRuns(entry: LogicalEntry, command: SetCommand): boolean | undefined {
     // Real tf: after /setup (which /sets it), /test x := "real", /eval /set x%{nothing}=..., or a
     // load from a path this can't follow, the variable was set and the guard skipped.
-    if (opaque !== undefined) return undefined;
     const m = GUARD_RE.exec(entry.text);
     if (!m) return undefined;
     const name = (m[2] ?? m[3] ?? m[4] ?? m[5]) as string;
+    if (maybeSetUnseen(name)) return undefined;
     const body = m[7] as string;
     if (name !== command.name || /%[;|\\]/.test(body) || !new RegExp(`^/@?set(?:env)?\\s+${name}(?:=|\\s)`, "i").test(body)) return undefined;
     const exact = m[6] === "=~";
@@ -357,7 +413,7 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
       // runs (proven: /eval /load %{d}/conf.tf, with d a path only tf's container had, set the
       // variable and the guard after it skipped). On Windows such a path is rooted but has no
       // drive; elsewhere it can't be told from a local one.
-      if (k !== "not-found" || searched.some(isForeignPath)) opaque ??= `the load of ${raw}`;
+      if (k !== "not-found" || searched.some(isForeignPath)) anything ??= `the load of ${raw}`;
     };
     // A `%` in a run of them is text, not the start of a substitution.
     const namesVariable = /%\{|%[A-Za-z_]/.test(raw.replace(/%%+/g, ""));
@@ -413,7 +469,15 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     for (const entry of usable) {
       if (entry.isDefBody || entry.isOtherMacroBody) {
         const symbol = defsByLine.get(entry.startLine);
-        if (symbol) loaded.defs.push({ file: loaded.path, symbol, seq: seq++ });
+        if (symbol) {
+          loaded.defs.push({ file: loaded.path, symbol, seq: seq++ });
+          // For what a call to it may set (callEffects()); a redefinition changes that.
+          const body = macroBodyStart(entry.text);
+          if (entry.isDefBody && body >= 0) {
+            bodies.set(symbol.name.toLowerCase(), entry.text.slice(body));
+            effectsMemo.clear();
+          }
+        }
         continue;
       }
       const token = LOADED_RE.exec(entry.text)?.[1];
@@ -423,13 +487,15 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
         continue;
       }
       if (entry.isForLoop) {
-        opaque ??= "a /for";
+        // stdlib's /for VAR START END COMMAND runs COMMAND as a body, with VAR its own local.
+        const command = /^\s*\/@?for\s+\S+\s+\S+\s+\S+\s+([\s\S]*)$/i.exec(entry.text)?.[1];
+        apply(command === undefined ? { names: [], prefixes: [], calls: [], any: true } : bodyEffects(command), "a /for");
         continue;
       }
       for (const command of entryCommands(entry)) {
         if (!command.topLevel) continue;
         if (command.kind === "opaque") {
-          opaque ??= command.what;
+          apply(command, command.what);
           continue;
         }
         if (command.kind !== "set") {

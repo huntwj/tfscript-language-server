@@ -44,7 +44,7 @@ describe("not-a-command", () => {
     ].join("\n");
     const found = codes(text);
     expect(found).toContain("not-a-command");
-    expect(found).not.toContain("if-multiline-top-level");
+    expect(found).not.toContain("missing-continuation");
   });
 
   it("does not flag a /def body, which starts with /", () => {
@@ -76,7 +76,7 @@ describe("not-a-command", () => {
     const found = codes(text);
     expect(found).toContain("not-a-command");
     // Nothing on or after the never-read third line should be flagged.
-    expect(found).not.toContain("if-multiline-top-level");
+    expect(found).not.toContain("missing-continuation");
   });
 
   // Confirmed live: a trailing `\` at the true end of the file never reaches tf's

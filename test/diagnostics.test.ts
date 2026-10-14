@@ -12,15 +12,15 @@ function codes(text: string): string[] {
   return getDiagnostics(text).map((d) => d.code);
 }
 
-describe("if-multiline-top-level (rule 2)", () => {
+describe("missing-continuation (rule 2)", () => {
   it("flags an /if left open across top-level lines", () => {
     const text = ['/if (x =~ "")', "  /set x=1", "/endif", ""].join("\n");
-    expect(codes(text)).toContain("if-multiline-top-level");
+    expect(codes(text)).toContain("missing-continuation");
   });
 
   it("is clean when /if and /endif are joined with %; on one line", () => {
     const text = '/if (x =~ "") /set x=1%; /endif\n';
-    expect(codes(text)).not.toContain("if-multiline-top-level");
+    expect(codes(text)).not.toContain("missing-continuation");
   });
 
   it("is clean inside a /def, backslash-continued, even though it is multi-line", () => {
@@ -31,7 +31,7 @@ describe("if-multiline-top-level (rule 2)", () => {
       "  /endif",
       "",
     ].join("\n");
-    expect(codes(text)).not.toContain("if-multiline-top-level");
+    expect(codes(text)).not.toContain("missing-continuation");
   });
 });
 
@@ -381,11 +381,8 @@ describe("structural rules (structure.ts)", () => {
     expect(found("/if (1) /echo a%; /endif\n/endif\n")).toEqual(["block-structure@1:0"]);
   });
 
-  it("if-multiline-top-level still owns an /if left open at the end of a top-level line", () => {
-    expect(found(["/if (1)", "/echo yes", "/endif", ""].join("\n"))).toEqual([
-      "if-multiline-top-level@0:0",
-      "block-structure@2:0",
-    ]);
+  it("missing-continuation reports an /if left open at the end of a top-level line once, with its stray /endif", () => {
+    expect(found(["/if (1)", "/echo yes", "/endif", ""].join("\n"))).toEqual(["missing-continuation@0:0"]);
   });
 
   it("leaves an /endif swallowed by /let to let-swallows-endif", () => {
@@ -423,8 +420,19 @@ describe("structural rules and the rules they overlap", () => {
 describe("messages", () => {
   // One plain sentence each, for the Problems pane: the problem, then the fix where there is one.
   const cases: [string, string, string][] = [
-    ["if-multiline-top-level", "/if (1)\n  /echo yes\n/endif\n", "This /if has no /endif in the same command."],
-    ["block-structure", "/while (1) /echo\n", "This /while has no /done in the same command."],
+    [
+      "missing-continuation",
+      "/if (1)\n  /echo yes\n/endif\n",
+      "This /if ends at the end of line 1, which has no \\, so the /endif on line 3 is a separate command: end every line but the last with \\.",
+    ],
+    [
+      "missing-continuation",
+      "/if (1)\n  /echo yes\n",
+      "This /if ends at the end of line 1, which has no \\, so line 2 starts a separate command: end every line but the last with \\.",
+    ],
+    ["missing-continuation", "/if (1) /echo\n", "This /if's command ends without an /endif: add %; /endif, or end each line but the last with \\."],
+    ["missing-continuation", "/while (1) /echo\n", "This /while's command ends without a /done: add %; /done, or end each line but the last with \\."],
+    ["missing-continuation", "/if /test 1\n", "This /if's command ends before the /then of its condition list: end each line but the last with \\."],
     ["not-substituted-here", "/load %{d}/ok.tf\n", "%{d} stays as it is in a command at the top level of a file: put /eval in front of the command to substitute it."],
     ["let-swallows-endif", "/def a = /if (1) /let v=1 /endif\n", "This /endif is part of the /let value, not a command: put %; before it."],
     ["let-swallows-endif", "/set v=1 /if (1) /echo%; /endif\n", "This /if is part of the /set value, not a command: put it on a line of its own."],

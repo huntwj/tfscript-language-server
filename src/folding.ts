@@ -6,7 +6,7 @@ import { isCommentLine, splitLogicalEntries, splitRawLines } from "./logicalEntr
  *  - every entry that backslash-continues across physical lines folds as one region — that
  *    is what a multi-line `/def` body is to tf, and it also covers a top-level `/if ... /endif`
  *    joined with `\`. An `/if` that is *not* joined is several separate entries (and a
- *    diagnostic, if-multiline-top-level), so there is no block there to fold;
+ *    diagnostic, missing-continuation), so there is no block there to fold;
  *  - a run of two or more comment lines folds as a comment.
  * Comment lines inside a continuation are skipped by tf's loader, so they stay inside the
  * entry's fold rather than starting a comment fold of their own.

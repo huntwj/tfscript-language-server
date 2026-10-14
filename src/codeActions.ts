@@ -39,7 +39,12 @@ export function getCodeActions(text: string, range: Range, diagnostics: TfDiagno
   const actions: TfCodeAction[] = [];
 
   for (const diagnostic of diagnostics) {
-    if (!overlaps(diagnostic.range, range) || !diagnostic.fix) continue;
+    // A missing-continuation's stray and indented lines are its own (it reports them once, as
+    // related locations), so its fix is offered on them too.
+    const at =
+      overlaps(diagnostic.range, range) ||
+      (diagnostic.code === "missing-continuation" && !!diagnostic.related?.some((r) => overlaps(r.range, range)));
+    if (!at || !diagnostic.fix) continue;
     const key = JSON.stringify(diagnostic.fix.edits);
     if (seen.has(key)) continue;
     seen.add(key);

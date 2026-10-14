@@ -34,7 +34,7 @@ describe("comment lines", () => {
       "/endif",
       "",
     ].join("\n");
-    expect(codes(text)).not.toContain("if-multiline-top-level");
+    expect(codes(text)).not.toContain("missing-continuation");
   });
 });
 
@@ -42,12 +42,12 @@ describe("backslash continuation at the top level (not just inside /def)", () =>
   it("is clean for a plain /if continued with backslashes, no /def involved", () => {
     // Proven by running tf-script-check directly on this exact script (2026-10-11): 0 problems.
     const text = ["/if (1) \\", "/echo yes%; \\", "/endif", ""].join("\n");
-    expect(codes(text)).not.toContain("if-multiline-top-level");
+    expect(codes(text)).not.toContain("missing-continuation");
   });
 
   it("still flags a genuinely unterminated /if even when it could have continued", () => {
     const text = ["/if (1)", "/echo yes", ""].join("\n");
-    expect(codes(text)).toContain("if-multiline-top-level");
+    expect(codes(text)).toContain("missing-continuation");
   });
 });
 
@@ -80,7 +80,7 @@ describe("continuation lines have their leading whitespace stripped, same as tf'
     const text = ["/if (1) /echo x%; /end\\", "   if", ""].join("\n");
     const [entry] = splitLogicalEntries(text);
     expect(entry?.text).toBe("/if (1) /echo x%; /endif");
-    expect(codes(text)).not.toContain("if-multiline-top-level");
+    expect(codes(text)).not.toContain("missing-continuation");
   });
 
   it("still maps offsets in the joined text back to the right original position", () => {
@@ -105,7 +105,7 @@ describe("CRLF line endings", () => {
   // independent, broken commands instead of one joined /if...endif — was a macro syntax error.
   it("does not treat a backslash followed by \\r as a continuation", () => {
     const text = ["/if (1) \\\r", "/echo yes%; \\\r", "/endif\r", ""].join("\n");
-    expect(codes(text)).toContain("if-multiline-top-level"); // /if and /endif never join
+    expect(codes(text)).toContain("missing-continuation"); // /if and /endif never join
     expect(codes(text)).toContain("backslash-not-last"); // \<CR> warns, same as \<space>
   });
 

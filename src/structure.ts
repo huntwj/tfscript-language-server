@@ -39,8 +39,8 @@ export type StructureMode = "body" | "top" | "newline";
 export type StructureKind =
   /** Block structure: an unclosed or unexpected keyword, or text after /endif or /done. */
   | "block"
-  /** A top-level /if whose /endif is not in the same (joined) line. */
-  | "if-top"
+  /** A top-level /if or /while still open where its (joined) line ends. */
+  | "continuation"
   /** A substitution, command substitution, string or condition that never closes. */
   | "bracket"
   /** A %; right after /if (...) or /else, which sends a blank line to the world. */
@@ -269,6 +269,33 @@ function charName(ch: string): string {
   if (ch === "\t") return "tab";
   if (ch === "\r") return "carriage return";
   return ch < " " ? `control character U+${ch.charCodeAt(0).toString(16).padStart(4, "0").toUpperCase()}` : `'${ch}'`;
+}
+
+/**
+ * The hover for a top-level block still open where its command ends. In a file, tf runs each line
+ * as a command of its own unless it ends in `\` (load_file() in command.c): this is true of every
+ * command, not only of `/if`, so a block has to be complete within one command.
+ */
+const CONTINUATION_EXPLANATION =
+  `In a file, every command ends at the end of its line, unless the line ends in ${code("\\")}: then tf joins the ` +
+  `next line on. So a block has to be complete within one command: on one line with ${code("%;")} between its ` +
+  `statements, or on lines that each end in ${code("\\")} but the last. (On a top-level line that starts with ` +
+  `${code("/if")} or ${code("/while")}, ${code("%;")} separates statements, but variables aren't substituted; ` +
+  `put the block in a ${code("/def")} to use them.)`;
+
+/**
+ * A top-level block still open where its command ends, waiting for `/then`, `/do` (a condition
+ * list) or its closer. missingContinuation.ts rewrites the message when a later line holds the
+ * keyword that was meant to be part of it.
+ */
+function continuation(word: "if" | "while", missing: string, conditionList: boolean): IssueDetail {
+  return {
+    message: conditionList
+      ? `This /${word}'s command ends before the /${missing} of its condition list: end each line but the last with \\.`
+      : `This /${word}'s command ends without ${missing === "endif" ? "an" : "a"} /${missing}: add %; /${missing}, or end each line but the last with \\.`,
+    label: `no /${missing} in this command`,
+    explanation: CONTINUATION_EXPLANATION,
+  };
 }
 
 function describeBlock(block: Block): string {
@@ -677,23 +704,20 @@ class Parser {
         `When ${code(`/${word}`)} is followed by commands instead of a ${code("(condition)")}, they are its condition, up to ` +
         `a ${code(`/${then}`)} at the start of a statement: ${code(`/${word} /test x%; /${then} ...`)}`,
     });
+    // A top-level block still open where its command ends: in a file that is the end of the line,
+    // unless the line ends in \ (missing-continuation; rules/missingContinuation.ts finds the
+    // lines that were meant to be part of it).
+    const top = this.mode === "top" && this.cmdsub === 0 && this.i >= this.s.length;
     if (keyword === "if") {
       if (ended === "if" || ended === "elseif") {
-        this.blockError(start, end, conditionList("if", "then"), "then", "block", to);
+        if (top) this.blockError(start, end, continuation("if", "then", true), "then", "continuation", to);
+        else this.blockError(start, end, conditionList("if", "then"), "then", "block", to);
       } else if (ended === "then" || ended === "else") {
-        const top = this.mode === "top" && this.cmdsub === 0 && this.i >= this.s.length;
         this.blockError(
           start,
           end,
           top
-            ? {
-                message: "This /if has no /endif in the same command.",
-                label: "no /endif on this line",
-                explanation:
-                  `tf reads a file one command per line, after joining lines that end in ${code("\\")}. An ${code("/if")} ` +
-                  `and its ${code("/endif")} have to end up in the same command: either on one line, separated with ` +
-                  `${code("%;")}, or with a trailing ${code("\\")} on every line but the last.`,
-              }
+            ? { ...continuation("if", "endif", false), fix: closer("endif") }
             : {
                 message: "This /if has no /endif.",
                 label: "never closed",
@@ -701,27 +725,19 @@ class Parser {
                 fix: closer("endif"),
               },
           "endif",
-          top ? "if-top" : "block",
+          top ? "continuation" : "block",
           to,
         );
       }
     } else if (ended === "while") {
-      this.blockError(start, end, conditionList("while", "do"), "do", "block", to);
+      if (top) this.blockError(start, end, continuation("while", "do", true), "do", "continuation", to);
+      else this.blockError(start, end, conditionList("while", "do"), "do", "block", to);
     } else if (ended === "do") {
-      const top = this.mode === "top" && this.cmdsub === 0 && this.i >= this.s.length;
       this.blockError(
         start,
         end,
         top
-          ? {
-              message: "This /while has no /done in the same command.",
-              label: "no /done on this line",
-              explanation:
-                `tf reads a file one command per line, after joining lines that end in ${code("\\")}. A ${code("/while")} ` +
-                `and its ${code("/done")} have to end up in the same command: either on one line, separated with ` +
-                `${code("%;")}, or with a trailing ${code("\\")} on every line but the last.`,
-              fix: closer("done"),
-            }
+          ? { ...continuation("while", "done", false), fix: closer("done") }
           : {
               message: "This /while has no /done.",
               label: "never closed",
@@ -729,7 +745,7 @@ class Parser {
               fix: closer("done"),
             },
         "done",
-        "block",
+        top ? "continuation" : "block",
         to,
       );
     }
@@ -787,10 +803,12 @@ class Parser {
       problem.label = `before the /${then}`;
       problem.explanation = `A condition list runs up to ${code(`/${then}`)} at the start of a statement: ${code(`/${keyword} /test x%; /${then} ...`)}`;
     }
-    if (this.mode === "top" && !outer && (word === "endif" || word === "else" || word === "elseif")) {
+    if (this.mode === "top" && !outer) {
+      const a = opener === "if" ? "an" : "a";
       problem.explanation =
-        `tf reads a file one command per line, after joining lines that end in ${code("\\")}. If this belongs to an ` +
-        `${code("/if")} on an earlier line, end every line from that ${code("/if")} to here with a trailing ${code("\\")}.`;
+        `In a file, every command ends at the end of its line, unless the line ends in ${code("\\")}. If this ` +
+        `belongs to ${a} ${code(`/${opener}`)} on an earlier line, end every line from that ${code(`/${opener}`)} to ` +
+        `here with ${code("\\")}.`;
     }
     // Only a missing /then or /do can explain a keyword turning up early in a condition list.
     const fix = outer === "if" || outer === "elseif" ? "then" : outer === "while" ? "do" : undefined;

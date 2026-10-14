@@ -3,6 +3,7 @@ import { RULES, type Severity } from "./rules";
 import type { EntryMatch, LineMatch, LineSpan } from "./rules/types";
 import { findAbortEntry } from "./rules/notACommand";
 import { addJoinFixes } from "./joinFix";
+import { consolidateContinuations } from "./rules/missingContinuation";
 
 export interface Position {
   line: number;
@@ -91,7 +92,7 @@ function lineDiagnostic(match: LineMatch, code: string, severity: Severity): TfD
  */
 export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?: boolean } = {}): TfDiagnostic[] {
   const entries = splitLogicalEntries(text);
-  const diagnostics: TfDiagnostic[] = [];
+  let diagnostics: TfDiagnostic[] = [];
 
   // A bare (non-blank, non-comment, non-"/") line aborts tf's load of the rest of the file.
   // tf still reads every physical line of the aborting entry itself before it gives up (the
@@ -123,6 +124,8 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
   }
 
   if (abort) diagnostics.push(lineDiagnostic(abort, "not-a-command", "error"));
+  // One missing \ makes the lines after a top-level /if or /while commands of their own: say so once.
+  diagnostics = consolidateContinuations(text, entries, diagnostics);
   if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false }));
 
   return diagnostics;

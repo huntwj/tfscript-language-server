@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `missing-continuation` replaces `if-multiline-top-level`, and covers `/while` and condition
+  lists too (a top-level `/while` cut off at the end of its line was a `block-structure` error).
+  One missing `\` used to give two or three diagnostics: the opener, a stray `/endif` and an
+  indented-line warning. It is now reported once, at the opener, naming the line that was cut
+  off, with the stray keywords and indented lines as related locations; its join fix is offered
+  on each of them.
 - Renamed: `trailing-space-after-backslash` is now `backslash-not-last`, and
   `bare-line-after-command` is now `not-a-command` (it fires on any line, not only after a
   command).

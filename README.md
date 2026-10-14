@@ -50,7 +50,7 @@ view of the file gets truncated, since tf never reads past the line it aborts on
 
 | Rule | id | What it catches |
 | --- | --- | --- |
-| 2 | `if-multiline-top-level` | `/if` with no matching `/endif` in the same top-level command |
+| 2 | `missing-continuation` | a top-level `/if` or `/while` still open where its line ends, with no `\` to continue it. Reported once, at the opener: the stray `/then`, `/else`, `/endif`, `/do` or `/done` and the indented lines that were meant to be part of it are its related locations, not diagnostics of their own |
 | 4 | `not-substituted-here` | text tf reads without substituting, where it was surely meant to be: a `%{var}` in a plain top-level line or a top-level `/if` or `/while` line (the fix puts `/eval` in front), or in `/eval` or `/quote` `-soff`/`-son` text (the fix leaves out the `-s`), and a `%var` in a `/load` or `/require` path there. Not in a macro body, an `/eval`, the command of a `/repeat`, `/at` or `/quote` (after its backquote), a `/for`, or an expression operand (`/if (%{x} == 5)`), which tf substitutes; never a `%name` elsewhere, as `/set std_clock_format=%H:%M` is meant as text. Also a `%{var}` inside a string in a condition or `$[...]`, which nothing substitutes, even in a macro body (a `$(...)` in one runs as a macro body). (information) A `%;` with more after it on a plain top-level line or in `-soff` text, which doesn't separate there: `/echo a%; /echo b` is one `/echo`; in a `/set`, `/let` or `/setenv` value it may be meant. One table, `src/substitution.ts`, says which text is read at which level |
 | 5 | `let-swallows-endif` | `/let`/`/set` swallowing a following `/if` or `/endif` into its value |
 | 6 | `dollar-bracket-in-if` | redundant `$[...]` inside an `/if`/`/elseif`/`/while` condition |
@@ -65,7 +65,7 @@ view of the file gets truncated, since tf never reads past the line it aborts on
 | — | `incomplete-continuation` | (warning) the file's last command ends in `\`: tf says "last command is incomplete because of trailing \\" and drops it, so a macro it would define isn't defined. A final newline doesn't complete it (tf reads no line after it); a real blank line does. The fix removes the `\` |
 | — | `nesting-too-deep` | (information) not a problem in tf: a command nesting more than 400 levels deep (each nested `/if`, `/while`, `$(...)`, `$[...]` or `%{name-...}` default is a level), past which the structural check stops; what it read before that still counts |
 
-`if-multiline-top-level`, `block-structure`, `unclosed-substitution` and
+`missing-continuation`, `block-structure`, `unclosed-substitution` and
 `separator-sends-blank-line` share one model of tf's compiler, `src/structure.ts` (`list()`,
 `statement()` and the substitution scanners in `expand.c`): it reads keywords only at the start of
 a statement, follows nesting, and knows that a top-level line substitutes nothing while a macro
@@ -378,6 +378,8 @@ test/
   units.test.ts         the statements and blocks of a body, and the list each runs in
   codeActionRouting.test.ts  which kinds of code action a request gets, and when
   endOfFile.test.ts     a final newline, a command the file ends inside, incomplete-continuation
+  missingContinuation.test.ts  a top-level block cut off at the end of its line, reported once
+                        with the lines that were meant to be part of it
   variables.test.ts, variableNavigation.test.ts, highlights.test.ts  variable scopes,
                         lookups, rename and highlights
   documentLinks.test.ts  which /load and /require filenames link, and where to

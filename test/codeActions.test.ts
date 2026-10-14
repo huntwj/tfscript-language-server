@@ -178,24 +178,24 @@ describe("rule fixes", () => {
     ["not-a-command", ["/echo x", "\uFEFF; a note", "/echo y"], ["/echo x", "; a note", "/echo y"]],
     // Without the mark the line still wouldn't be a command, so it is commented out, mark and all.
     ["not-a-command", ["/echo x", "\uFEFFhello", "/echo y"], ["/echo x", "; \uFEFFhello", "/echo y"]],
-    ["if-multiline-top-level", ["/if (1)", "  /echo yes", "/endif"], ["/if (1) \\", "  /echo yes%; \\", "/endif"]],
+    ["missing-continuation", ["/if (1)", "  /echo yes", "/endif"], ["/if (1) \\", "  /echo yes%; \\", "/endif"]],
     [
-      "if-multiline-top-level",
+      "missing-continuation",
       ["/if (1)", "    /echo yes", "/else", "    /echo no", "/endif"],
       ["/if (1) \\", "    /echo yes%; \\", "/else \\", "    /echo no%; \\", "/endif"],
     ],
-    ["if-multiline-top-level", ["/if (1)", "; a note", "  /echo yes", "/endif"], ["/if (1) \\", "; a note", "  /echo yes%; \\", "/endif"]],
-    ["block-structure", ["/if /test 1", "/then /echo x", "/endif"], ["/if /test 1%; \\", "/then /echo x%; \\", "/endif"]],
-    ["block-structure", ["/while (i < 3)", "  /test ++i", "/done"], ["/while (i < 3) \\", "  /test ++i%; \\", "/done"]],
-    ["block-structure", ["/while /test i < 3", "/do /test ++i", "/done"], ["/while /test i < 3%; \\", "/do /test ++i%; \\", "/done"]],
-    ["if-multiline-top-level", ["/if (1) /echo 50%", "/endif"], ["/if (1) /echo 50% %; \\", "/endif"]],
+    ["missing-continuation", ["/if (1)", "; a note", "  /echo yes", "/endif"], ["/if (1) \\", "; a note", "  /echo yes%; \\", "/endif"]],
+    ["missing-continuation", ["/if /test 1", "/then /echo x", "/endif"], ["/if /test 1%; \\", "/then /echo x%; \\", "/endif"]],
+    ["missing-continuation", ["/while (i < 3)", "  /test ++i", "/done"], ["/while (i < 3) \\", "  /test ++i%; \\", "/done"]],
+    ["missing-continuation", ["/while /test i < 3", "/do /test ++i", "/done"], ["/while /test i < 3%; \\", "/do /test ++i%; \\", "/done"]],
+    ["missing-continuation", ["/if (1) /echo 50%", "/endif"], ["/if (1) /echo 50% %; \\", "/endif"]],
     ["indented-line-after-command", ["/def -i a = /echo one", "    /echo two"], ["/def -i a = /echo one%; \\", "    /echo two"]],
     ["indented-line-after-command", ["/def -i a = /echo one%;", "    /echo two"], ["/def -i a = /echo one%; \\", "    /echo two"]],
     ["indented-line-after-command", ["/def -i a =", "    /echo two"], ["/def -i a = \\", "    /echo two"]],
     ["indented-line-after-command", ["/def -i a = /if (1)", "    /echo yes", "/endif"], ["/def -i a = /if (1) \\", "    /echo yes%; \\", "/endif"]],
     ["indented-line-after-command", ["/set x=1", "  /set y=2"], ["/set x=1", "/set y=2"]],
     // Only a real separator counts (proven live): =, %%; and \%; at the end of a body line are text.
-    ["if-multiline-top-level", ["/if (1)", "  /set x=", "  /echo y", "/endif"], ["/if (1) \\", "  /set x=%; \\", "  /echo y%; \\", "/endif"]],
+    ["missing-continuation", ["/if (1)", "  /set x=", "  /echo y", "/endif"], ["/if (1) \\", "  /set x=%; \\", "  /echo y%; \\", "/endif"]],
     ["indented-line-after-command", ["/def -i a = /echo 100%%;", "    /echo two"], ["/def -i a = /echo 100%%;%; \\", "    /echo two"]],
     ["indented-line-after-command", ["/def -i a = /echo a\\%;", "    /echo two"], ["/def -i a = /echo a\\%;%; \\", "    /echo two"]],
     // A run of indented lines continues the /def above them as a whole, not just the first.
@@ -209,8 +209,8 @@ describe("rule fixes", () => {
     ["indented-line-after-command", ["/def -i a = /echo pct\\%%;", "    /echo two"], ["/def -i a = /echo pct\\%%; \\", "    /echo two"]],
     ["indented-line-after-command", ["/def -i a = /echo a\\\\\\%;", "    /echo two"], ["/def -i a = /echo a\\\\\\%;%; \\", "    /echo two"]],
     // A top-level line does no \ processing, so there \%; does separate, and \%%; doesn't.
-    ["if-multiline-top-level", ["/if (1)", "  /echo a\\%;", "  /echo b", "/endif"], ["/if (1) \\", "  /echo a\\%; \\", "  /echo b%; \\", "/endif"]],
-    ["if-multiline-top-level", ["/if (1)", "  /echo a\\%%;", "  /echo b", "/endif"], ["/if (1) \\", "  /echo a\\%%;%; \\", "  /echo b%; \\", "/endif"]],
+    ["missing-continuation", ["/if (1)", "  /echo a\\%;", "  /echo b", "/endif"], ["/if (1) \\", "  /echo a\\%; \\", "  /echo b%; \\", "/endif"]],
+    ["missing-continuation", ["/if (1)", "  /echo a\\%%;", "  /echo b", "/endif"], ["/if (1) \\", "  /echo a\\%%;%; \\", "  /echo b%; \\", "/endif"]],
   ];
   for (const [code, before, after] of cases) {
     it(`${code}: ${before.join(" | ")}`, () => {
@@ -273,7 +273,7 @@ describe("rule fixes", () => {
     // Nothing here ever closes, so none of these /ifs can be joined; the good one at the end still is.
     const lines = Array.from({ length: 300 }, (_, i) => ["/if (x)", "    /echo one", "    /echo two"][i % 3] as string);
     const text = [...lines, "/if (1)", "  /echo ok", "/endif", ""].join("\n");
-    const good = getDiagnostics(text).find((d) => d.code === "if-multiline-top-level" && d.range.start.line === 300);
+    const good = getDiagnostics(text).find((d) => d.code === "missing-continuation" && d.range.start.line === 300);
     expect(good?.fix?.title).toBe("Join the /if's lines with \\");
   });
 

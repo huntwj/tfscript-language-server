@@ -1,4 +1,4 @@
-import { ifMultilineTopLevel } from "./ifMultilineTopLevel";
+import { missingContinuation } from "./missingContinuation";
 import { notSubstitutedHere } from "./notSubstitutedHere";
 import { letSwallowsEndif } from "./letSwallowsEndif";
 import { dollarBracketInIf } from "./dollarBracketInIf";
@@ -17,7 +17,7 @@ import type { Rule } from "./types";
 // diagnostic, it also decides where the other rules' view of the file gets truncated (tf
 // never reads past the line it aborts on), so diagnostics.ts drives it separately.
 export const RULES: Rule[] = [
-  ifMultilineTopLevel,
+  missingContinuation,
   notSubstitutedHere,
   letSwallowsEndif,
   dollarBracketInIf,

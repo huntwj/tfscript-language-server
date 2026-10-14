@@ -12,8 +12,8 @@ import {
 import { macroBodyStart } from "./structure";
 
 /**
- * Fixes that join physical lines into one command with trailing `\`s: for a top-level `/if`
- * whose `/endif` is on a later line (if-multiline-top-level), and for an indented line that
+ * Fixes that join physical lines into one command with trailing `\`s: for a top-level `/if` or
+ * `/while` whose closer is on a later line (missing-continuation), and for an indented line that
  * looks like it continues the command above (indented-line-after-command).
  *
  * How far to join, and whether each joint needs a `%;`, isn't something a single line can tell,
@@ -295,10 +295,9 @@ function touches(fix: TfDiagnostic["fix"], line: number): boolean {
 }
 
 /**
- * Adds the line-joining fixes to the if-multiline-top-level and indented-line-after-command
- * diagnostics, and to a block-structure error at a top-level /if or /while (a condition list with
- * its /then or /do on the next line, or a /while whose /done is). The /if's fix goes first: an
- * indented line inside it gets the same fix, since joining the whole /if is what fixes it. A
+ * Adds the line-joining fixes to the missing-continuation and indented-line-after-command
+ * diagnostics, and to a block-structure error at a top-level /if or /while. The opener's fix goes
+ * first: an indented line inside it gets the same fix, since joining the whole block fixes it. A
  * block-structure fix that would add an /endif or /done to a command that a join fix extends is
  * dropped: the join brings in the real one.
  *
@@ -349,7 +348,7 @@ function indentedRuns(diagnostics: TfDiagnostic[]): TfDiagnostic[][] {
 }
 
 function addJoins(text: string, diagnostics: TfDiagnostic[], diagnoseSlice: Diagnose): void {
-  if (!diagnostics.some((d) => d.code === "if-multiline-top-level" || d.code === "indented-line-after-command" || d.code === "block-structure")) return;
+  if (!diagnostics.some((d) => d.code === "missing-continuation" || d.code === "indented-line-after-command" || d.code === "block-structure")) return;
   const lines = splitRawLines(text);
   const entries = splitLogicalEntries(text);
   const joins: NonNullable<TfDiagnostic["fix"]>[] = [];
@@ -362,19 +361,21 @@ function addJoins(text: string, diagnostics: TfDiagnostic[], diagnoseSlice: Diag
   };
 
   for (const d of diagnostics) {
-    if (d.code !== "if-multiline-top-level" && d.code !== "block-structure") continue;
-    // An "Add %; /done ..." fix at a top-level /while gives way to joining in the /done below.
+    if (d.code !== "missing-continuation" && d.code !== "block-structure") continue;
+    // An "Add %; /endif ..." fix gives way to joining in a closer below.
     if (d.fix && !d.fix.title.startsWith("Add %; /")) continue;
     const entry = entryAt(entries, d.range.start.line);
     const opener = entry && !entry.isDefBody && !entry.isOtherMacroBody ? TOP_BLOCK_RE.exec(entry.text) : null;
     const first = entry?.offsetMap[0];
     if (!entry || !opener || !first || first.line !== d.range.start.line || first.character !== d.range.start.character) continue;
     const at = d.range.start.line - entry.startLine;
+    const anyMessage = d.code === "missing-continuation";
     const join = attempt(diagnoseSlice, (diagnose) =>
-      joinFix(lines, entry, entry.endLine, entry.endLine + 1, (ds) => !ds.some((x) => x.code === d.code && x.message === d.message && x.range.start.line === at), diagnose, true),
+      // missing-continuation's message names lines, which differ in the slice: the code and line are enough.
+      joinFix(lines, entry, entry.endLine, entry.endLine + 1, (ds) => !ds.some((x) => x.code === d.code && (anyMessage || x.message === d.message) && x.range.start.line === at), diagnose, true),
     );
     // A block-structure error at the opener could be anything wrong with the block, so only a join that fixes it all.
-    if (join && (join.clean || d.code === "if-multiline-top-level")) add(d, `Join the ${opener[0].toLowerCase()}'s lines with \\`, join);
+    if (join && (join.clean || d.code === "missing-continuation")) add(d, `Join the ${opener[0].toLowerCase()}'s lines with \\`, join);
   }
 
   for (const run of indentedRuns(diagnostics)) {

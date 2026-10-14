@@ -250,7 +250,7 @@ describe("checkStructure on a top-level line", () => {
   });
 
   it("reports blocks and conditions as tf does when it loads the file", () => {
-    expect(issue("/if (1) /echo top4", "top")).toBe("if-top@/if");
+    expect(issue("/if (1) /echo top4", "top")).toBe("continuation@/if");
     expect(issue("/endif", "top")).toBe("block@/endif");
     expect(issue("/then", "top")).toBe("block@/then");
     expect(issue("/if (1 /echo top6%; /endif", "top")).toBe("bracket@(");

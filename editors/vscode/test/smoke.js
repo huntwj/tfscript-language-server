@@ -107,7 +107,7 @@ const timeout = setTimeout(() => {
   clearTimeout(timeout);
 
   const ok =
-    diag.diagnostics.some((d) => d.code === "if-multiline-top-level") &&
+    diag.diagnostics.some((d) => d.code === "missing-continuation") &&
     labels.includes("echo") &&
     Array.isArray(contexts?.contexts) &&
     contexts.contexts.length >= 1 &&

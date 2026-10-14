@@ -99,6 +99,24 @@ describe("missing-continuation: lines that belong to something else", () => {
 });
 
 describe("missing-continuation fixes", () => {
+  it("joins an indented body with no closer below it, and closes it", () => {
+    const text = ["/if (1)", "    /echo body", "    /echo more", "/echo after", ""].join("\n");
+    const d = only(text.trimEnd().split("\n"));
+    expect(d.fix?.title).toBe("Join the /if's lines with \\ and end it with /endif");
+    const fixed = applyEdits(text, d.fix!.edits);
+    expect(fixed).toBe(["/if (1) \\", "    /echo body%; \\", "    /echo more%; /endif", "/echo after", ""].join("\n"));
+    expect(getDiagnostics(fixed)).toEqual([]);
+  });
+
+  it("joins a stray /else with no closer below it, and closes it", () => {
+    const text = ["/if (0) /echo a%;", "/else /echo b", ""].join("\n");
+    const d = only(text.trimEnd().split("\n"));
+    expect(relatedLines(d)).toEqual([1]);
+    const fixed = applyEdits(text, d.fix!.edits);
+    expect(fixed).toBe(["/if (0) /echo a%; \\", "/else /echo b%; /endif", ""].join("\n"));
+    expect(getDiagnostics(fixed)).toEqual([]);
+  });
+
   it("keeps the add-a-closer fix when there are related lines but no join works", () => {
     // Joined, the /elseif after /else is still an error, so neither join is offered.
     const d = only(["/if (0) /echo a%;", "/else /echo b", "/elseif (1) /echo c"]);

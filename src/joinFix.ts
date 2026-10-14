@@ -280,6 +280,28 @@ function joinFix(
   return fallback;
 }
 
+/**
+ * Joins a top-level block's command with the lines after it up to `last`, and closes it with
+ * `%; /endif` or `%; /done` at the end: for a block cut off at the end of its line with no closer
+ * below, only indented lines or an `/else`. Kept only if that leaves no error at all.
+ */
+function joinAndClose(lines: string[], entry: LogicalEntry, last: number, closer: string, diagnose: Diagnose): Join | undefined {
+  const separate = separates(entry);
+  const base = entry.startLine;
+  const candidate = joined(lines, base, entry.endLine, last, separate);
+  if (!candidate) return undefined;
+  const end = candidate.length - 1;
+  const tail = (candidate[end] ?? "").replace(/[ \t\f\v]+$/, "");
+  const scan = new SeparatorScanner(separate).feed(joinedText(candidate, 0, end));
+  // Glued onto a % the %; would be %%;, which is text.
+  candidate[end] = `${tail}${scan.atSeparator ? " " : tail.endsWith("%") ? " %; " : "%; "}/${closer}`;
+  const original = lines.slice(base, last + 1);
+  const settled = settle(candidate, diagnose(original.join("\n")), diagnose);
+  if (settled.diagnostics.some((d) => d.severity === "error")) return undefined;
+  if (emptyStatements(settled.lines, separate) > emptyStatements(original, separate)) return undefined;
+  return { edits: lineEdits(original, settled.lines, base), clean: true, from: base, to: last };
+}
+
 /** The entry holding `line` (entries are in line order, so a binary search). */
 function entryAt(entries: LogicalEntry[], line: number): LogicalEntry | undefined {
   let lo = 0;
@@ -385,7 +407,18 @@ function addJoins(text: string, diagnostics: TfDiagnostic[], diagnoseSlice: Diag
       joinFix(lines, entry, entry.endLine, entry.endLine + 1, (ds) => !ds.some((x) => x.code === d.code && (anyMessage || x.message === d.message) && x.range.start.line === at), diagnose, true, definitions),
     );
     // A block-structure error at the opener could be anything wrong with the block, so only a join that fixes it all.
-    if (join && (join.clean || d.code === "missing-continuation")) add(d, `Join the ${opener[0].toLowerCase()}'s lines with \\`, join);
+    if (join && (join.clean || d.code === "missing-continuation")) {
+      add(d, `Join the ${opener[0].toLowerCase()}'s lines with \\`, join);
+      continue;
+    }
+    // A block with no closer below it, only lines meant as its body (or a stray /else): join those and close it.
+    const related = d.code === "missing-continuation" ? (d.related ?? []) : [];
+    if (related.length === 0 || related.some((r) => r.message.includes("doesn't close"))) continue;
+    const word = opener[0].toLowerCase();
+    const closer = word === "/while" ? "done" : "endif";
+    const last = Math.max(...related.map((r) => r.range.start.line));
+    const closed = attempt(diagnoseSlice, (diagnose) => joinAndClose(lines, entry, last, closer, diagnose));
+    if (closed) add(d, `Join the ${word}'s lines with \\ and end it with /${closer}`, closed);
   }
 
   for (const run of indentedRuns(diagnostics)) {

@@ -22,7 +22,9 @@
   A CRLF line's `\` gets its own message: the carriage return is what stops it continuing; so
   does a line ending in `%\`, and one starting with a UTF-8 byte order mark, which tf reads as
   text (the fix deletes the mark). The load-path diagnostics (`unresolved-load`,
-  `undefined-macro`) get the same style of message.
+  `undefined-macro`) get the same style of message; the advice to set `tfscript.workingDirectory` is
+  only given for a relative path, and a missing `~/` path is reported as under `HOME` (or as not
+  followed, when `HOME` isn't known).
 - `dollar-bracket-in-if` no longer flags a `$[...]` inside a `%{name-default}`, `${...}` or
   `$(...)`, where it isn't redundant, and `let-swallows-endif` no longer flags an `if` in a path
   or URL, or an `/endif` with no `/if` open (it now asks the structural model which `/if`s are
@@ -33,7 +35,9 @@
   takes the rest), and only the first swallowed `/endif` per `/if`, so its fixes can all be applied
   together; the fix adds no `%;` where the statement ends anyway (`%\`, `%|`, a `$(...)`'s `)`).
   A swallowed `/endif` is flagged only when its `/if` is never closed: when a real `/endif` closes
-  it later, the swallowed one is just text, and tf runs the macro fine.
+  it later, the swallowed one is just text, and tf runs the macro fine; nor once an `/else` or
+  `/elseif` follows it, where a `%;` before it would leave that keyword stray (there
+  `block-structure` offers to add the `/endif` at the end instead).
 - `let-swallows-endif` no longer flags an `/if` written straight after the `=` (`/set x=/if (1)
   ...`): tf stores it as the value and runs on (a command kept for a later `/eval`, say), and when
   it leaves an `/endif` stray, `block-structure` reports that.

@@ -239,6 +239,16 @@ describe("rule fixes", () => {
     });
   }
 
+  it("offers nothing for an indented line of text after a top-level block that ends with /endif", () => {
+    // r51, r35 (tf dev, 2026-10-14): joined, the text is sent to the world whatever the /if decides;
+    // unindented, it aborts the load.
+    for (const text of ["/if (0) /echo % a%; /endif\n    b\n/echo % after\n", "/if (1) /echo % a%; /endif\n    more text\n/echo % after\n"]) {
+      const d = getDiagnostics(text).find((x) => x.code === "indented-line-after-command");
+      expect(d).toBeDefined();
+      expect(d?.fix).toBeUndefined();
+    }
+  });
+
   it("offers the /if's fix once, for the indented lines inside it too", () => {
     const text = ["/if (1)", "    /echo yes", "/else", "    /echo no", "/endif", ""].join("\n");
     expect(getCodeActions(text, WHOLE_FILE).map((a) => a.title)).toEqual(["Join the /if's lines with \\"]);

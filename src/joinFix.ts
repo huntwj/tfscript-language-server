@@ -451,8 +451,11 @@ function addJoins(text: string, diagnostics: TfDiagnostic[], diagnoseSlice: Diag
     if (/\\[ \t\f\v]+$/.test(lines[previous] ?? "")) continue;
     const own = lines[head.range.start.line] ?? "";
     // A top-level block that already ends with its /endif or /done: joined on, the lines would run
-    // after the block, whatever it decides, which is not what indenting them under it meant.
+    // (or, as text, be sent to the world) after the block, whatever it decides, which is not what
+    // indenting them under it meant. So no join. A command can lose its indentation instead; text
+    // can't, as a line of text aborts the load, so that gets no fix.
     const closed = separates(entry) === "top" && CLOSES_RE.test(entry.text);
+    if (closed && own[leadingWhitespaceLength(own)] !== "/") continue;
     if ((!separates(entry) || closed) && own[leadingWhitespaceLength(own)] === "/") {
       // Two plain top-level commands can't be one, so the indentation is what's wrong.
       for (const d of run) {

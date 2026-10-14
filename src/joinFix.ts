@@ -86,18 +86,20 @@ class SeparatorScanner {
   atSeparator = false;
   /** Separators with nothing but blanks since the one before (or the start): empty statements. */
   empty = 0;
-  /** Separators read so far. */
-  separators = 0;
+  /** Where each separator read so far ends, in characters fed. */
+  readonly separators: number[] = [];
+  private fed = 0;
   constructor(private readonly mode: Separates) {}
 
   feed(text: string): this {
     for (const ch of text) {
+      this.fed += 1;
       if (this.escaped) {
         this.escaped = false;
         this.text();
       } else if (this.percents === 1 && (ch === ";" || ch === "|" || ch === "\\")) {
         if (!this.content) this.empty += 1;
-        this.separators += 1;
+        this.separators.push(this.fed);
         this.content = false;
         this.percents = 0;
         this.atSeparator = true;
@@ -193,15 +195,16 @@ function joined(lines: string[], base: number, from: number, to: number, mode: S
   for (let k = from + 1; k <= to; k += 1) {
     const line = lines[k] ?? "";
     if (isCommentLine(line) || isBlankLine(line)) continue;
-    const own = (m: Separates): number => new SeparatorScanner(m).feed(partOf(line)).separators;
-    if (mode === "top" && own("top") > 0) return undefined;
-    // In a body, a line whose separators turn on the body's \ processing (\%%; separates there,
-    // \%; doesn't; read without it, the other way round) is ambiguous, so it isn't joined either.
-    if (mode === "body" && own("body") !== own("top")) return undefined;
+    const own = (m: Separates): number[] => new SeparatorScanner(m).feed(partOf(line)).separators;
+    if (mode === "top" && own("top").length > 0) return undefined;
+    // In a body, a line whose separators fall in other places with the body's \ processing than
+    // without it (\%%; separates there, \%; doesn't; read without it, the other way round) is
+    // ambiguous, so it isn't joined either; one whose separators are the same either way is.
+    if (mode === "body" && own("body").join() !== own("top").join()) return undefined;
     // Nor one that runs a macro body of its own (an inner /def, a /repeat): on its own line, its
     // separator is part of that inner body; joined, the outer body's compile takes it first, and
     // the inner body loses everything after it (proven in tf dev, 2026-10-14).
-    if (mode === "body" && own("body") > 0 && runsBody(commandOf(line))) return undefined;
+    if (mode === "body" && own("body").length > 0 && runsBody(commandOf(line))) return undefined;
     // A top-level /if or /while line gets one more round of % processing than the line had on its
     // own (proven in tf dev, 2026-10-14: an /echo or a /def -t pattern's %% becomes %), so a %%
     // would change what the line says, or make a %%; a separator.

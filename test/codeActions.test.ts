@@ -362,6 +362,10 @@ describe("rule fixes", () => {
       ["/def f = /echo % f13a", "    /repeat -0 1 /echo % f13r1%; /echo % f13r2", "/f"],
       ["/def f = /echo % f14a", "    /def -i g = /echo % f14g1%; /echo % f14g2", "/g"],
       ["/def f = \\", "    /echo % f15a", "        /def g = /echo % f15g1%; /echo % f15g2", "/g"],
+      // f07: one separator either way, but in different places (\%; read without \ processing,
+      // \%%; with it); f03: a \%; that separates only without it.
+      ["/def f = /echo % f07a", "    /echo % f07b p\\%; q\\%%; /echo % f07c", "/f"],
+      ["/def f = /echo % f03a", "    /echo % f03b a\\%;b", "/f"],
       // e06: in a body \%%; separates (the \ takes one %), though the line reads as text; ambiguous.
       ["/def foo = /echo % x", "    /echo % a\\%%;/echo % b", "/foo"],
       // A %% joined into a top-level /if loses one %: k05, e03, e04, e08, e09, e40, e41.

@@ -1,6 +1,6 @@
 import { RESERVED_MACRO_NAMES } from "../data/commands";
 import { code, commandParts } from "../structure";
-import { defOptionsEnd } from "../symbols";
+import { defHasInvalidOption, defOptionsEnd } from "../symbols";
 import type { EntryMatch, EntryRule } from "./types";
 
 /** `/def`, `/!def` (the `!` only negates the result) or `/@def`; `/@@def` asks for a builtin `@def`, which isn't one. */
@@ -29,6 +29,8 @@ export const invalidMacroName: EntryRule = {
     if (word !== "def" || !DEF_PREFIX_RE.test(prefix)) return [];
     const after = start + 1 + prefix.length + word.length;
     if (after < text.length && text[after] !== " " && text[after] !== "\t") return [];
+    // tf rejects an option it doesn't know ("invalid option") before it reads the name.
+    if (defHasInvalidOption(text, after)) return [];
     const opts = defOptionsEnd(text, after);
     const eq = text.indexOf("=", opts);
     let from = opts;
@@ -78,7 +80,9 @@ export const invalidMacroName: EntryRule = {
     const first = name.slice(0, (blank as RegExpExecArray).index);
     let rest = (blank as RegExpExecArray).index;
     while (rest < name.length && (name[rest] === " " || name[rest] === "\t")) rest += 1;
-    const missingEquals = name[rest] === "/" && !"#@!/".includes(first[0] as string) && !RESERVED_MACRO_NAMES.has(first.toLowerCase());
+    // Not when the first word holds a %: `/def m11%; /echo` would define a macro named `m11%;`.
+    const missingEquals =
+      name[rest] === "/" && !"#@!/".includes(first[0] as string) && !first.includes("%") && !RESERVED_MACRO_NAMES.has(first.toLowerCase());
     if (missingEquals) {
       const at = from + first.length;
       return [

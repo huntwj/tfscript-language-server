@@ -52,6 +52,8 @@ const DEFINING_COMMAND_RE = /^\s*\/(def|alias|bind|hook|trigpc|trigc|trigp|trig)
 
 /** From macro_spec()'s startopt() string, minus the /list-only `usS` prefix. */
 const DEF_OPTS_WITH_ARG = new Set(["p", "c", "b", "B", "E", "t", "w", "h", "A", "a", "f", "P", "T", "n", "m"]);
+/** Every option letter that string has (`p#c#b:B:E:t:w:h:A:a:f:P:T:FiIn#1m:q`); nextopt() rejects any other. */
+const DEF_OPTS = new Set([...DEF_OPTS_WITH_ARG, "F", "i", "I", "1", "q"]);
 
 function isQuote(ch: string | undefined): boolean {
   return ch === '"' || ch === "'" || ch === "`";
@@ -85,11 +87,18 @@ interface DefOptions {
   key?: string;
   /** `-i`: the macro is left out of /list. */
   invisible?: boolean;
+  /** An option nextopt() rejects ("invalid option"), so tf's /def does nothing. */
+  invalid?: boolean;
 }
 
 /** Where a `/def`'s options end and its name (or `=`) begins, with `i` just after `/def`. */
 export function defOptionsEnd(text: string, i: number): number {
   return skipDefOptions(text, i).end;
+}
+
+/** Whether a `/def`, with `i` just after `/def`, has an option tf rejects, which makes it do nothing. */
+export function defHasInvalidOption(text: string, i: number): boolean {
+  return skipDefOptions(text, i).invalid === true;
 }
 
 /** Whether a `/def`, with `i` just after `/def`, has the `-i` option. */
@@ -103,7 +112,11 @@ function skipDefOptions(text: string, i: number): DefOptions {
     i = skipSpaces(text, i);
     if (text[i] !== "-") break;
     i += 1;
-    if (text[i] === "-") i += 1;
+    if (text[i] === "-") {
+      i += 1;
+      // "--x" is "invalid option syntax".
+      if (i < text.length && !isTfSpace(text[i])) result.invalid = true;
+    }
     if (i >= text.length || isTfSpace(text[i])) {
       result.end = skipSpaces(text, i);
       return result;
@@ -112,6 +125,7 @@ function skipDefOptions(text: string, i: number): DefOptions {
       const opt = text[i] as string;
       i += 1;
       if (opt === "i") result.invisible = true;
+      if (!DEF_OPTS.has(opt)) result.invalid = true;
       if (!DEF_OPTS_WITH_ARG.has(opt)) continue;
       const argStart = i;
       i = isQuote(text[i]) ? skipQuoted(text, i) : skipWord(text, i);

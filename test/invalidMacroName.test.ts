@@ -65,6 +65,17 @@ describe("invalid-macro-name: an illegal name", () => {
     // Not when the first word couldn't be a name either, or the second isn't a command.
     expect(invalid("/def #n /echo hi\n")[0]?.fix).toBeUndefined();
     expect(invalid("/def a b = /echo\n")[0]?.fix).toBeUndefined();
+    // Nor when the first word holds a %: the fix would name the macro `m11%;` (review rev-s5 m11).
+    expect(invalid("/def m11%; /echo a\n")[0]?.fix).toBeUndefined();
+  });
+
+  it("stays quiet when tf rejects an option first, before it reads a name (review rev-s5 p3)", () => {
+    expect(invalid("/def -x m08 /echo a\n")).toEqual([]);
+    expect(invalid("/def -i-p1 m07 /echo a\n")).toEqual([]);
+    expect(invalid("/def --x m20 /echo a\n")).toEqual([]);
+    expect(invalid("/def -12 m23 /echo a\n")).toEqual([]);
+    // Valid options still let it through.
+    expect(invalid("/def -i -p2 -F -q -1 m24 /echo a\n")[0]?.fix?.title).toBe("Put = after m24");
   });
 });
 

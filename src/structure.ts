@@ -128,6 +128,9 @@ const FULL = 3;
 
 class Stop extends Error {}
 
+/** How deep blocks and substitutions may nest before the check gives up (see Parser.deeper). */
+const MAX_DEPTH = 200;
+
 interface MidKeyword {
   start: number;
   end: number;
@@ -184,6 +187,7 @@ class Parser {
   private i = 0;
   private block: Block = "";
   private cmdsub = 0;
+  private depth = 0;
   private readonly open: Open[] = [];
   private readonly mids: MidKeyword[] = [];
   /** Where the last `(condition)` ended (after its blanks), and the keyword it belongs to. */
@@ -348,7 +352,26 @@ class Parser {
     };
   }
 
+  /**
+   * `fn()` one level deeper. Blocks, `$(...)`, `$[...]` and substitution defaults nest by recursion,
+   * so a pathological nesting (thousands of `/if`s) would overflow the stack; past MAX_DEPTH the
+   * check stops, reporting what it found so far.
+   */
+  private deeper<T>(fn: () => T): T {
+    if (this.depth >= MAX_DEPTH) throw new Stop();
+    this.depth += 1;
+    try {
+      return fn();
+    } finally {
+      this.depth -= 1;
+    }
+  }
+
   private list(subsIn: number): void {
+    this.deeper(() => this.listAt(subsIn));
+  }
+
+  private listAt(subsIn: number): void {
     let subs = subsIn;
     do {
       if (subs >= NEWLINE) {
@@ -696,6 +719,10 @@ class Parser {
 
   /** `%{...}` or `%name`, with `this.i` just after the `%` at `percent` (`varsub()`). */
   private varsub(percent: number): void {
+    this.deeper(() => this.varsubAt(percent));
+  }
+
+  private varsubAt(percent: number): void {
     const s = this.s;
     const bracket = s[this.i] === "{";
     if (bracket) this.i += 1;
@@ -891,6 +918,10 @@ class Parser {
    * where it ends, not to check its grammar.
    */
   expression(close: "]" | ")" | undefined, open: number, keyword?: string): void {
+    this.deeper(() => this.expressionAt(close, open, keyword));
+  }
+
+  private expressionAt(close: "]" | ")" | undefined, open: number, keyword?: string): void {
     const s = this.s;
     const parens: number[] = [];
     while (this.i < s.length) {

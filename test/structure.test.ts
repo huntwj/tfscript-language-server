@@ -220,3 +220,17 @@ describe("parseStatements", () => {
     expect(texts("/echo a%; /if (1) /echo b", "body")).toEqual([]);
   });
 });
+
+describe("deep nesting", () => {
+  it("gives up instead of overflowing the stack", () => {
+    const n = 5000;
+    const bodies = [
+      `${"/if (1) ".repeat(n)}/echo x${"%; /endif".repeat(n)}`,
+      `/echo ${"$(/echo ".repeat(n)}${")".repeat(n)}`,
+      `/echo ${"$[".repeat(n)}1${"]".repeat(n)}`,
+      `/echo ${"%{x-".repeat(n)}${"}".repeat(n)}`,
+    ];
+    for (const body of bodies) expect(() => checkStructure(body, "body")).not.toThrow();
+    expect(() => checkStructure(`${"/if (1) ".repeat(n)}/echo x${"%; /endif".repeat(n)}`, "top")).not.toThrow();
+  });
+});

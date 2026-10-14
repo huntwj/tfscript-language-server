@@ -166,16 +166,16 @@ describe("rule fixes", () => {
     ["substitution-in-expression", ["/def -i a = /if (%x == 5) /echo y%; /endif"], ["/def -i a = /if ({x} == 5) /echo y%; /endif"]],
     ["substitution-in-expression", ["/def -i a = /if (%-1 =~ '') /echo y%; /endif"], ["/def -i a = /if ({-1} =~ '') /echo y%; /endif"]],
     ["substitution-in-expression", ["/def -i a = /if (%{n-7} == 7) /echo y%; /endif"], ["/def -i a = /if ({n-7} == 7) /echo y%; /endif"]],
-    ["let-swallows-endif", ["/def -i a = /if (1) /let x=1 /endif"], ["/def -i a = /if (1) /let x=1%; /endif"]],
-    ["let-swallows-endif", ["/def -i a = /if (1) /set x=1 /endif /echo b"], ["/def -i a = /if (1) /set x=1%; /endif%; /echo b"]],
-    ["let-swallows-endif", ["/def -i a = /let x=50% /if (1) /echo%; /endif"], ["/def -i a = /let x=50% %; /if (1) /echo%; /endif"]],
-    ["let-swallows-endif", ["/if (1) /let x=1 /endif"], ["/if (1) /let x=1%; /endif"]],
+    ["keyword-mid-statement", ["/def -i a = /if (1) /let x=1 /endif"], ["/def -i a = /if (1) /let x=1%; /endif"]],
+    ["keyword-mid-statement", ["/def -i a = /if (1) /set x=1 /endif /echo b"], ["/def -i a = /if (1) /set x=1%; /endif%; /echo b"]],
+    ["keyword-mid-statement", ["/def -i a = /let x=50% /if (1) /echo%; /endif"], ["/def -i a = /let x=50% %; /if (1) /echo%; /endif"]],
+    ["keyword-mid-statement", ["/if (1) /let x=1 /endif"], ["/if (1) /let x=1%; /endif"]],
     // No second %; where the statement ends anyway: the ) of a $(...), or %\ (proven live: one sends a blank line).
-    ["let-swallows-endif", ["/def -i lf = /echo [$(/if (1) /let x=7 /endif)] x=%x"], ["/def -i lf = /echo [$(/if (1) /let x=7%; /endif)] x=%x"]],
-    ["let-swallows-endif", ["/def -i lh = /if (1) /let x=8 /endif%\\ /echo lh x=%x"], ["/def -i lh = /if (1) /let x=8%; /endif%\\ /echo lh x=%x"]],
+    ["keyword-mid-statement", ["/def -i lf = /echo [$(/if (1) /let x=7 /endif)] x=%x"], ["/def -i lf = /echo [$(/if (1) /let x=7%; /endif)] x=%x"]],
+    ["keyword-mid-statement", ["/def -i lh = /if (1) /let x=8 /endif%\\ /echo lh x=%x"], ["/def -i lh = /if (1) /let x=8%; /endif%\\ /echo lh x=%x"]],
     // Only the first swallowed /endif can close the /if, so only it gets a fix.
     [
-      "let-swallows-endif",
+      "keyword-mid-statement",
       ["/def -i ld = /if (1) /let x=4 /endif%; /let z=5 /endif%; /echo ld x=%x z=%z"],
       ["/def -i ld = /if (1) /let x=4%; /endif%; /let z=5 /endif%; /echo ld x=%x z=%z"],
     ],
@@ -286,7 +286,7 @@ describe("rule fixes", () => {
     expect(getCodeActions("/def a = /while (1) /echo x\n", WHOLE_FILE).map((a) => a.title)).toEqual(["Add %; /done at the end of the body"]);
   });
 
-  it("leaves a macro clean with every let-swallows-endif fix applied at once", () => {
+  it("leaves a macro clean with every keyword-mid-statement fix applied at once", () => {
     for (const text of [
       "/def -i ld = /if (1) /let x=4 /endif%; /let z=5 /endif%; /echo ld x=%x z=%z\n",
       "/def -i lb = /set y=2 /let x=1 /endif /if (1) /echo%; /endif\n",

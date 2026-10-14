@@ -14,7 +14,7 @@ function issue(text: string, mode: StructureMode = "body"): string {
 describe("checkStructure in a macro body", () => {
   it("reports a block left open, pointing at a keyword swallowed mid-statement when there is one", () => {
     // expected /endif, found end of body
-    expect(issue("/if (1) /echo yes /else /echo no /endif")).toBe("block@/else");
+    expect(issue("/if (1) /echo yes /else /echo no /endif")).toBe("keyword@/else");
     expect(issue("/if (1) /echo a%; /echo b")).toBe("block@/if");
     // expected /done, found end of body
     expect(issue("/while (0) /echo a")).toBe("block@/while");
@@ -51,7 +51,7 @@ describe("checkStructure in a macro body", () => {
 
   it("knows a condition list needs %; before its /then", () => {
     // /test reads "1 /then /echo co" as its expression; then /endif is unexpected in IF block
-    expect(issue("/if /test 1 /then /echo co%; /endif")).toBe("block@/then");
+    expect(issue("/if /test 1 /then /echo co%; /endif")).toBe("keyword@/then");
     expect(issue("/if /test 1 %; /echo a%; /endif")).toBe("block@/endif");
     expect(issue("/if (1) /echo a%; /elseif /echo b%; /endif")).toBe("block@/endif");
   });
@@ -107,10 +107,10 @@ describe("checkStructure in a macro body", () => {
     expect(issue("/if (1) /if (2) /echo /endif%; /endif")).toBe("block@/if");
   });
 
-  it("leaves only the /endif after a /let name=value to let-swallows-endif", () => {
+  it("leaves the /endif after a /let name=value to the swallowed list, and reports the one after /let name 1", () => {
     expect(issue("/if (1) /let v=1 /endif")).toBe("");
-    // tf: expected /endif, found end of body; let-swallows-endif doesn't match "/let y 1"
-    expect(issue("/if (1) /let y 1 /endif")).toBe("block@/endif");
+    // tf: expected /endif, found end of body; keyword-mid-statement doesn't match "/let y 1"
+    expect(issue("/if (1) /let y 1 /endif")).toBe("keyword@/endif");
   });
 
   it("reads backtick strings in expressions", () => {

@@ -39,6 +39,11 @@ export type StructureMode = "body" | "top" | "newline";
 export type StructureKind =
   /** Block structure: an unclosed or unexpected keyword, or text after /endif or /done. */
   | "block"
+  /**
+   * A keyword in the middle of a statement, where tf reads it as text (keyword_parse() only runs
+   * at the start of one), which leaves its block unfinished.
+   */
+  | "keyword"
   /** A top-level /if or /while still open where its (joined) line ends. */
   | "continuation"
   /** A `%{...}`, `%-`, `${...}` or `$(...)` tf can't read (`varsub()`, `macsub()`, `cmdsub()`). */
@@ -104,6 +109,12 @@ export interface Swallowed {
   word: string;
   stmt: number;
   edits: IssueEdit[];
+  /**
+   * For a swallowed `/if`, the `/endif`, `/else` or `/elseif` that it leaves with no `/if` to
+   * belong to, where tf stops compiling ("unexpected /ENDIF in outer block"); the one problem
+   * reported, at the `/if` that caused it.
+   */
+  stray?: IssueNote;
 }
 
 /** `issue` with every offset moved by `by`. */
@@ -235,8 +246,8 @@ interface MidKeyword {
   stmt: number;
 }
 
-/** let-swallows-endif's own pattern: it explains an /endif swallowed by an assignment like this. */
-const LET_ASSIGNMENT_RE = /^\/(?:let|set)\b\s+[^\s=]+\s*=/i;
+/** keyword-mid-statement's /let and /set wording: it explains a keyword swallowed by an assignment like this. */
+const LET_ASSIGNMENT_RE = /^\/@?(?:let|set)\b\s+[^\s=]+\s*=/i;
 
 interface Open {
   keyword: "if" | "while";
@@ -357,7 +368,7 @@ class Parser {
   private closeEnd = 0;
   /** Compiling stopped at an error, so tf runs none of this text. */
   stopped = false;
-  /** /ifs and /endifs swallowed by a /let or /set value (for let-swallows-endif). */
+  /** /ifs and /endifs swallowed by a /let or /set value (for keyword-mid-statement). */
   readonly swallowed: Swallowed[] = [];
   /** Every statement and block, in the order each one ended, with the list it is in. */
   readonly units: Unit[] = [];
@@ -469,12 +480,13 @@ class Parser {
     const fixer = fix ? this.mids.find((m) => m.word === fix && m.start > since && m.start < searchTo) : undefined;
     // Point at the first keyword of that statement: in "/echo a /else /echo b /endif" it is the /else.
     const mid = fixer && this.mids.find((m) => m.stmt === fixer.stmt && m.start > since);
-    // An /endif swallowed by a /let or /set value is let-swallows-endif's to report, while it is
-    // still pending on the /if (swallow()). Once an /else or /elseif has dropped it, a %; before it
-    // would close the /if too early, so the plain error, with its closer at the end, is the one.
+    // An /endif swallowed by a /let or /set value is keyword-mid-statement's to report, in its /let
+    // and /set wording, while it is still pending on the /if (swallow()). Once an /else or /elseif
+    // has dropped it, a %; before it would close the /if too early, so the plain error, with its
+    // closer at the end, is the one.
     const swallowedByLet = fix === "endif" && !!mid && LET_ASSIGNMENT_RE.test(this.s.slice(mid.stmt, mid.start));
     if (swallowedByLet && this.open[this.open.length - 1]?.swallowed) throw new Stop();
-    if (fixer && mid && !swallowedByLet) this.fail("block", mid.start, mid.end, this.midKeyword(mid, fixer, since));
+    if (fixer && mid && !swallowedByLet) this.fail("keyword", mid.start, mid.end, this.midKeyword(mid, fixer, since));
     this.fail(kind, start, end, problem);
   }
 
@@ -492,6 +504,15 @@ class Parser {
       if (k < this.s.length && !this.isStatEnd(k) && !this.isCmdsubEnd(k)) at.add(k);
     }
     return [...at].sort((a, b) => a - b).map((p) => this.separatorBefore(p));
+  }
+
+  /** The last /if a /let or /set value swallowed before `at` that hasn't been given a stray yet. */
+  private swallowedIfBefore(at: number): Swallowed | undefined {
+    for (let k = this.swallowed.length - 1; k >= 0; k -= 1) {
+      const w = this.swallowed[k] as Swallowed;
+      if (w.word === "if" && w.start < at && !w.stray) return w;
+    }
+    return undefined;
   }
 
   /** A keyword swallowed by the statement it sits in, which leaves its block unfinished. */
@@ -811,6 +832,16 @@ class Parser {
     const outer = this.block;
     const opener = word === "do" || word === "done" ? "while" : "if";
     const verb = word === "endif" || word === "done" ? "close" : "belong to";
+    // Left with no block by an /if a /let or /set value swallowed: tf stops compiling here, and
+    // the one problem is reported at the cause.
+    if (!outer) {
+      const note = { start, end, message: `this /${word}, left with no /${opener} to ${verb}` };
+      const swallowed = word === "endif" || word === "else" || word === "elseif" ? this.swallowedIfBefore(start) : undefined;
+      if (swallowed) {
+        swallowed.stray = note;
+        throw new Stop();
+      }
+    }
     const where = outer ? `: it is ${describeBlock(outer)}` : "";
     const problem: IssueDetail = {
       message: `This /${word} has no /${opener} to ${verb}${where}.`,
@@ -1133,7 +1164,7 @@ class Parser {
   }
 
   /**
-   * Records an `/if` or `/endif` in a /let or /set value (for let-swallows-endif), with the `%;`s
+   * Records an `/if` or `/endif` in a /let or /set value (for keyword-mid-statement), with the `%;`s
    * that make it a statement of its own, placed as separateSwallowed() places them. An `/endif`
    * counts only while its `/if` is open, and only the first one per `/if`: at most one can close
    * it, so fixing a later one too would leave that one stray. It is kept pending on the `/if`, and
@@ -1691,7 +1722,8 @@ function entryModel(entry: LogicalEntry): EntryModel {
       for (const issue of parser.issues) model.issues.push(shiftIssue(issue, body));
       for (const w of parser.swallowed) {
         const edits = w.edits.map((e) => ({ ...e, start: e.start + body, end: e.end + body }));
-        model.swallowed.push({ ...w, start: w.start + body, end: w.end + body, stmt: w.stmt + body, edits });
+        const stray = w.stray && { ...w.stray, start: w.stray.start + body, end: w.stray.end + body };
+        model.swallowed.push({ ...w, start: w.start + body, end: w.end + body, stmt: w.stmt + body, edits, ...(stray ? { stray } : {}) });
       }
     }
     cache.set(entry, model);

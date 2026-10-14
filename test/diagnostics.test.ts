@@ -315,41 +315,41 @@ describe("not-substituted-here (rule 4)", () => {
   });
 });
 
-describe("let-swallows-endif (rule 5)", () => {
+describe("keyword-mid-statement (rule 5)", () => {
   it("flags /endif swallowed into a /let value", () => {
     const text = "/def tfsc_a = /if (1) /let v=1 /endif\n";
-    expect(codes(text)).toContain("let-swallows-endif");
+    expect(codes(text)).toContain("keyword-mid-statement");
   });
 
   it("is clean when %; closes the /let before /endif", () => {
     const text = "/def tfsc_b = /if (1) /let v=1%; /endif\n";
-    expect(codes(text)).not.toContain("let-swallows-endif");
+    expect(codes(text)).not.toContain("keyword-mid-statement");
   });
 
   it("does not flag a /set value that happens to look like a path", () => {
-    expect(codes("/set d=/script\n")).not.toContain("let-swallows-endif");
+    expect(codes("/set d=/script\n")).not.toContain("keyword-mid-statement");
   });
 
   it("does not flag /set when the value is a plain word", () => {
-    expect(codes("/set world=wotmud\n")).not.toContain("let-swallows-endif");
+    expect(codes("/set world=wotmud\n")).not.toContain("keyword-mid-statement");
   });
 
   it("only counts /if or /endif as a word of its own, not inside a path or URL", () => {
-    expect(codes("/def a = /set path=/usr/local/if/x\n")).not.toContain("let-swallows-endif");
-    expect(codes("/def a = /let url=http://if.example.com\n")).not.toContain("let-swallows-endif");
-    expect(codes("/def a = /set p=/endif/x\n")).not.toContain("let-swallows-endif");
-    expect(codes("/def a = /if (1) /let v=1 /ENDIF\n")).toContain("let-swallows-endif");
+    expect(codes("/def a = /set path=/usr/local/if/x\n")).not.toContain("keyword-mid-statement");
+    expect(codes("/def a = /let url=http://if.example.com\n")).not.toContain("keyword-mid-statement");
+    expect(codes("/def a = /set p=/endif/x\n")).not.toContain("keyword-mid-statement");
+    expect(codes("/def a = /if (1) /let v=1 /ENDIF\n")).toContain("keyword-mid-statement");
   });
 
   it("leaves an /endif with no /if open to block-structure", () => {
-    expect(codes("/def a = /let x=1 /endif\n")).not.toContain("let-swallows-endif");
-    expect(codes("/def a = /if (1) /echo%; /endif%; /let x=1 /endif\n")).not.toContain("let-swallows-endif");
+    expect(codes("/def a = /let x=1 /endif\n")).not.toContain("keyword-mid-statement");
+    expect(codes("/def a = /if (1) /echo%; /endif%; /let x=1 /endif\n")).not.toContain("keyword-mid-statement");
   });
 
   // Which /ifs are open comes from structure.ts's model of tf's compiler, not from counting words.
   it("doesn't count an /if that is only text, or /if( which isn't the keyword", () => {
-    expect(codes("/def -i a = /echo use /if to branch%; /set x=1 /endif%; /echo x=%x\n")).not.toContain("let-swallows-endif");
-    expect(codes("/def -i a = /if(x) /let v=1 /endif\n")).not.toContain("let-swallows-endif");
+    expect(codes("/def -i a = /echo use /if to branch%; /set x=1 /endif%; /echo x=%x\n")).not.toContain("keyword-mid-statement");
+    expect(codes("/def -i a = /if(x) /let v=1 /endif\n")).not.toContain("keyword-mid-statement");
   });
 
   // Proven live: each of these runs clean, and with a %; before the swallowed /endif it fails
@@ -367,16 +367,16 @@ describe("let-swallows-endif (rule 5)", () => {
 
   // At most one /endif can close the /if, so fixing a later one too would leave it stray (proven live).
   it("flags only the first /endif swallowed while the /if is open", () => {
-    const found = getDiagnostics("/def a = /if (1) /let x=1 /endif%; /let y=2 /endif\n").filter((d) => d.code === "let-swallows-endif");
+    const found = getDiagnostics("/def a = /if (1) /let x=1 /endif%; /let y=2 /endif\n").filter((d) => d.code === "keyword-mid-statement");
     expect(found.map((d) => d.range.start.character)).toEqual([26]);
   });
 
   // Proven live: the statement's first command takes the rest, so the /if is in /set y's value.
   it("blames the statement's first /let or /set, once", () => {
-    const [set, ...rest] = getDiagnostics("/def -i b = /set y=2 /let x=1 /endif /if (1) /echo%; /endif\n").filter((d) => d.code === "let-swallows-endif");
+    const [set, ...rest] = getDiagnostics("/def -i b = /set y=2 /let x=1 /endif /if (1) /echo%; /endif\n").filter((d) => d.code === "keyword-mid-statement");
     expect(set?.message).toBe("This /if is part of the /set value, not a command: put %; before it.");
     expect(rest).toEqual([]);
-    expect(codes("/def -i c = /let a=1 /let b=2 /if (1) /echo%; /endif\n").filter((c) => c === "let-swallows-endif")).toHaveLength(1);
+    expect(codes("/def -i c = /let a=1 /let b=2 /if (1) /echo%; /endif\n").filter((c) => c === "keyword-mid-statement")).toHaveLength(1);
   });
 
   it("stays linear on one long line", () => {
@@ -474,11 +474,11 @@ describe("structural rules (structure.ts)", () => {
     return getDiagnostics(text).map((d) => `${d.code}@${d.range.start.line}:${d.range.start.character}`);
   }
 
-  it("block-structure points at a keyword swallowed mid-statement, on its own continuation line", () => {
+  it("keyword-mid-statement points at a keyword swallowed mid-statement, on its own continuation line", () => {
     const text = ["/def go = \\", "    /if (1) /echo yes \\", "    /else /echo no \\", "    /endif", ""].join("\n");
     // "/echo yes /else /echo no /endif" is one statement, so the /if is never closed. (With a %;
     // before /endif it would be valid, if not what was meant: /echo prints "yes /else /echo no".)
-    expect(found(text)).toEqual(["block-structure@2:4"]);
+    expect(found(text)).toEqual(["keyword-mid-statement@2:4"]);
   });
 
   it("block-structure reports a stray keyword in a macro body, and at the top level", () => {
@@ -490,8 +490,8 @@ describe("structural rules (structure.ts)", () => {
     expect(found(["/if (1)", "/echo yes", "/endif", ""].join("\n"))).toEqual(["missing-continuation@0:0"]);
   });
 
-  it("leaves an /endif swallowed by /let to let-swallows-endif", () => {
-    expect(found("/def tfsc_a = /if (1) /let v=1 /endif\n")).toEqual(["let-swallows-endif@0:31"]);
+  it("leaves an /endif swallowed by /let to keyword-mid-statement", () => {
+    expect(found("/def tfsc_a = /if (1) /let v=1 /endif\n")).toEqual(["keyword-mid-statement@0:31"]);
   });
 
   it("expression-syntax in a body, but not in a plain top-level command, which substitutes nothing", () => {
@@ -539,8 +539,8 @@ describe("messages", () => {
     ["missing-continuation", "/while (1) /echo\n", "This /while's command ends without a /done: add %; /done, or end each line but the last with \\."],
     ["missing-continuation", "/if /test 1\n", "This /if's command ends before the /then of its condition list: end each line but the last with \\."],
     ["not-substituted-here", "/load %{d}/ok.tf\n", "%{d} stays as it is in a command at the top level of a file: put /eval in front of the command to substitute it."],
-    ["let-swallows-endif", "/def a = /if (1) /let v=1 /endif\n", "This /endif is part of the /let value, not a command: put %; before it."],
-    ["let-swallows-endif", "/set v=1 /if (1) /echo%; /endif\n", "This /if is part of the /set value, not a command: put it on a line of its own."],
+    ["keyword-mid-statement", "/def a = /if (1) /let v=1 /endif\n", "This /endif is part of the /let value, not a command: put %; before it."],
+    ["keyword-mid-statement", "/set v=1 /if (1) /echo%; /endif\n", "This /if is part of the /set value, not a command: put it on a line of its own."],
     ["substitution-in-expression", "/def a = /if ($[1]) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: drop the $[ and ]."],
     ["substitution-in-expression", "/def a = /if ($[1] + 1) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: write (...) instead."],
     ["indented-line-after-command", "/echo a\n  /echo b\n", "Line 1 has no \\ at the end, so this indented line starts a new command: end line 1 with \\ to continue it, or remove the indentation."],

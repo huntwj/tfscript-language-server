@@ -1,6 +1,6 @@
 import { missingContinuation } from "./missingContinuation";
 import { notSubstitutedHere } from "./notSubstitutedHere";
-import { letSwallowsEndif } from "./letSwallowsEndif";
+import { keywordMidStatement } from "./keywordMidStatement";
 import { substitutionInExpression } from "./substitutionInExpression";
 import { indentedLineAfterCommand } from "./indentedLineAfterCommand";
 import { backslashNotLast } from "./backslashNotLast";
@@ -20,7 +20,7 @@ import type { Rule } from "./types";
 export const RULES: Rule[] = [
   missingContinuation,
   notSubstitutedHere,
-  letSwallowsEndif,
+  keywordMidStatement,
   substitutionInExpression,
   indentedLineAfterCommand,
   backslashNotLast,

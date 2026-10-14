@@ -57,8 +57,13 @@ const KEYWORD_END_RE = /(?:^|%;[ \t]*)\/(?:do|then)$/i;
 const CLOSES_RE = /(?:^|[ \t;|\\])\/(?:endif|done)(?:[ \t\r\f\v]|%[;|\\])*$/i;
 /** A line that starts with a keyword of a block: it can only belong to one opened above it. */
 const STRAY_KEYWORD_RE = /^\/(?:then|else|elseif|endif|do|done)(?![^ \t\r\f\v%])/i;
-/** Structural fixes the settle step applies; not "Add %; /endif ...", which would close a block early. */
-const SETTLE_CODES = new Set(["block-structure", "empty-statement"]);
+/**
+ * Structural fixes the settle step applies; not "Add %; /endif ...", which would close a block
+ * early, nor a keyword in a /let or /set value (keyword-mid-statement's "part of the /set value"),
+ * whose %; would change the value.
+ */
+const SETTLE_CODES = new Set(["block-structure", "keyword-mid-statement", "empty-statement"]);
+const settles = (d: TfDiagnostic): boolean => SETTLE_CODES.has(d.code) && !(d.label ?? "").endsWith(" value");
 
 /** How `%;` reads in the command: "body" in a macro body, "top" in a top-level /if or /while, or not at all. */
 type Separates = "body" | "top" | undefined;
@@ -262,7 +267,7 @@ function settle(slice: string[], before: TfDiagnostic[], diagnose: Diagnose): { 
   let lines = slice;
   let diagnostics = diagnose(lines.join("\n"));
   for (let round = 0; round < 6; round += 1) {
-    const d = diagnostics.find((x) => SETTLE_CODES.has(x.code) && x.fix && !x.fix.title.startsWith("Add ") && !old.has(key(x)));
+    const d = diagnostics.find((x) => settles(x) && x.fix && !x.fix.title.startsWith("Add ") && !old.has(key(x)));
     const next = d?.fix && applyLineEdits(lines, d.fix.edits);
     if (!next) break;
     lines = next;

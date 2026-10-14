@@ -4,8 +4,9 @@
 
 - "Extract to a new macro" (`refactor.extract`): moves selected statements, or whole `/if` and
   `/while` blocks, of a macro body into a new `/def` above it and calls it, passing the arguments
-  on with `%*` when they're used. It is shown disabled, with the reason, when the call wouldn't run
-  the same: a `/let` the rest of the macro needs, `/return`, `/result`, `/exit`, `/shift`,
+  on with `%*`. It is shown disabled, with the reason, when the call wouldn't run the same: a
+  `/let`, or an assignment to a name with no local, that the rest of the macro needs, `/return`,
+  `/result`, `/exit`, `/shift`,
   `getopts()`, `%0`, a `/break` out of the selection, `regmatch()` whose `%P` is read afterwards,
   a `%|` beside the selection, or a tab that would move.
 - Call hierarchy for macros: who calls a macro (in every tf script in the workspace folder and on

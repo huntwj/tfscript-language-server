@@ -24,9 +24,6 @@ import {
   type Hover,
   DidChangeConfigurationNotification,
   DidChangeWatchedFilesNotification,
-  type Disposable,
-  type FileSystemWatcher,
-  WatchKind,
   type InitializeParams,
   type InitializeResult,
   type Location,
@@ -71,10 +68,14 @@ import { formatText } from "./formatting";
 import type { RawSettings } from "./workspace/settings";
 import { fileKey } from "./workspace/loadGraph";
 import { WorkspaceIndex, type ContextInfo } from "./workspace/workspaceIndex";
+import { relevantChange, SKIP_DIRS, watchPlan, Watching } from "./watching";
+import { logUnhandledRejections } from "./rejections";
 
 // Explicit streams rather than relying on a `--stdio`/`--node-ipc`/`--socket` command-line
 // flag: createConnection() alone throws "Connection input stream is not set" without one.
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
+
+logUnhandledRejections(process, (text) => process.stderr.write(text));
 const documents = new TextDocuments(TextDocument);
 
 function readFile(file: string): string | undefined {
@@ -95,7 +96,6 @@ function listTfFiles(dir: string): string[] {
   }
 }
 
-const SKIP_DIRS = new Set([".git", ".jj", "node_modules"]);
 
 /** Stops as soon as it has `limit` files: a big tree isn't read to the end and then cut. */
 function walkTfFiles(dir: string, limit = Infinity): string[] {
@@ -160,60 +160,46 @@ function contextFor(document: TextDocument): NavContext | undefined {
   return file === undefined ? undefined : index.navContext(file, toUri);
 }
 
-async function loadSettings(): Promise<void> {
-  if (hasConfiguration) {
-    for (const folder of folders) {
-      const raw = (await connection.workspace.getConfiguration({
-        scopeUri: pathToFileURL(folder).href,
-        section: "tfscript",
-      })) as RawSettings | null;
-      index.setSettings(folder, raw ?? {});
+/**
+ * Reads the settings, then registers the watchers they call for. Runs one at a time: a later
+ * call waits for the one before, so registrations don't overlap. Whatever fails, the open
+ * documents are checked again.
+ */
+let settingsQueue: Promise<void> = Promise.resolve();
+function loadSettings(): Promise<void> {
+  settingsQueue = settingsQueue.then(loadSettingsNow, loadSettingsNow);
+  return settingsQueue;
+}
+
+async function loadSettingsNow(): Promise<void> {
+  try {
+    if (hasConfiguration) {
+      for (const folder of folders) {
+        const raw = (await connection.workspace.getConfiguration({
+          scopeUri: pathToFileURL(folder).href,
+          section: "tfscript",
+        })) as RawSettings | null;
+        index.setSettings(folder, raw ?? {});
+      }
     }
+    // The folders to watch depend on the settings (the library, mapped folders).
+    await watching.update(
+      canWatch ? watchPlan(folders, folders.map((f) => index.settingsFor(f)), canWatchOutside) : undefined,
+    );
+  } catch (error) {
+    connection.console.error(`tfscript: reading the settings failed: ${String(error)}`);
+  } finally {
+    revalidateOpenDocuments();
   }
-  // The folders to watch depend on the settings (the library, mapped folders, HOME).
-  await registerWatchers();
-  revalidateOpenDocuments();
 }
 
 let canWatch = false;
 let canWatchOutside = false;
-let watching: Disposable | undefined;
-
-/**
- * Asks the client to report changes to tf scripts in the workspace folders, to any file or
- * folder created or deleted there (a folder's delete or rename takes its files with it), and,
- * where the client takes patterns relative to a folder of their own, to the tf files read from
- * outside them: the library, mapped folders and the home directory's tfrc. The index trusts
- * what it read from disk under those roots until a change; anything else it checks against
- * the file's modification time.
- */
-async function registerWatchers(): Promise<void> {
-  if (!canWatch) {
-    index.setWatchedRoots([]);
-    return;
-  }
-  const tf = WatchKind.Create | WatchKind.Change | WatchKind.Delete;
-  const watchers: FileSystemWatcher[] = [
-    { globPattern: "**/*.tf", kind: tf },
-    { globPattern: "**/{tfrc,.tfrc}", kind: tf },
-    { globPattern: "**/*", kind: WatchKind.Create | WatchKind.Delete },
-  ];
-  const outside = new Set<string>();
-  if (canWatchOutside) {
-    for (const folder of folders) {
-      const settings = index.settingsFor(folder);
-      for (const dir of [settings.libraryDir, ...settings.pathMappings.map((m) => m.local)]) if (dir) outside.add(dir);
-      outside.add(settings.home);
-    }
-    for (const dir of outside) {
-      const baseUri = pathToFileURL(dir).href;
-      watchers.push({ globPattern: { baseUri, pattern: "**/{*.tf,tfrc,.tfrc}" }, kind: tf });
-    }
-  }
-  watching?.dispose();
-  watching = await connection.client.register(DidChangeWatchedFilesNotification.type, { watchers });
-  index.setWatchedRoots([...folders, ...outside]);
-}
+const watching = new Watching(
+  (watchers) => connection.client.register(DidChangeWatchedFilesNotification.type, { watchers }),
+  (roots) => index.setWatchedRoots(roots),
+  (message) => connection.console.error(message),
+);
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
   folders = (params.workspaceFolders ?? []).map((f) => toPath(f.uri)).filter((f): f is string => f !== undefined);
@@ -250,7 +236,11 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 });
 
 connection.onInitialized(() => {
-  if (hasConfiguration) void connection.client.register(DidChangeConfigurationNotification.type, undefined);
+  if (hasConfiguration) {
+    connection.client
+      .register(DidChangeConfigurationNotification.type, undefined)
+      .catch((error: unknown) => connection.console.error(`tfscript: the client refused configuration change notifications: ${String(error)}`));
+  }
   void loadSettings();
   connection.workspace.onDidChangeWorkspaceFolders((event) => {
     const removed = event.removed.map((f) => toPath(f.uri));
@@ -265,7 +255,9 @@ connection.onInitialized(() => {
 });
 
 connection.onDidChangeConfiguration(() => void loadSettings());
-connection.onDidChangeWatchedFiles(() => {
+connection.onDidChangeWatchedFiles((params) => {
+  // A jj or git command churns .jj and .git; nothing there is read.
+  if (!params.changes.some((c) => relevantChange(toPath(c.uri) ?? c.uri))) return;
   // What was read from disk (files, folder listings) may be stale now.
   index.filesChanged();
   scheduleRevalidation();

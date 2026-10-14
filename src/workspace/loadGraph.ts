@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { entryLoads, type LoadCommand } from "../loadCommands";
+import { entryCommands, type LoadCommand } from "../loadCommands";
 import { splitLogicalEntries, type LogicalEntry } from "../logicalEntries";
 import { findAbortEntry } from "../rules/bareLineAfterCommand";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
@@ -107,7 +107,6 @@ export interface LoadGraphOptions {
 }
 
 const LOADED_RE = /^\s*\/loaded\s+(\S+)/i;
-const SET_RE = /^\s*(\/eval\s+(?:-\S+\s+)*)?\/set\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*=\s*|\s+)(.*)$/is;
 
 /** A path's identity for comparisons: resolved, and case-folded where the filesystem is. */
 export function fileKey(file: string): string {
@@ -250,16 +249,17 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
         tokens.add(token);
         continue;
       }
-      const set = SET_RE.exec(entry.text);
-      if (set) {
-        const raw = (set[3] as string).trim();
-        const value = set[1] ? expandVariables(raw, vars) : { ok: true as const, value: raw };
-        if (value.ok) vars.set(set[2] as string, value.value);
-        else vars.delete(set[2] as string);
-        continue;
-      }
       if (entry.isForLoop) continue;
-      for (const load of entryLoads(entry)) if (load.topLevel) handleLoad(entry, load, loaded.path);
+      for (const command of entryCommands(entry)) {
+        if (!command.topLevel) continue;
+        if (command.kind !== "set") {
+          handleLoad(entry, command, loaded.path);
+          continue;
+        }
+        const value = command.substituted ? expandVariables(command.value, vars) : { ok: true as const, value: command.value };
+        if (value.ok) vars.set(command.name, value.value);
+        else vars.delete(command.name);
+      }
     }
 
   }

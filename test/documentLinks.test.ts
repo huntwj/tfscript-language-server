@@ -70,8 +70,20 @@ describe("findLoadPaths", () => {
     ]);
   });
 
-  it("lists no loads for an /eval with an option it doesn't model, or text tf won't compile", () => {
-    expect(files("/eval -s0 /load a.tf\n/if (1) /load a.tf%; /echo x\n")).toEqual([]);
+  it("reads /eval text at the level -s picks, and lists nothing for a level tf rejects", () => {
+    // Real tf: -s0 and -sOFF ran one literal command (h.tf%; ... was the filename), -son split on
+    // %; without substituting, -s2/-sfull substituted, and -s3 was "Invalid -s value".
+    const text = [
+      "/eval -s0 /load a.tf%; /load b.tf",
+      "/eval -sOFF /load c.tf",
+      "/eval -son /load d.tf%; /load e.tf",
+      "/eval -sfull /load f.tf",
+      "/eval -s3 /load g.tf",
+      "/eval -x /load h.tf",
+      "/if (1) /load i.tf%; /echo x",
+      "",
+    ].join("\n");
+    expect(files(text)).toEqual(["c.tf", "d.tf", "e.tf", "f.tf"]);
   });
 
   it("maps a filename on a continuation line, but not one split across lines", () => {

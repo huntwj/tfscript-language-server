@@ -29,7 +29,11 @@ import { defOptionsEnd } from "./symbols";
  * they come.
  */
 
-export type StructureMode = "body" | "top";
+/**
+ * How much tf processes the text: a macro body (`SUB_MACRO`/`SUB_FULL`), a top-level line
+ * (`SUB_KEYWORD`), or `/eval -son` (`SUB_NEWLINE`: `%;` separates, nothing is substituted).
+ */
+export type StructureMode = "body" | "top" | "newline";
 
 export type StructureKind =
   /** Block structure: an unclosed or unexpected keyword, or text after /endif or /done. */
@@ -184,6 +188,7 @@ class Parser {
   run(): void {
     try {
       if (this.mode === "body") this.list(FULL);
+      else if (this.mode === "newline") this.list(NEWLINE);
       else this.list(KEYWORD);
     } catch (e) {
       if (!(e instanceof Stop)) throw e;

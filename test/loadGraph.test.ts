@@ -119,6 +119,28 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
     expect(defNames(graph({ ...files, [p("tfrc")]: "/eval /load a.tf%; /load b.tf\n" }))).toEqual(["a", "b"]);
   });
 
+  it("substitutes /eval text only at the levels that do, and splits it at -son", () => {
+    // Real tf: /eval -son /load %{x} was No such file for "%{x}"; /eval -s2 /load %{x} loaded it.
+    const files = { [p("s", "k.tf")]: "/def k = 1\n", [p("cwd", "a.tf")]: "/def a = 1\n", [p("cwd", "b.tf")]: "/def b = 1\n" };
+    const set = `/set x=${p("s", "k.tf")}\n`;
+    const on = graph({ ...files, [p("tfrc")]: `${set}/eval -son /load %{x}\n/eval -son /load a.tf%; /load b.tf\n` });
+    expect(defNames(on)).toEqual(["a", "b"]);
+    expect(on.unresolved).toMatchObject([{ kind: "not-substituted", raw: "%{x}" }]);
+    expect(defNames(graph({ ...files, [p("tfrc")]: `${set}/eval -s2 /load %{x}\n` }))).toEqual(["k"]);
+  });
+
+  it("runs each statement of an /eval in turn, a /set before a /load", () => {
+    // Real tf: /eval /set dd=/script%; /load -q %{dd}/m.tf loaded m.tf: each statement is
+    // substituted as it runs, after the ones before it.
+    const g = graph({ [p("tfrc")]: `/eval /set d=${p("s")}%; /load %{d}/a.tf\n`, [p("s", "a.tf")]: "/def a = 1\n" });
+    expect(defNames(g)).toEqual(["a"]);
+  });
+
+  it("takes a plain top-level /set's value to the end of the line, %; included", () => {
+    const g = graph({ [p("tfrc")]: "/set d=x%; /load a.tf\n", [p("cwd", "a.tf")]: "/def a = 1\n" });
+    expect(defNames(g)).toEqual([]);
+  });
+
   it("follows nothing from a top-level line tf can't compile", () => {
     // Real tf: /if (1) /load /script/e.tf%; /echo ... with no /endif loaded nothing.
     const g = graph({ [p("tfrc")]: "/if (1) /load a.tf%; /echo x\n", [p("cwd", "a.tf")]: "/def a = 1\n" });

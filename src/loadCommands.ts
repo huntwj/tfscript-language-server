@@ -1,11 +1,12 @@
 import { isTfSpace, type LogicalEntry } from "./logicalEntries";
-import { entryStatements, parseStatements } from "./structure";
+import { entryStatements, parseStatements, type StructureMode } from "./structure";
 
 /**
- * The `/load` and `/require` commands in an entry, and the filename each names, as tf parses
- * them. Both the load graph and the document links read loads from here. A command only counts
- * at the start of a statement (structure.ts finds them: `/echo hi /load x.tf` is an `/echo`).
- * Proven against real tf with tf-script-check on 2026-10-13, as well as read from the source:
+ * The `/load`, `/require` and `/set` commands in an entry, as tf parses them. Both the load graph
+ * (which also tracks `/set`, for TFPATH, HOME and `/eval` paths) and the document links read
+ * them from here. A command only counts at the start of a statement (structure.ts finds them:
+ * `/echo hi /load x.tf` is an `/echo`). Proven against real tf with tf-script-check on
+ * 2026-10-13, as well as read from the source:
  *  - `/load` (command.c `handle_load_command()`) takes only `-q`, which may be grouped (`-qq`);
  *    `-` or `--` ends the options (util.c `nextopt()`); any other option is an error and nothing
  *    loads. The rest of the line, trimmed (`stripstr()`), is the filename, inner blanks included.
@@ -14,28 +15,49 @@ import { entryStatements, parseStatements } from "./structure";
  *  - At the top level a plain command runs to the end of the line, `%;` included:
  *    `/load a.tf%; /echo x` looks for a file called `a.tf%; /echo x`. In a macro body `%;`
  *    ends the statement.
- *  - `/eval TEXT` (expand.c `handle_eval_command()`) runs TEXT as a macro body runs: substituted,
- *    then split on `%;`, so a top-level `/eval /load a.tf%; /load b.tf` loads both, while the
- *    file is loading. An `/eval` with an option (`-s`, the substitution level) isn't modelled,
- *    so its loads are not listed.
- *  - Text whose compile stops at an error runs nothing, so it has no loads (structure.ts).
+ *  - `/eval TEXT` (expand.c `handle_eval_command()`) runs TEXT while the file loads, by default
+ *    as a macro body runs: substituted, then split on `%;`, so a top-level
+ *    `/eval /set y=1%; /load b.tf` sets y and loads b.tf. `-s` picks the level (variable.c
+ *    `enum_sub`, names in any case): `-soff`/`-s0` reads TEXT as a top-level line does (one
+ *    command to the end, unless it starts with `/if` or `/while`), `-son`/`-s1` splits on `%;`
+ *    without substituting, `-sfull`/`-s2` is the default. Any other value or option is an error,
+ *    and nothing runs.
+ *  - Text whose compile stops at an error runs nothing, so it has no commands (structure.ts).
  */
 
-export interface LoadCommand {
-  kind: "load" | "require";
-  /** The filename as written, `/require`'s words joined by single blanks; may need substituting. */
-  file: string;
-  /** Where the filename is written, as offsets into `entry.text`. */
+interface CommandBase {
+  /** Where the argument is written, as offsets into `entry.text`. */
   start: number;
   end: number;
-  /** Substituted before tf looks it up: in a macro body or under `/eval`. */
+  /** Substituted before it runs: in a macro body or under `/eval`. */
   substituted: boolean;
   /** Runs while the file loads: a top-level command, or one a top-level `/eval` runs. */
   topLevel: boolean;
 }
 
+export interface LoadCommand extends CommandBase {
+  kind: "load" | "require";
+  /** The filename as written, `/require`'s words joined by single blanks; may need substituting. */
+  file: string;
+}
+
+export interface SetCommand extends CommandBase {
+  kind: "set";
+  name: string;
+  /** The value as written, trimmed; may need substituting. */
+  value: string;
+}
+
+export type EntryCommand = LoadCommand | SetCommand;
+
 const EVAL_RE = /^\/@?eval(?=\s|$)/i;
 const LOAD_RE = /^\/(@?)(load|require)(?=\s|$)/i;
+const SET_RE = /^\/@?set\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*=\s*|\s+)/i;
+const EVAL_LEVELS: Readonly<Record<string, StructureMode>> = {
+  off: "top", "0": "top",
+  on: "newline", "1": "newline",
+  full: "body", "2": "body",
+};
 
 interface Word {
   start: number;
@@ -55,8 +77,14 @@ function words(text: string, from: number, to: number): Word[] {
   return out;
 }
 
-export function entryLoads(entry: LogicalEntry): LoadCommand[] {
-  const out: LoadCommand[] = [];
+function trimmedEnd(text: string, from: number, to: number): number {
+  let end = to;
+  while (end > from && isTfSpace(text[end - 1])) end -= 1;
+  return end;
+}
+
+export function entryCommands(entry: LogicalEntry): EntryCommand[] {
+  const out: EntryCommand[] = [];
   const text = entry.text;
 
   const visit = (start: number, end: number, substituted: boolean, topLevel: boolean): void => {
@@ -64,15 +92,44 @@ export function entryLoads(entry: LogicalEntry): LoadCommand[] {
     const ev = EVAL_RE.exec(stmt);
     if (ev) {
       const args = words(text, start + ev[0].length, end);
-      const first = args[0];
-      if (!first) return;
-      let from = first.start;
-      const option = text.slice(first.start, first.end);
-      if (option === "-" || option === "--") from = args[1]?.start ?? end;
-      else if (option.startsWith("-")) return;
-      for (const st of parseStatements(text.slice(from, end), "body")) visit(from + st.start, from + st.end, true, topLevel);
+      let mode: StructureMode = "body";
+      let from = end;
+      let i = 0;
+      for (; i < args.length; i += 1) {
+        const w = text.slice(args[i]!.start, args[i]!.end);
+        if (w === "-" || w === "--") {
+          i += 1;
+          break;
+        }
+        if (!w.startsWith("-")) break;
+        const level = /^-s(.*)$/.exec(w)?.[1]?.toLowerCase();
+        const picked = level === undefined ? undefined : EVAL_LEVELS[level];
+        if (!picked) return;
+        mode = picked;
+      }
+      if (i < args.length) from = args[i]!.start;
+      for (const st of parseStatements(text.slice(from, end), mode)) {
+        visit(from + st.start, from + st.end, substituted || mode === "body", topLevel);
+      }
       return;
     }
+
+    const set = SET_RE.exec(stmt);
+    if (set) {
+      const valueStart = start + set[0].length;
+      const valueEnd = trimmedEnd(text, valueStart, end);
+      out.push({
+        kind: "set",
+        name: set[1] as string,
+        value: text.slice(valueStart, valueEnd),
+        start: valueStart,
+        end: valueEnd,
+        substituted,
+        topLevel,
+      });
+      return;
+    }
+
     const m = LOAD_RE.exec(stmt);
     if (!m) return;
     const kind = (m[2] as string).toLowerCase() as "load" | "require";
@@ -96,4 +153,8 @@ export function entryLoads(entry: LogicalEntry): LoadCommand[] {
 
   for (const st of entryStatements(entry)) visit(st.start, st.end, st.substituted, !st.substituted);
   return out;
+}
+
+export function entryLoads(entry: LogicalEntry): LoadCommand[] {
+  return entryCommands(entry).filter((c): c is LoadCommand => c.kind !== "set");
 }

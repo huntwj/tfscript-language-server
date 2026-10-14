@@ -80,9 +80,11 @@ function unresolvedMessage(u: UnresolvedLoad): string {
     );
   }
   if (u.kind === "guarded-variable") {
+    // No advice: the usual reason is the default-value idiom, /if (x =~ "") /set x=...%; /endif,
+    // which exists so users can override x, and the /set may be in an earlier file.
     return (
-      `Can't follow this load: %{${u.variable}} is set inside an /if or /while above, so its value here isn't known. ` +
-      `Set it outside the /if or /while to have this load checked.`
+      `Can't follow this load: %{${u.variable}} is set inside an /if or /while on the load path, ` +
+      `and this check can't tell whether that /set runs.`
     );
   }
   if (u.kind === "user-home") {

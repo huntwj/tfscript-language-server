@@ -65,10 +65,10 @@ describe("unresolved-load", () => {
     const [d, tfpath] = check({ [p("tfrc")]: text }, p("tfrc"));
     expect(d).toMatchObject({ severity: "information", range: { start: { line: 2 } } });
     expect(d?.message).toBe(
-      "Can't follow this load: %{d} is set inside an /if or /while above, so its value here isn't known. " +
-        "Set it outside the /if or /while to have this load checked.",
+      "Can't follow this load: %{d} is set inside an /if or /while on the load path, " +
+        "and this check can't tell whether that /set runs.",
     );
-    expect(tfpath?.message).toContain("%{TFPATH} is set inside an /if or /while above");
+    expect(tfpath?.message).toContain("%{TFPATH} is set inside an /if or /while on the load path");
   });
 
   it("warns about a missing file whose name starts with a %% run, at the first % written", () => {

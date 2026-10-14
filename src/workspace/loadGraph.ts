@@ -241,7 +241,7 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   /** The unresolved kind and reason for a variable with no known value. */
   function unknownValue(variable: string, reason: string): { kind: UnresolvedKind; reason: string } {
     return guarded.has(variable)
-      ? { kind: "guarded-variable", reason: `%{${variable}} is set inside an /if or /while above` }
+      ? { kind: "guarded-variable", reason: `%{${variable}} is set inside an /if or /while on the load path` }
       : { kind: "unknown-variable", reason };
   }
 

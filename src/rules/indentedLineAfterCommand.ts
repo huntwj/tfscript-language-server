@@ -1,9 +1,11 @@
 import {
   continuesToNextLine,
   isCommentLine,
+  isTfSpace,
   leadingWhitespaceLength,
   splitRawLines,
 } from "../logicalEntries";
+import { code } from "../structure";
 import type { FileRule, LineMatch } from "./types";
 
 /**
@@ -16,6 +18,9 @@ import type { FileRule, LineMatch } from "./types";
  *
  * This is a whole-file, line-by-line state machine (new_cmd / last_cmd_line in the source),
  * not a per-command check — see the FileRule scope in ./types.
+ *
+ * The fix (joining the lines with `\`) needs the lines around this one, so diagnostics.ts adds
+ * it afterwards; see joinFix.ts.
  *
  * Not modelled: tf's separate "whitespace following final '\'" warning is its own rule,
  * trailingSpaceAfterBackslash.ts.
@@ -43,13 +48,21 @@ function check(text: string): LineMatch[] {
 
     const startsIndented = i > 0;
     if (newCmd && startsIndented && lastCmdLine > 0) {
+      const previous = lastCmdLine - 1;
+      const prevLine = lines[previous] ?? "";
+      let prevEnd = prevLine.length;
+      while (prevEnd > 0 && isTfSpace(prevLine[prevEnd - 1])) prevEnd -= 1;
       matches.push({
         line: idx,
         startChar: 0,
         endChar: i,
-        message:
-          `possibly missing trailing \\ on line ${lastCmdLine}: this indented line starts a ` +
-          "new top-level command instead of continuing the previous one.",
+        message: `Line ${lastCmdLine} has no \\ at the end, so this indented line starts a new command.`,
+        label: "starts a new command",
+        explanation:
+          `tf joins a line onto the one before it only when that one ends in ${code("\\")}. This line is indented ` +
+          `as if it continued line ${lastCmdLine}, but tf runs it as a command of its own, and warns ` +
+          `${code("possibly missing trailing \\")}.`,
+        related: [{ line: previous, startChar: Math.max(prevEnd - 1, 0), endChar: prevEnd, message: "no \\ at the end of this line" }],
       });
     }
     lastCmdLine = idx + 1;

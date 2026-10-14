@@ -139,7 +139,7 @@ export interface LoadGraphOptions {
 const LOADED_RE = /^\s*\/loaded\s+(\S+)/i;
 
 /** A path that can only be tf's, on another machine: on Windows, rooted with no drive (`\wotmud\x.tf`), and not UNC. */
-function isForeignPath(p: string): boolean {
+export function isForeignPath(p: string): boolean {
   return process.platform === "win32" && /^[\\/](?![\\/])/.test(p);
 }
 

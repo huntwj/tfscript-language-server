@@ -209,7 +209,8 @@ connection.onInitialized(() => {
 
 connection.onDidChangeConfiguration(() => void loadSettings());
 connection.onDidChangeWatchedFiles(() => {
-  index.invalidate();
+  // What was read from disk (files, folder listings) may be stale now.
+  index.filesChanged();
   scheduleRevalidation();
 });
 

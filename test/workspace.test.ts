@@ -360,3 +360,84 @@ describe("toLocalPath", () => {
     expect(toLocalPath("/wotmudx/a.tf", [{ tf: "/wotmud", local: p("repo") }])).toBe("/wotmudx/a.tf");
   });
 });
+
+describe("undefined macros, cost", () => {
+  function counted(files: Record<string, string>) {
+    const fs = memoryFs(files);
+    const calls = { walks: 0, reads: 0 };
+    return {
+      calls,
+      fs: {
+        ...fs,
+        walkTfFiles: (dir: string) => {
+          calls.walks += 1;
+          return fs.walkTfFiles(dir);
+        },
+        readFile: (f: string) => {
+          calls.reads += 1;
+          return fs.readFile(f);
+        },
+      },
+      exists: fs.exists,
+    };
+  }
+
+  it("keeps a keystroke in a 500-file workspace well under 50 ms, walking the folder once", () => {
+    const files: Record<string, string> = { [p("lib", "stdlib.tf")]: "", [p("ws", "tfrc")]: "/load f0.tf\n" };
+    for (let i = 0; i < 500; i += 1) files[p("ws", `f${i}.tf`)] = `/def -i m${i} = /echo ${i}%; /m${(i + 1) % 500}\n/load g${i}.tf\n`;
+    const { fs, calls, exists } = counted(files);
+    const index = new WorkspaceIndex(fs, { env: {}, homedir: p("home"), exists });
+    index.setFolders([p("ws")]);
+    index.setSettings(p("ws"), { libraryPath: p("lib"), workingDirectory: "." });
+    const file = p("ws", "f0.tf");
+    const text = files[file] as string;
+    index.loadPathDiagnostics(file, text);
+    const walks = calls.walks;
+    const started = performance.now();
+    for (let i = 0; i < 20; i += 1) {
+      const edited = `${text};; ${i}\n`;
+      index.setOverlay(file, edited);
+      index.loadPathDiagnostics(file, edited);
+    }
+    expect((performance.now() - started) / 20).toBeLessThan(50);
+    expect(calls.walks).toBe(walks);
+  });
+
+  it("walks nothing for a file in no workspace folder", () => {
+    const { fs, calls, exists } = counted({ [p("home", ".tfrc")]: "/def a = /nowhere\n", [p("ws", "x.tf")]: "" });
+    const index = new WorkspaceIndex(fs, { env: {}, homedir: p("home"), exists });
+    index.setFolders([p("ws")]);
+    const diagnostics = index.loadPathDiagnostics(p("home", ".tfrc"), "/def a = /nowhere\n");
+    expect(calls.walks).toBe(0);
+    expect(diagnostics.map((d) => d.code)).toEqual(["undefined-macro"]);
+  });
+
+  it("forgets what it read from disk when a watched file changes", () => {
+    const files = { [p("lib", "stdlib.tf")]: "", [p("ws", "tfrc")]: "/def a = /later\n" };
+    const fs = memoryFs(files);
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    index.setSettings(p("ws"), { libraryPath: p("lib") });
+    expect(index.loadPathDiagnostics(p("ws", "tfrc"), files[p("ws", "tfrc")])).toHaveLength(1);
+    const added = memoryFs({ ...files, [p("ws", "later.tf")]: "/def -i later = /echo\n" });
+    Object.assign(fs, added);
+    expect(index.loadPathDiagnostics(p("ws", "tfrc"), files[p("ws", "tfrc")])).toHaveLength(1);
+    index.filesChanged();
+    expect(index.loadPathDiagnostics(p("ws", "tfrc"), files[p("ws", "tfrc")]).map((d) => d.fix?.title)).toEqual(["Add /require later.tf"]);
+  });
+
+  it("writes the /require for the TFPATH in effect on the path, not the settings'", () => {
+    const files = {
+      [p("lib", "stdlib.tf")]: "",
+      [p("ws", "tfrc")]: `/set TFPATH=${p("ws", "lib2")}\n/load ${p("ws", "main.tf")}\n`,
+      [p("ws", "main.tf")]: "/def a = /helper\n",
+      [p("ws", "lib2", "helpers.tf")]: "/def -i helper = /echo\n",
+    };
+    const fs = memoryFs(files);
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    // tf runs elsewhere, starting with another TFPATH: only the tfrc's TFPATH reaches lib2.
+    index.setSettings(p("ws"), { libraryPath: p("lib"), entryFiles: ["tfrc"], workingDirectory: p("run"), tfPath: [p("other")] });
+    expect(index.loadPathDiagnostics(p("ws", "main.tf"), files[p("ws", "main.tf")]).map((d) => d.fix?.title)).toEqual(["Add /require helpers.tf"]);
+  });
+});

@@ -158,16 +158,50 @@ describe("undefined-macro", () => {
     expect(check(files, p("stray.tf"))).toMatchObject([{ code: "undefined-macro", severity: "warning" }]);
   });
 
-  it("notes a name defined in a file this one doesn't load, with a fix that requires it", () => {
-    const files = { [p("tfrc")]: ";; my tfrc\n/loaded my_tfrc\n/def a = /helper\n" };
-    const elsewhere = [{ label: "sub/helpers.tf", requirePath: "sub/helpers.tf", library: false, defs: macroNames("/def -i helper = /echo\n") }];
-    const [d] = loadPathDiagnostics(p("tfrc"), files[p("tfrc")] as string, graphOf(files), { unresolvedLoads: true, undefinedMacros: true }, { elsewhere });
-    expect(d).toMatchObject({ code: "undefined-macro", severity: "information" });
-    expect(d?.message).toBe("/helper is defined in sub/helpers.tf, which isn't on this file's load path: add /require sub/helpers.tf.");
-    expect(d?.fix).toEqual({
-      title: "Add /require sub/helpers.tf",
-      edits: [{ range: { start: { line: 2, character: 0 }, end: { line: 2, character: 0 } }, newText: "/require sub/helpers.tf\n" }],
+  describe("a name defined in a file this one doesn't load", () => {
+    const helpers = p("sub", "helpers.tf");
+    const notes = (text: string) => {
+      const files = { [p("tfrc")]: text };
+      const elsewhere = [{ file: helpers, label: "sub/helpers.tf", library: false, defs: macroNames("/def -i helper = /echo\n") }];
+      const requirePath = (f: string) => (f === helpers ? "sub/helpers.tf" : undefined);
+      return loadPathDiagnostics(p("tfrc"), text, graphOf(files), { unresolvedLoads: true, undefinedMacros: true }, { elsewhere, requirePath });
+    };
+    const insert = (text: string) => notes(text)[0]?.fix?.edits[0];
+
+    it("is a note, with a fix that adds the /require after the /loaded line", () => {
+      const [d] = notes(";; my tfrc\n/loaded my_tfrc\n/def a = /helper\n");
+      expect(d).toMatchObject({ code: "undefined-macro", severity: "information" });
+      expect(d?.message).toBe("/helper is defined in sub/helpers.tf, which isn't on this file's load path: add /require sub/helpers.tf.");
+      expect(d?.fix).toEqual({
+        title: "Add /require sub/helpers.tf",
+        edits: [{ range: { start: { line: 2, character: 0 }, end: { line: 2, character: 0 } }, newText: "/require sub/helpers.tf\n" }],
+      });
     });
+
+    it("uses the file's own line ending", () => {
+      expect(insert(";; x\r\n/def a = /helper\r\n")?.newText).toBe("/require sub/helpers.tf\r\n");
+    });
+
+    it("goes after a last /loaded line with no newline after it", () => {
+      expect(insert("/def a = /helper\n/loaded tok")).toEqual({
+        range: { start: { line: 1, character: 11 }, end: { line: 1, character: 11 } },
+        newText: "\n/require sub/helpers.tf",
+      });
+    });
+
+    it("goes above a ;;; doc comment that belongs to the first /def, but below a ;;; header", () => {
+      expect(insert(";; header\n\n;;; does a\n/def a = /helper\n")?.range.start.line).toBe(2);
+      expect(insert(";;; my_lib.tf: helpers\n;;; by me\n/def a = /helper\n")?.range.start.line).toBe(2);
+    });
+  });
+
+  it("counts /@def, and a quoted option with an escaped quote, as defining the name", () => {
+    expect(macroNames('/@def -i built = /echo\n/def -t"a \\" b" quoted = /echo\n').names).toEqual(
+      new Map([
+        ["built", "built"],
+        ["quoted", "quoted"],
+      ]),
+    );
   });
 
   it("only notes, naming the load, when a load on the path can't be followed", () => {
@@ -226,7 +260,8 @@ describe("nearestName", () => {
 
   it("allows one edit in a short name and two in a longer one", () => {
     expect(nearestName("ecoh", names)).toBe("echo");
-    expect(nearestName("eco", names)).toBe("echo");
+    // Under 4 characters a name is too close to too much to guess.
+    expect(nearestName("eco", names)).toBeUndefined();
     expect(nearestName("ehco", ["echo"])).toBe("echo");
     expect(nearestName("ec", names)).toBeUndefined();
     expect(nearestName("wot_mount_stmont", names)).toBe("wot_mount_setmount");

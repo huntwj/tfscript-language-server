@@ -1,10 +1,10 @@
 import * as path from "node:path";
 import { ALL_COMMANDS } from "../data/commands";
-import type { TfDiagnostic } from "../diagnostics";
+import type { TfDiagnostic, TfTextEdit } from "../diagnostics";
 import { isCommentLine, splitLogicalEntries, splitRawLines, type LogicalEntry } from "../logicalEntries";
 import { code } from "../structure";
 import { findMacroCalls } from "../variables";
-import { fileKey, type LoadGraph, type UnresolvedLoad } from "./loadGraph";
+import { fileKey, isForeignPath, type LoadGraph, type UnresolvedLoad } from "./loadGraph";
 
 export interface LoadPathDiagnosticOptions {
   /** `/load`/`/require` paths tf would not find. On by default. */
@@ -17,10 +17,9 @@ export interface LoadPathDiagnosticOptions {
 
 /** The macros a file defines, for a file that isn't on this file's load path. */
 export interface DefinedElsewhere {
+  file: string;
   /** How to name it in a message: a workspace-relative path, or a library file's name. */
   label: string;
-  /** What to write after `/require` to load it, or undefined if tf can't be told where it is. */
-  requirePath?: string;
   /** Part of tf's library. */
   library: boolean;
   defs: MacroNames;
@@ -39,6 +38,10 @@ export interface UnfollowedLoad {
 export interface MacroContext {
   elsewhere?: DefinedElsewhere[];
   unfollowed?: UnfollowedLoad[];
+  /** What to write after `/require`, in this file, to load `file`; undefined if tf can't be told where it is. */
+  requirePath?: (file: string) => string | undefined;
+  /** The macros a file on the path defines (cached by the caller); macroNames() by default. */
+  namesOf?: (file: string, text: string) => MacroNames;
 }
 
 export interface MacroNames {
@@ -51,11 +54,12 @@ export interface MacroNames {
 const COMMAND_NAMES = new Set(ALL_COMMANDS.map((c) => c.name.toLowerCase()));
 
 /**
- * A `/def` anywhere in a file's text — top level or nested in a macro body, run later — and
- * the name after its options, which may carry quoted arguments with spaces
- * (map.tf: `/def -iFp9999 -mglob -h'send {n|s|e|w}' _map_hook = ...`).
+ * A `/def` (or `/@def`, the builtin) anywhere in a file's text — top level or nested in a macro
+ * body, run later — and the name after its options, which may carry quoted arguments with spaces
+ * (map.tf: `/def -iFp9999 -mglob -h'send {n|s|e|w}' _map_hook = ...`), in which `\` escapes the
+ * next character (util.c stringliteral()).
  */
-const ANY_DEF_RE = /(?:^|[\s;|(])\/def\b((?:\s+-(?:[^\s"'`]|"[^"]*"|'[^']*'|`[^`]*`)*)*)\s+([^\s=]+)/gi;
+const ANY_DEF_RE = /(?:^|[\s;|(])\/@?def\b((?:\s+-(?:[^\s"'`]|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)*)*)\s+([^\s=]+)/gi;
 
 /**
  * Every macro name `text` defines anywhere, generously: any `/def` in it, including one inside
@@ -80,18 +84,21 @@ function defines(defs: MacroNames, name: string): boolean {
   return defs.names.has(name) || defs.prefixes.some((p) => name.startsWith(p));
 }
 
-/** The loads on the path the graph couldn't follow (a not-found one loads nothing, so it isn't one). */
+/**
+ * The loads on the path the graph couldn't follow. One tf won't find loads nothing, unless it
+ * looked somewhere only tf's machine has (isForeignPath()).
+ */
 export function unfollowedOnPath(graph: LoadGraph, label: (file: string) => string = (f) => path.basename(f)): UnfollowedLoad[] {
   return graph.unresolved
-    .filter((u) => u.kind === "unknown-variable" || u.kind === "guarded-variable" || u.kind === "user-home")
+    .filter((u) => u.kind === "unknown-variable" || u.kind === "guarded-variable" || u.kind === "user-home" || u.searched.some(isForeignPath))
     .map((u) => ({ raw: u.raw, label: label(u.from), line: u.line }));
 }
 
-function onPathNames(graph: LoadGraph, ownText: string): MacroNames {
+function onPathNames(graph: LoadGraph, file: string, ownText: string, namesOf: (file: string, text: string) => MacroNames): MacroNames {
   const names = new Map([...COMMAND_NAMES].map((n) => [n, n]));
   const prefixes: string[] = [];
-  for (const text of [ownText, ...graph.files.map((f) => f.text)]) {
-    const d = macroNames(text);
+  for (const [f, text] of [[file, ownText] as const, ...graph.files.map((g) => [g.path, g.text] as const)]) {
+    const d = namesOf(f, text);
     for (const [n, written] of d.names) if (!names.has(n)) names.set(n, written);
     prefixes.push(...d.prefixes);
   }
@@ -127,10 +134,12 @@ function editDistance(a: string, b: string): number {
 }
 
 /**
- * The one visible name `name` is most likely a typo of: within 1 edit for a short name, 2 for
- * one of 6 or more characters, and strictly closer than every other candidate.
+ * The one visible name `name` is most likely a typo of: within 1 edit for a name of 4 or 5
+ * characters, 2 for one of 6 or more, and strictly closer than every other candidate. A shorter
+ * name is too close to too much to guess.
  */
 export function nearestName(name: string, candidates: Iterable<string>): string | undefined {
+  if (name.length < 4) return undefined;
   const limit = name.length >= 6 ? 2 : 1;
   let best: string | undefined;
   let bestDistance = Infinity;
@@ -149,15 +158,32 @@ export function nearestName(name: string, candidates: Iterable<string>): string 
   return best !== undefined && bestDistance <= limit && bestDistance > 0 && !tied ? best : undefined;
 }
 
-/** Where to insert a `/require`: after a `/loaded` line, else after the comments and blank lines a file starts with. */
-function requireLine(lines: string[]): number {
+/**
+ * The edit that adds `line` as a line of its own: after a `/loaded` line, else after the comments
+ * and blank lines a file starts with, in the file's own line ending. A `;;;` doc comment right
+ * above the first command belongs to it, so the line goes above that, unless the `;;;` lines are
+ * the whole header (from the top of the file), which stays first.
+ */
+function insertLine(text: string, lines: string[], line: string): TfTextEdit {
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  // splitRawLines() leaves an empty last line after a final newline: the lines that exist.
+  const count = text.endsWith("\n") ? lines.length - 1 : lines.length;
   const loaded = lines.findIndex((l) => /^\s*\/loaded\s/i.test(l));
-  if (loaded >= 0) return loaded + 1;
-  let i = 0;
-  while (i < lines.length && (isCommentLine(lines[i] as string) || (lines[i] as string).trim() === "")) i += 1;
-  // A ;;; doc comment belongs to the /def below it: go in above it.
-  while (i > 0 && /^\s*;;;/.test(lines[i - 1] as string)) i -= 1;
-  return i;
+  let at: number;
+  if (loaded >= 0) {
+    at = loaded + 1;
+  } else {
+    at = 0;
+    while (at < count && (isCommentLine(lines[at] as string) || (lines[at] as string).trim() === "")) at += 1;
+    let doc = at;
+    while (doc > 0 && /^\s*;;;/.test(lines[doc - 1] as string)) doc -= 1;
+    if (doc > 0 && at < count) at = doc;
+  }
+  if (at < count) return { range: { start: { line: at, character: 0 }, end: { line: at, character: 0 } }, newText: `${line}${eol}` };
+  // Past the last line (a /loaded line with no newline after it, or a file of only comments).
+  const last = Math.max(0, count - 1);
+  const end = { line: last, character: (lines[last] ?? "").replace(/\r$/, "").length };
+  return { range: { start: end, end }, newText: count === 0 ? `${line}${eol}` : `${eol}${line}` };
 }
 
 /**
@@ -273,14 +299,15 @@ const UNDEFINED_EXPLANATION =
   `seen: add its name to ${code("tfscript.diagnostics.ignoreMacros")}.`;
 
 function undefinedMacros(
+  file: string,
   text: string,
   lines: string[],
   graph: LoadGraph,
   onPath: boolean,
-  { elsewhere = [], unfollowed = [] }: MacroContext,
+  { elsewhere = [], unfollowed = [], requirePath = () => undefined, namesOf = (_f, t) => macroNames(t) }: MacroContext,
   ignore: string[],
 ): TfDiagnostic[] {
-  const visible = onPathNames(graph, text);
+  const visible = onPathNames(graph, file, text, namesOf);
   const out: TfDiagnostic[] = [];
   for (const call of findMacroCalls(text)) {
     if (call.dynamic) continue;
@@ -294,12 +321,13 @@ function undefinedMacros(
       // Off every load path, nothing is known about what is loaded first.
       if (!onPath) continue;
       const where = there.library ? `tf's library file ${there.label}` : there.label;
+      const required = requirePath(there.file);
       const d: TfDiagnostic = {
         range: call.range,
         message:
-          there.requirePath === undefined
+          required === undefined
             ? `/${call.name} is defined in ${where}, which isn't on this file's load path: load it first.`
-            : `/${call.name} is defined in ${where}, which isn't on this file's load path: add /require ${there.requirePath}.`,
+            : `/${call.name} is defined in ${where}, which isn't on this file's load path: add /require ${required}.`,
         label: "not loaded",
         explanation:
           `None of the files tf loads on this file's load path define ${code(`/${call.name}`)}, so unless ` +
@@ -307,13 +335,7 @@ function undefinedMacros(
         code: "undefined-macro",
         severity: "information",
       };
-      if (there.requirePath !== undefined) {
-        const at = requireLine(lines);
-        d.fix = {
-          title: `Add /require ${there.requirePath}`,
-          edits: [{ range: { start: { line: at, character: 0 }, end: { line: at, character: 0 } }, newText: `/require ${there.requirePath}\n` }],
-        };
-      }
+      if (required !== undefined) d.fix = { title: `Add /require ${required}`, edits: [insertLine(text, lines, `/require ${required}`)] };
       out.push(d);
       continue;
     }
@@ -372,7 +394,7 @@ export function loadPathDiagnostics(
   const out: TfDiagnostic[] = [];
   if (options.undefinedMacros) {
     const unfollowed = context.unfollowed ?? (onPath ? unfollowedOnPath(graph) : []);
-    out.push(...undefinedMacros(text, lines, graph, onPath, { ...context, unfollowed }, options.ignoreMacros ?? []));
+    out.push(...undefinedMacros(file, text, lines, graph, onPath, { ...context, unfollowed }, options.ignoreMacros ?? []));
   }
   if (!onPath) return out;
   const entries = splitLogicalEntries(text);

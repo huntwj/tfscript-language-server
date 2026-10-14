@@ -1,5 +1,5 @@
 import { ifMultilineTopLevel } from "./ifMultilineTopLevel";
-import { loadNoExpansion } from "./loadNoExpansion";
+import { notSubstitutedHere } from "./notSubstitutedHere";
 import { letSwallowsEndif } from "./letSwallowsEndif";
 import { dollarBracketInIf } from "./dollarBracketInIf";
 import { indentedLineAfterCommand } from "./indentedLineAfterCommand";
@@ -18,7 +18,7 @@ import type { Rule } from "./types";
 // never reads past the line it aborts on), so diagnostics.ts drives it separately.
 export const RULES: Rule[] = [
   ifMultilineTopLevel,
-  loadNoExpansion,
+  notSubstitutedHere,
   letSwallowsEndif,
   dollarBracketInIf,
   indentedLineAfterCommand,

@@ -35,19 +35,19 @@ describe("if-multiline-top-level (rule 2)", () => {
   });
 });
 
-describe("load-no-expansion (rule 4)", () => {
+describe("not-substituted-here (rule 4)", () => {
   it("flags %{var} in a top-level command", () => {
     const text = ["/set d=/script", "/load %{d}/ok.tf", ""].join("\n");
-    expect(codes(text)).toContain("load-no-expansion");
+    expect(codes(text)).toContain("not-substituted-here");
   });
 
   it("is clean when the command is prefixed with /eval", () => {
     const text = ["/set d=/script", "/eval /load %{d}/ok.tf", ""].join("\n");
-    expect(codes(text)).not.toContain("load-no-expansion");
+    expect(codes(text)).not.toContain("not-substituted-here");
   });
 
   it("does not flag an ordinary /set assignment with no %{...}", () => {
-    expect(codes("/set d=/script\n")).not.toContain("load-no-expansion");
+    expect(codes("/set d=/script\n")).not.toContain("not-substituted-here");
   });
 
   // Regression: found as a real false positive against tinyfugue/lib/tf/color.tf. Confirmed
@@ -56,7 +56,7 @@ describe("load-no-expansion (rule 4)", () => {
   // one), unlike an ordinary top-level line.
   it("does not flag %{var} inside a /for body, not just a /def body", () => {
     const text = "/for i 0 2 /set x%{i}=hello\n";
-    expect(codes(text)).not.toContain("load-no-expansion");
+    expect(codes(text)).not.toContain("not-substituted-here");
   });
 
   // Confirmed live: /bind, /hook and /trig (and its stdlib siblings /trigc, /trigp, /trigpc)
@@ -65,9 +65,66 @@ describe("load-no-expansion (rule 4)", () => {
   it.each(["/bind ^[a = /echo %{x}", "/hook CONNECT = /echo %{x}", "/trig '*' = /echo %{x}"])(
     "does not flag %{var} inside a macro-body command (%s)",
     (line) => {
-      expect(codes(`${line}\n`)).not.toContain("load-no-expansion");
+      expect(codes(`${line}\n`)).not.toContain("not-substituted-here");
     },
   );
+
+  // Proven 2026-10-14 (rule analysis p04, q05, p10 and r2.tf): tf substitutes each of these.
+  it.each([
+    "/if (%{x} == 5) /echo yes%; /endif",
+    "/test %{x} + 1",
+    "/repeat -0 1 /echo %{x}",
+    "/repeat -S 1 /echo %{x}",
+    "/if (1) /repeat -0 1 /echo %%{x}%; /endif",
+    "/for j %{lo} 3 /echo %{j}",
+    "/eval -sfull /echo %{x}",
+    "/if (1) /eval /load %%{d}/a.tf%; /endif",
+    "/if (1) /echo a%; /else /eval /echo %{W}%; /endif",
+  ])("does not flag what tf substitutes: %s", (line) => {
+    expect(codes(`${line}\n`)).not.toContain("not-substituted-here");
+  });
+
+  // Proven the same way: tf leaves each of these as written.
+  it.each([
+    ["/if (1) /echo x=%{x}%; /endif", "%{x}"],
+    ["/eval -s0 /echo %{x}", "%{x}"],
+    ["/eval -son /echo %{x}", "%{x}"],
+    ["/set y=$[%{x}+1]", "%{x}"],
+    ["/load %dir/x.tf", "%dir"],
+  ])("flags what tf leaves as written: %s", (line, written) => {
+    const d = getDiagnostics(`${line}\n`).filter((x) => x.code === "not-substituted-here");
+    expect(d.map((x) => line.slice(x.range.start.character, x.range.end.character))).toEqual([written]);
+  });
+
+  it("names where the text isn't substituted", () => {
+    const message = (line: string) => getDiagnostics(`${line}\n`).find((x) => x.code === "not-substituted-here")?.message;
+    expect(message("/if (1) /echo %{x}%; /endif")).toBe(
+      "%{x} stays as it is in a top-level /if or /while line: put /eval in front of the command to substitute it.",
+    );
+    expect(message("/eval -soff /echo %{x}")).toBe("%{x} stays as it is in /eval -soff text: put /eval in front of the command to substitute it.");
+  });
+
+  it("leaves %name alone outside a load path, and a % in a run", () => {
+    expect(codes("/set std_clock_format=%H:%M\n")).toEqual([]);
+    expect(codes("/echo %%{x}\n")).toEqual([]);
+  });
+
+  it("notes a %; on a plain line, as information", () => {
+    const [d, ...rest] = getDiagnostics("/set a=1%; /set b=2\n");
+    expect(rest).toEqual([]);
+    expect(d?.code).toBe("not-substituted-here");
+    expect(d?.severity).toBe("information");
+    expect(d?.message).toBe(
+      "%; doesn't end a command on a plain top-level line, so it and the rest of the line are part of /set: put each command on a line of its own, or start the line with /eval.",
+    );
+    expect(d?.fix?.edits[0]?.newText).toBe("\n");
+  });
+
+  it("doesn't note a %; that separates, ends the line, or sits in a definition", () => {
+    for (const line of ["/if (1) /set a=1%; /endif", "/eval /set a=1%; /set b=2", "/let _x=1%;", "/def -E'/undef b%; /undef c' -t'*' a = /echo a"]) {
+      expect(codes(`${line}\n`)).not.toContain("not-substituted-here");
+    }
+  });
 });
 
 describe("let-swallows-endif (rule 5)", () => {
@@ -247,7 +304,7 @@ describe("messages", () => {
   const cases: [string, string, string][] = [
     ["if-multiline-top-level", "/if (1)\n  /echo yes\n/endif\n", "This /if has no /endif in the same command."],
     ["block-structure", "/while (1) /echo\n", "This /while has no /done in the same command."],
-    ["load-no-expansion", "/load %{d}/ok.tf\n", "%{d} stays as it is in a command at the top level of a file: put /eval in front to substitute it."],
+    ["not-substituted-here", "/load %{d}/ok.tf\n", "%{d} stays as it is in a command at the top level of a file: put /eval in front of the command to substitute it."],
     ["let-swallows-endif", "/def a = /if (1) /let v=1 /endif\n", "This /endif is part of the /let value, not a command: put %; before it."],
     ["let-swallows-endif", "/set v=1 /if (1) /echo%; /endif\n", "This /if is part of the /set value, not a command: put it on a line of its own."],
     ["dollar-bracket-in-if", "/def a = /if ($[1]) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: drop the $[ and ]."],

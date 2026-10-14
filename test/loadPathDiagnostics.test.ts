@@ -115,7 +115,7 @@ describe("unresolved-load", () => {
     expect(d).toMatchObject({ severity: "warning", range: { start: { line: 0, character: 14 } } });
   });
 
-  it("leaves an unexpanded top-level path to the load-no-expansion rule", () => {
+  it("leaves an unexpanded top-level path to the not-substituted-here rule", () => {
     expect(check({ [p("tfrc")]: "/load %{d}/x.tf\n" }, p("tfrc"))).toEqual([]);
   });
 

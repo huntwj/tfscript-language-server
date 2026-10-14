@@ -58,11 +58,11 @@ describe("trailing-space-after-backslash", () => {
   });
 });
 
-describe("load-no-expansion", () => {
+describe("not-substituted-here", () => {
   it("offers to prefix the command with /eval", () => {
     const text = ["/set d=/script", "/load %{d}/ok.tf", ""].join("\n");
     const [action] = getCodeActions(text, WHOLE_FILE);
-    expect(action?.diagnostic.code).toBe("load-no-expansion");
+    expect(action?.diagnostic.code).toBe("not-substituted-here");
     expect(action?.title).toContain("/eval");
     const fixed = applyEdits(text, action!.edits);
     expect(fixed).toBe(["/set d=/script", "/eval /load %{d}/ok.tf", ""].join("\n"));
@@ -308,7 +308,7 @@ describe("range filtering", () => {
   const text = ["/load %{d}/one.tf", "/echo plain", "/echo x \\ ", ""].join("\n");
 
   it("returns only the fixes overlapping the requested range", () => {
-    expect(getCodeActions(text, at(0, 8)).map((a) => a.diagnostic.code)).toEqual(["load-no-expansion"]);
+    expect(getCodeActions(text, at(0, 8)).map((a) => a.diagnostic.code)).toEqual(["not-substituted-here"]);
     expect(getCodeActions(text, at(2, 9)).map((a) => a.diagnostic.code)).toEqual([
       "trailing-space-after-backslash",
     ]);

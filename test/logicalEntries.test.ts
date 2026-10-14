@@ -55,19 +55,19 @@ describe("isDefBody / isForLoop recognise a /def or /for whose first physical li
   // command.c's load_file() reads /def's name and %{var} expansion as one joined command
   // regardless of which physical line the leading /def actually falls on, so checking only
   // parts[0] (the lone "\" line) would wrongly treat a leading-blank-line /def as an ordinary
-  // top-level command and flag its %{x} as load-no-expansion.
+  // top-level command and flag its %{x} as not-substituted-here.
   it("still recognises a /def whose entry starts with a lone continuation line", () => {
     const text = ["\\", "/def foo = /echo %{x}", ""].join("\n");
     const [entry] = splitLogicalEntries(text);
     expect(entry?.isDefBody).toBe(true);
-    expect(codes(text)).not.toContain("load-no-expansion");
+    expect(codes(text)).not.toContain("not-substituted-here");
   });
 
   it("still recognises a /for whose entry starts with a lone continuation line", () => {
     const text = ["\\", "/for i 0 2 /echo %{i}", ""].join("\n");
     const [entry] = splitLogicalEntries(text);
     expect(entry?.isForLoop).toBe(true);
-    expect(codes(text)).not.toContain("load-no-expansion");
+    expect(codes(text)).not.toContain("not-substituted-here");
   });
 });
 

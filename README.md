@@ -146,21 +146,13 @@ not taken from the manual:
   `/eval /load %{dir}/x.tf` works; `/set` and `/setenv` commands that run while a file on the
   path loads are tracked so these resolve. One inside an `/if` or `/while` may not run, so unless
   it sets the value the variable already has, the variable is treated as unknown from there on
-  (an information note, not a guess). The exception is the default-value idiom, a whole line
-  `/if (x =~ "") /set x=VALUE%; /endif` (or `{x} =~ ""`, `x == ""`, `!x`): when the variable is
-  known, or provably unset, the guard is evaluated as tf would. Real tf showed all these tests
-  true for an unset variable, but only `=~ ""` exact for a set one (`==` and `!` compare numbers,
-  so they are true for `0` and `abc` too). A variable counts as unset when nothing on the path set
-  it, it isn't one of tf's special variables (which have defaults), and its name has a lower-case
-  letter: tf makes every environment variable a global, and those are upper case by convention.
-  The guard on `x` stops being trusted once something earlier on the path may have set `x`
-  unseen, each proven to in real tf: an assignment in an expression (`/test x := 1`), a macro
-  call whose body (read through the macros it calls and its `/eval` text) sets it, a `/set` whose
-  name is built when it runs and starts the way `x` does (`/set x%i=...`), `/toggle x` or a
-  `/for` that does. Anything at all stops it: a name built from nothing literal, `/quote`,
-  `/repeat`, `/trigger`, a call to a macro it can't read, or a load the path can't follow
-  (including one tf won't find here because only tf's machine has the path). tf's own library
-  sets only names of its own, so it leaves the guard alone;
+  (an information note, not a guess). That includes the default-value idiom
+  `/if (x =~ "") /set x=VALUE%; /endif`: whether it runs depends on what set `x` before, which
+  can be the environment, a hook or a macro this can't follow. `variables` says what `x` is when
+  tf starts (`{ "wotmud_repo_dir": "/wotmud" }`), as if `/set` after `stdlib.tf`; such a value
+  stands through an `/if`'s or `/while`'s `/set` of it, the way the idiom leaves a variable that
+  is already set, and a `/set` that always runs replaces it. Values are as tf sees them, so a path
+  goes through `pathMappings`;
 - when tf runs somewhere else (a container, WSL, another host), `pathMappings` says where its
   absolute paths are here: `[{ "tf": "/wotmud", "local": "C:/Users/me/wotmud" }]`. An absolute
   `/load` path, a `TFPATH` or `HOME` a script sets, and the path settings when written as tf's
@@ -201,6 +193,7 @@ under `tfscript`):
 | `workingDirectory` | tf's current directory | the workspace folder |
 | `homeDirectory` | what `~` means (tf's `HOME`) | your home directory |
 | `pathMappings` | where tf's absolute paths are here, when tf runs elsewhere: `[{ "tf": "/wotmud", "local": "C:/Users/me/wotmud" }]` | none |
+| `variables` | variables with a value when tf starts, as tf sees them: `{ "wotmud_repo_dir": "/wotmud" }` | none |
 | `diagnostics.unresolvedLoads` | warn on a `/load`/`/require` tf wouldn't find (`unresolved-load`) | on |
 | `diagnostics.undefinedMacros` | warn on `/name` calls to macros defined nowhere (`undefined-macro`) | on |
 | `diagnostics.ignoreMacros` | macro names `undefined-macro` leaves alone, ignoring case; `*` is a wildcard | none |
@@ -243,10 +236,15 @@ Two diagnostics need the workspace:
   WoTMUD scripts it reports nothing; over some 480 test scripts written to break tf, only the
   calls they make to undefined names on purpose.
 
-  It reads the workspace folder once (up to 5000 files) and each file's macros and loads once,
-  keeping them until a watched file changes, so a keystroke only re-reads the file being edited.
-  A file in no workspace folder (`~/.tfrc` with nothing open) is checked against its load path
-  and tf's library only; no folder is walked for it.
+  It reads the workspace folder once and each file's macros and loads once, so a keystroke only
+  re-reads the file being edited. The server registers file watchers (when the client allows it)
+  for tf files and for folders created or deleted in the workspace, and, where the client takes
+  patterns relative to a folder of its own, for tf's library, mapped folders and `HOME`; what was
+  read under those is kept until a change is reported. Anything else (a client without watchers,
+  a file outside them) is checked against its modification time first, and a folder listing
+  nothing watches is kept for ten seconds. The walk stops at 5000 files; past that, a name it
+  didn't find is only noted, naming the limit. A file in no workspace folder (`~/.tfrc` with
+  nothing open) is checked against its load path and tf's library only; no folder is walked.
 
 tf's library files are read from your installation at runtime, never copied into this
 package, so their `;;;` doc comments show up in hover without any licensing question. The same

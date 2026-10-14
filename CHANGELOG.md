@@ -13,12 +13,15 @@
 - `tfscript.pathMappings`, for a tf that runs somewhere else (a container, WSL, another host):
   where its absolute paths are here. Loads, links and load-path diagnostics follow it, and a Unix
   path tf won't find that no mapping covers gets a hint to add one.
-- The load path evaluates the default-value idiom `/if (x =~ "") /set x=VALUE%; /endif` (and the
-  `{x}`, `== ""` and `!x` forms) when it can tell: with the variable known, or unset because
-  nothing on the path set it, it isn't a special variable and its name isn't all upper case, and
-  nothing earlier on the path may have set variables unseen (a macro call, a `/test`, a computed
-  `/set` name, `/for`, `/toggle`, a load it can't follow). So `/eval /load %{x}/a.tf` after it
-  is followed and linked, where it used to be "can't follow".
+- `tfscript.variables`: variables with a value when tf starts, as tf sees them, as if `/set`
+  after `stdlib.tf`. A value there stands through an `/if`'s or `/while`'s `/set` of it, so the
+  default-value idiom `/if (x =~ "") /set x=VALUE%; /endif` leaves it alone, and the note on a
+  load built from such a variable says to set it here. With `{ "wotmud_repo_dir": "/wotmud" }`
+  and a `/wotmud` path mapping, WoTMUD's `/eval /load %{wotmud_repo_dir}/tf/mapping.tf` is
+  followed and linked.
+- The server registers its own file watchers, for the workspace's tf files, folders created or
+  deleted there, and tf's library, mapped folders and `HOME`; files nothing watches are checked
+  against their modification time.
 - An `/eval` load whose path is built from variables gets a link when the load path resolved it.
 - Variables: go-to-definition, find-references and rename for `/set`, `/setenv` and `/let`
   variables and `getopts()`' `opt_` variables, read as `%name`, `%{name}`, `{name}` or a bare name

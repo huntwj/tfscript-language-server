@@ -88,6 +88,11 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
     expect(defNames(g)).toEqual(["b"]);
     expect(g.unresolved).toEqual([]);
   });
+
+  it("ends the options at - or --, so a filename may start with -", () => {
+    const g = graph({ [p("tfrc")]: "/load - -a.tf\n/load -q -- -b.tf\n", [p("cwd", "-a.tf")]: "/def a = 1\n", [p("cwd", "-b.tf")]: "/def b = 1\n" });
+    expect(defNames(g)).toEqual(["a", "b"]);
+  });
 });
 
 describe("/require and /loaded (proven against real tf)", () => {

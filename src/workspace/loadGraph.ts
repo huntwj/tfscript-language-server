@@ -170,7 +170,8 @@ function stripLoadOptions(args: string): string | undefined {
     const end = rest.search(/\s/);
     const opt = end === -1 ? rest : rest.slice(0, end);
     rest = end === -1 ? "" : rest.slice(end).trim();
-    if (opt === "--") break;
+    // util.c nextopt(): a lone "-" ends the options, as "--" does.
+    if (opt === "-" || opt === "--") break;
     if (!/^-q+$/.test(opt)) return undefined;
   }
   return rest;

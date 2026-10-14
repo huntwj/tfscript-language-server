@@ -36,15 +36,14 @@ proven rule, that's a case to add there first.
 
 ## What's implemented
 
-Diagnostics for the proven rules, each a pure function in `src/rules/`, under one of
-two shapes (`src/rules/types.ts`): an `EntryRule` scans one `LogicalEntry` and returns offset
-ranges into its joined text; a `FileRule` scans the whole file's raw lines and
-returns positions directly, for the two line-by-line state machines that mirror
-`load_file()`'s own `new_cmd`/`last_cmd_line` tracking (`indented-line-after-command`,
-`trailing-space-after-backslash`). `diagnostics.ts` drives both kinds through one loop.
-`bare-line-after-command` is the one exception, wired by hand rather than through that loop:
-it doesn't just report a diagnostic, it also decides where every other rule's view of the
-file gets truncated, since tf never reads past the line it aborts on.
+Diagnostics for the proven rules, each a pure function in `src/rules/`, under one of two shapes
+(`src/rules/types.ts`): an `EntryRule` scans one `LogicalEntry` and returns offset ranges into its
+joined text; a `FileRule` scans the whole file and returns positions directly, as the line-by-line
+state machines that mirror `load_file()`'s own `new_cmd`/`last_cmd_line` tracking do
+(`indented-line-after-command`, `trailing-space-after-backslash`). `diagnostics.ts` drives both
+kinds through one loop. `bare-line-after-command` is the one exception, wired by hand rather than
+through that loop: it doesn't just report a diagnostic, it also decides where every other rule's
+view of the file gets truncated, since tf never reads past the line it aborts on.
 
 | Rule | id | What it catches |
 | --- | --- | --- |

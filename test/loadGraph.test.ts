@@ -89,6 +89,21 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
     expect(g.unresolved).toEqual([]);
   });
 
+  it("takes a ~ path as absolute, never searching TFPATH for it, and can't follow ~user", () => {
+    // Real tf: with TFPATH=/script, /load ~nosuchuser/n.tf failed though /script/~nosuchuser/n.tf exists.
+    const files = {
+      [p("tfrc")]: "/load ~/a.tf\n/load ~nosuchuser/n.tf\n",
+      [p("d1", "~", "a.tf")]: "/def wrong_a = 1\n",
+      [p("d1", "~nosuchuser", "n.tf")]: "/def wrong_n = 1\n",
+    };
+    const g = graph(files, { tfPath: [p("d1")], home: p("home") });
+    expect(defNames(g)).toEqual([]);
+    expect(g.unresolved.map((u) => [u.kind, u.searched])).toEqual([
+      ["not-found", [p("home", "a.tf")]],
+      ["user-home", []],
+    ]);
+  });
+
   it("ends the options at - or --, so a filename may start with -", () => {
     const g = graph({ [p("tfrc")]: "/load - -a.tf\n/load -q -- -b.tf\n", [p("cwd", "-a.tf")]: "/def a = 1\n", [p("cwd", "-b.tf")]: "/def b = 1\n" });
     expect(defNames(g)).toEqual(["a", "b"]);

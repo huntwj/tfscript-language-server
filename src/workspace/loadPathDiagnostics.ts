@@ -78,6 +78,7 @@ function unresolvedMessage(u: UnresolvedLoad): string {
       `follows paths built from literal /set values.`
     );
   }
+  if (u.kind === "user-home") return `Can't follow this load: ${u.reason}, which this check can't read.`;
   const shown = u.file === u.raw ? `"${u.raw}"` : `"${u.raw}" (${u.file})`;
   return (
     `tf won't find ${shown}. It would try, in order: ${u.searched.join(", ")}. A relative path is ` +

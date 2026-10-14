@@ -37,6 +37,14 @@ describe("unresolved-load", () => {
     expect(d).toMatchObject({ code: "unresolved-load", severity: "information" });
   });
 
+  it("notes, without warning, a ~user path, which tf looks up in the password file", () => {
+    const [d] = check({ [p("tfrc")]: "/load ~bob/x.tf\n" }, p("tfrc"));
+    expect(d).toMatchObject({ code: "unresolved-load", severity: "information", range: { start: { line: 0, character: 6 } } });
+    expect(d?.message).toBe(
+      "Can't follow this load: ~bob is the home directory of user bob, which tf looks up in the system's password file, which this check can't read.",
+    );
+  });
+
   it("leaves an unexpanded top-level path to the load-no-expansion rule", () => {
     expect(check({ [p("tfrc")]: "/load %{d}/x.tf\n" }, p("tfrc"))).toEqual([]);
   });

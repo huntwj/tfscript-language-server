@@ -57,7 +57,7 @@ export interface LoadedFile {
   stdlib: boolean;
 }
 
-export type UnresolvedKind = "not-found" | "unknown-variable" | "not-substituted";
+export type UnresolvedKind = "not-found" | "unknown-variable" | "not-substituted" | "user-home";
 
 export interface UnresolvedLoad {
   from: string;
@@ -147,8 +147,14 @@ export interface LoadPathEnvironment {
 
 /** Where tf finds the file `/load file` names (rules in the header comment), and every place it tries. */
 export function resolveLoadPath(file: string, env: LoadPathEnvironment): { found?: string; searched: string[] } {
-  let target = file;
-  if (target === "~" || target.startsWith("~/")) target = env.home + target.slice(1);
+  // tf counts any path starting with ~ as absolute (tfio.h is_absolute_path()), so it never
+  // searches TFPATH for one. `~user` comes from the password file, which this can't read.
+  if (file.startsWith("~")) {
+    if (file !== "~" && !file.startsWith("~/")) return { searched: [] };
+    const home = path.resolve(env.workingDir, env.home + file.slice(1));
+    return { found: env.readFile(home) !== undefined ? home : undefined, searched: [home] };
+  }
+  const target = file;
   const candidates: string[] = [];
   if (path.isAbsolute(target)) {
     candidates.push(target);
@@ -224,6 +230,8 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     }
     // stdlib.tf's /require passes its words on to /load with single blanks.
     if (kind === "require") file = file.trim().split(/[ \t\r\f\v]+/).join(" ");
+    const user = /^~([^/]+)/.exec(file);
+    if (user) return fail("user-home", `~${user[1]} is the home directory of user ${user[1]}, which tf looks up in the system's password file`);
     const { found, searched } = resolve(file);
     if (!found) return fail("not-found", "file not found", searched);
     resolved.push({ from, line, raw, file: path.resolve(found) });

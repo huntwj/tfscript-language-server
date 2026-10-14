@@ -44,6 +44,8 @@ export type StructureKind =
    * at the start of one), which leaves its block unfinished.
    */
   | "keyword"
+  /** A statement in a condition list that isn't a command: tf sends it to the world (list() in expand.c). */
+  | "condition-text"
   /** A top-level /if or /while still open where its (joined) line ends. */
   | "continuation"
   /** A `%{...}`, `%-`, `${...}` or `$(...)` tf can't read (`varsub()`, `macsub()`, `cmdsub()`). */
@@ -506,6 +508,31 @@ class Parser {
     return [...at].sort((a, b) => a - b).map((p) => this.separatorBefore(p));
   }
 
+  /**
+   * A statement in a condition list that isn't a command (`/if x == 1%; /then`): tf sends it to
+   * the world when the condition is tested, and warns "statement starting with 'x' in /IF condition
+   * sends text to server" (list() in expand.c). Compiling carries on. No fix: what was meant may
+   * be an expression, but the text may not be one.
+   */
+  private conditionText(start: number): void {
+    const keyword = this.block === "while" ? "while" : this.block === "elseif" ? "elseif" : "if";
+    const then = keyword === "while" ? "do" : "then";
+    let end = start + 1;
+    while (end < this.s.length && !isTfSpace(this.s[end]) && !this.isStatEnd(end) && !this.isCmdsubEnd(end)) end += 1;
+    this.issues.push({
+      kind: "condition-text",
+      start,
+      end,
+      message: `This text in the /${keyword}'s condition list isn't a command, so tf sends it to the world: write the condition in parentheses, as in /${keyword} (x == 1).`,
+      label: "sent to the world",
+      explanation:
+        `After ${code(`/${keyword}`)}, commands up to ${code(`/${then}`)} are its condition, and the result of the last ` +
+        `one decides it. A statement that doesn't start with ${code("/")} isn't a command: it is text, and tf sends text ` +
+        `to the world each time the condition is tested. To test an expression, put it in parentheses, ` +
+        `${code(`/${keyword} (x == 1) ...`)}, or test it with ${code("/test")}: ${code(`/${keyword} /test x == 1%; /${then} ...`)}`,
+    });
+  }
+
   /** The last /if a /let or /set value swallowed before `at` that hasn't been given a stray yet. */
   private swallowedIfBefore(at: number): Swallowed | undefined {
     for (let k = this.swallowed.length - 1; k >= 0; k -= 1) {
@@ -543,7 +570,11 @@ class Parser {
         ...this.openNote(),
         ...(fixer !== mid ? [{ start: fixer.start, end: fixer.end, message: `/${fixer.word} is text too` }] : []),
       ],
-      fix: { title: `Put %; before ${list}`, edits: this.separateSwallowed(swallowed) },
+      // Not for text in a condition list (`/while i < 2 /do ...`): with the %; it compiles, and the
+      // text is sent to the world each time round (condition-list-text's warning; probe c1 c02).
+      ...(!mid.command && (fixer.word === "then" || fixer.word === "do")
+        ? {}
+        : { fix: { title: `Put %; before ${list}`, edits: this.separateSwallowed(swallowed) } }),
     };
   }
 
@@ -701,6 +732,8 @@ class Parser {
           this.emptyAfter = { label: `${keyword} (...)`, warns: true };
           continue;
         }
+        // An empty statement is empty-statement's (a blank line is sent either way).
+        if (this.i < this.s.length && !this.isStatEnd(this.i) && !this.isCmdsubEnd(this.i)) this.conditionText(stmtStart);
         this.statement(subs);
         this.unit(stmtStart, commandWord(this.s, stmtStart));
       } else {

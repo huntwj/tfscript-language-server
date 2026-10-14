@@ -1,6 +1,7 @@
 import { missingContinuation } from "./missingContinuation";
 import { notSubstitutedHere } from "./notSubstitutedHere";
 import { keywordMidStatement } from "./keywordMidStatement";
+import { conditionListText } from "./conditionListText";
 import { substitutionInExpression } from "./substitutionInExpression";
 import { indentedLineAfterCommand } from "./indentedLineAfterCommand";
 import { backslashNotLast } from "./backslashNotLast";
@@ -27,6 +28,7 @@ export const RULES: Rule[] = [
   substitutionSyntax,
   invalidMacroName,
   blockStructure,
+  conditionListText,
   expressionSyntax,
   emptyStatement,
   nestingTooDeep,

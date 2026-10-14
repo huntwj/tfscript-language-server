@@ -38,4 +38,13 @@ describe("keyword-mid-statement", () => {
   it("reads /@set and /@let as /set and /let", () => {
     expect(first("/def a = /@set z=1 /@if (1) /echo x%; /@endif")?.message).toBe("This /@if is part of the /set value, not a command: put %; before it.");
   });
+
+  it("offers no %; for text in a condition list, which would then be sent to the world", () => {
+    // tf, with the %;: "statement starting with 'i' in /WHILE condition", and the text is sent.
+    const d = first("/def a = /set i=0%; /while i < 2 /do /test i:=i+1%; /done");
+    expect(d?.message).toBe("/do here is not a keyword: it is part of the text before it, so the /while never reaches its /do.");
+    expect(d?.fix).toBeUndefined();
+    // A command's expression keeps its fix: /if /test 1%; /then is what was meant.
+    expect(first("/def a = /if /test 1 /then /echo x%; /endif")?.fix?.title).toBe("Put %; before /then");
+  });
 });

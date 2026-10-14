@@ -143,8 +143,15 @@ const FULL = 3;
 
 class Stop extends Error {}
 
-/** How deep blocks and substitutions may nest before the check gives up (see Parser.deeper). */
-const MAX_DEPTH = 200;
+/** The check, not tf, stops: nesting past MAX_DEPTH (see Parser.deeper). */
+class TooDeep extends Stop {}
+
+/**
+ * How deep blocks and substitutions may nest before the check gives up (see Parser.deeper).
+ * Measured: the parser's own recursion overflows Node's default stack at about 1250 levels of
+ * `$(...)` (the deepest-recursing construct), so this keeps a wide margin.
+ */
+const MAX_DEPTH = 500;
 
 interface MidKeyword {
   start: number;
@@ -227,7 +234,7 @@ class Parser {
       else this.list(KEYWORD);
     } catch (e) {
       if (!(e instanceof Stop)) throw e;
-      this.stopped = true;
+      if (!(e instanceof TooDeep)) this.stopped = true;
     }
   }
 
@@ -376,11 +383,15 @@ class Parser {
   /**
    * `fn()` one level deeper. Blocks, `$(...)`, `$[...]` and substitution defaults nest by recursion,
    * so a pathological nesting (thousands of `/if`s) would overflow the stack; past MAX_DEPTH the
-   * check stops there, and says so.
+   * check stops there, and says so. It doesn't count as tf stopping (`stopped`): tf runs the text,
+   * so the statements read so far are kept.
    */
   private deeper<T>(fn: () => T): T {
     if (this.depth >= MAX_DEPTH) {
-      this.fail("too-deep", this.i, this.i + 1, {
+      this.issues.push({
+        kind: "too-deep",
+        start: this.i,
+        end: this.i + 1,
         message: `This command nests more than ${MAX_DEPTH} levels deep, so the rest of it isn't checked.`,
         label: `${MAX_DEPTH} levels deep`,
         explanation:
@@ -388,6 +399,7 @@ class Parser {
           `${code("%{...}")} defaults) nested this deep are past what this check follows. That says nothing about ` +
           "tf: the rest of the command may well be fine, it just isn't checked.",
       });
+      throw new TooDeep();
     }
     this.depth += 1;
     try {

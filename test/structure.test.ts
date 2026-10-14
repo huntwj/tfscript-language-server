@@ -236,6 +236,14 @@ describe("deep nesting", () => {
       expect(checkStructure(body, "body").map((i) => i.kind)).toEqual(["too-deep"]);
     }
     expect(() => checkStructure(`${"/if (1) ".repeat(n)}/echo x${"%; /endif".repeat(n)}`, "top")).not.toThrow();
-    expect(checkStructure(`${"/if (1) ".repeat(150)}/echo x${"%; /endif".repeat(150)}`, "body")).toEqual([]);
+    expect(checkStructure(`${"/if (1) ".repeat(400)}/echo x${"%; /endif".repeat(400)}`, "body")).toEqual([]);
+  });
+
+  // The check stopping isn't tf stopping: tf runs the text, so the statements already read stand.
+  it("keeps the statements read before it gives up, and follows 250 levels in full", () => {
+    const deep = (n: number) => `/echo ${"$[".repeat(n)}1${"]".repeat(n)}`;
+    const texts = (text: string) => parseStatements(text, "body").map((st) => text.slice(st.start, st.end));
+    expect(texts(`/load a.tf%; ${deep(5000)}`)).toEqual(["/load a.tf"]);
+    expect(texts(`${deep(250)}%; /load a.tf`)).toEqual([deep(250), "/load a.tf"]);
   });
 });

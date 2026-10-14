@@ -56,7 +56,7 @@ function check(text: string): LineMatch[] {
         line: idx,
         startChar: 0,
         endChar: i,
-        message: `Line ${lastCmdLine} has no \\ at the end, so this indented line starts a new command.`,
+        message: `Line ${lastCmdLine} has no \\ at the end, so this indented line starts a new command: end line ${lastCmdLine} with \\ to continue it, or remove the indentation.`,
         label: "starts a new command",
         explanation:
           `tf joins a line onto the one before it only when that one ends in ${code("\\")}. This line is indented ` +

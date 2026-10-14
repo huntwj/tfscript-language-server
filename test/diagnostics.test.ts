@@ -212,7 +212,7 @@ describe("messages", () => {
     ["let-swallows-endif", "/set v=1 /if (1) /echo%; /endif\n", "This /if is part of the /set value, not a command: put it on a line of its own."],
     ["dollar-bracket-in-if", "/def a = /if ($[1]) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: drop the $[ and ]."],
     ["dollar-bracket-in-if", "/def a = /if ($[1] + 1) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: write (...) instead."],
-    ["indented-line-after-command", "/echo a\n  /echo b\n", "Line 1 has no \\ at the end, so this indented line starts a new command."],
+    ["indented-line-after-command", "/echo a\n  /echo b\n", "Line 1 has no \\ at the end, so this indented line starts a new command: end line 1 with \\ to continue it, or remove the indentation."],
     ["trailing-space-after-backslash", "/echo a \\ \n", "This \\ doesn't continue the line, because whitespace follows it: remove the whitespace."],
     [
       "trailing-space-after-backslash",

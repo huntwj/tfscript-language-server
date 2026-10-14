@@ -289,6 +289,7 @@ export class WorkspaceIndex {
       uri: uriOf(file),
       files: onPath ? loaded.filter((f) => !isLibrary(f.path)).map((f) => ({ uri: uriOf(f.path), text: f.text })) : [],
       macros,
+      libraryFiles: loaded.filter((f) => isLibrary(f.path)).map((f) => ({ uri: uriOf(f.path), text: f.text })),
       help: lib ? this.help(lib) : undefined,
     };
   }

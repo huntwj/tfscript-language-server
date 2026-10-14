@@ -5,9 +5,16 @@ import { getExpressionHover } from "./expressionHover";
 import { isCommentLine, splitRawLines } from "./logicalEntries";
 import { getDocumentSymbols, type Position, type Range, type TfSymbol } from "./symbols";
 import type { HelpEntry } from "./workspace/tfHelp";
+import {
+  prepareVariableRename,
+  variableDefinition,
+  variableReferences,
+  variableRenameEdits,
+} from "./variableNavigation";
 
 /**
  * Single-file navigation: hover, go-to-definition and find-references for macro names.
+ * Variables are handled first, by variableNavigation.ts; everything below is about macros.
  *
  * A name is used in three ways, all looked up case-insensitively — tf hashes macro names with
  * lcase() and compares them with cstrcmp() (tinyfugue/src/macro.c's macro_table, search.c's
@@ -114,6 +121,8 @@ export interface NavContext {
   uri: string;
   files: ContextFile[];
   macros: ExternalMacro[];
+  /** The tf library files on the load path, for where a library variable is set. */
+  libraryFiles?: ContextFile[];
   /** The installed tf-help, keyed by topic (`/let`), when a tf library is configured. */
   help?: ReadonlyMap<string, HelpEntry>;
 }
@@ -281,6 +290,8 @@ export function getHover(text: string, pos: Position, ctx?: NavContext): TfHover
  * loaded, so go-to-definition still finds `/alias` before its `/require alias.tf` is added.
  */
 export function getDefinition(text: string, pos: Position, ctx?: NavContext): Location[] {
+  const variable = variableDefinition(text, pos, ctx);
+  if (variable) return variable;
   const symbols = getDocumentSymbols(text);
   const target = targetAt(text, pos, symbols);
   if (!target || target.usage?.kind === "builtin-call") return [];
@@ -294,6 +305,8 @@ export function getDefinition(text: string, pos: Position, ctx?: NavContext): Lo
  * its load path, plus the `/def` names if asked.
  */
 export function getReferences(text: string, pos: Position, includeDeclaration: boolean, ctx?: NavContext): Location[] {
+  const variable = variableReferences(text, pos, includeDeclaration, ctx);
+  if (variable) return sortLocations(variable);
   const symbols = getDocumentSymbols(text);
   const target = targetAt(text, pos, symbols);
   if (!target || target.usage?.kind === "builtin-call") return [];
@@ -308,7 +321,10 @@ export function getReferences(text: string, pos: Position, includeDeclaration: b
         .filter((d) => d.loaded)
         .map((d) => ({ uri: d.uri, range: d.symbol.selectionRange }))
     : [];
-  const all = [...decls, ...uses(ctx?.uri ?? "", text), ...(ctx?.files ?? []).flatMap((f) => uses(f.uri, f.text))];
+  return sortLocations([...decls, ...uses(ctx?.uri ?? "", text), ...(ctx?.files ?? []).flatMap((f) => uses(f.uri, f.text))]);
+}
+
+function sortLocations(all: Location[]): Location[] {
   return all.sort(
     (a, b) =>
       a.uri.localeCompare(b.uri) || a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character,
@@ -326,7 +342,7 @@ type RenameTarget = { ok: true; target: Target; defs: Def[]; symbols: TfSymbol[]
 function renameTarget(text: string, pos: Position, ctx: NavContext | undefined): RenameTarget {
   const symbols = getDocumentSymbols(text);
   const target = targetAt(text, pos, symbols);
-  if (!target) return { ok: false, reason: "Put the cursor on a macro name to rename it." };
+  if (!target) return { ok: false, reason: "Put the cursor on a macro or variable name to rename it." };
   if (target.usage?.kind === "builtin-call") {
     return { ok: false, reason: `/@${target.name} always calls the built-in, which can't be renamed.` };
   }
@@ -352,6 +368,8 @@ const IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** The range of the name under the cursor, if it can be renamed; otherwise why not. */
 export function prepareRename(text: string, pos: Position, ctx?: NavContext): { range: Range; placeholder: string } | { error: string } {
+  const variable = prepareVariableRename(text, pos, ctx);
+  if (variable) return variable;
   const r = renameTarget(text, pos, ctx);
   return r.ok ? { range: r.target.range, placeholder: r.target.name } : { error: r.reason };
 }
@@ -366,6 +384,8 @@ export function prepareRename(text: string, pos: Position, ctx?: NavContext): { 
  * `;;;` doc lines included.
  */
 export function getRenameEdits(text: string, pos: Position, newName: string, ctx?: NavContext): TextEditAt[] | { error: string } {
+  const variable = variableRenameEdits(text, pos, newName, ctx);
+  if (variable) return variable;
   const r = renameTarget(text, pos, ctx);
   if (!r.ok) return { error: r.reason };
   if (!NEW_NAME_RE.test(newName)) {

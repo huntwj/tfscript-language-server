@@ -152,7 +152,12 @@ not taken from the manual:
   true for an unset variable, but only `=~ ""` exact for a set one (`==` and `!` compare numbers,
   so they are true for `0` and `abc` too). A variable counts as unset when nothing on the path set
   it, it isn't one of tf's special variables (which have defaults), and its name has a lower-case
-  letter: tf makes every environment variable a global, and those are upper case by convention;
+  letter: tf makes every environment variable a global, and those are upper case by convention.
+  The guard stops being trusted once anything earlier on the path may have set variables
+  unseen, each proven to in real tf: a call to a macro (`/setup`), a `/test` or an assignment in
+  an expression, a `/set` with a computed name, `/for`, `/toggle`, `/repeat`, `/quote` or
+  `/trigger`, or a load the path can't follow (including one tf won't find here because only
+  tf's machine has the path);
 - when tf runs somewhere else (a container, WSL, another host), `pathMappings` says where its
   absolute paths are here: `[{ "tf": "/wotmud", "local": "C:/Users/me/wotmud" }]`. An absolute
   `/load` path, a `TFPATH` or `HOME` a script sets, and the path settings when written as tf's
@@ -234,6 +239,11 @@ Two diagnostics need the workspace:
   file loaded some other way) aren't seen; list them in `diagnostics.ignoreMacros`. Over the
   WoTMUD scripts it reports nothing; over some 480 test scripts written to break tf, only the
   calls they make to undefined names on purpose.
+
+  It reads the workspace folder once (up to 5000 files) and each file's macros and loads once,
+  keeping them until a watched file changes, so a keystroke only re-reads the file being edited.
+  A file in no workspace folder (`~/.tfrc` with nothing open) is checked against its load path
+  and tf's library only; no folder is walked for it.
 
 tf's library files are read from your installation at runtime, never copied into this
 package, so their `;;;` doc comments show up in hover without any licensing question. The same

@@ -15,8 +15,10 @@
   path tf won't find that no mapping covers gets a hint to add one.
 - The load path evaluates the default-value idiom `/if (x =~ "") /set x=VALUE%; /endif` (and the
   `{x}`, `== ""` and `!x` forms) when it can tell: with the variable known, or unset because
-  nothing on the path set it, it isn't a special variable and its name isn't all upper case. So
-  `/eval /load %{x}/a.tf` after it is followed and linked, where it used to be "can't follow".
+  nothing on the path set it, it isn't a special variable and its name isn't all upper case, and
+  nothing earlier on the path may have set variables unseen (a macro call, a `/test`, a computed
+  `/set` name, `/for`, `/toggle`, a load it can't follow). So `/eval /load %{x}/a.tf` after it
+  is followed and linked, where it used to be "can't follow".
 - An `/eval` load whose path is built from variables gets a link when the load path resolved it.
 - Variables: go-to-definition, find-references and rename for `/set`, `/setenv` and `/let`
   variables and `getopts()`' `opt_` variables, read as `%name`, `%{name}`, `{name}` or a bare name

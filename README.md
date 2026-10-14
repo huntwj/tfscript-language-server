@@ -238,10 +238,13 @@ Two diagnostics need the workspace:
 
   It reads the workspace folder once and each file's macros and loads once, so a keystroke only
   re-reads the file being edited. The server registers file watchers (when the client allows it)
-  for tf files and for folders created or deleted in the workspace, and, where the client takes
-  patterns relative to a folder of its own, for tf's library, mapped folders and `HOME`; what was
-  read under those is kept until a change is reported. Anything else (a client without watchers,
-  a file outside them) is checked against its modification time first, and a folder listing
+  for tf files and for anything created or deleted in the workspace (so a folder renamed or
+  deleted is seen), ignoring `.jj`, `.git` and `node_modules`. Where the client takes patterns
+  relative to a folder of its own, it watches tf's library and mapped folders the same way,
+  unless one is a drive root or holds the home directory, and only `HOME`'s own `tfrc` and
+  `.tfrc`, not everything under it. What was read under those is kept until a change is reported.
+  Anything else (a client without watchers, or one that refuses them, a file outside them) is
+  checked against its modification time, at most once a second, and a folder or library listing
   nothing watches is kept for ten seconds. The walk stops at 5000 files; past that, a name it
   didn't find is only noted, naming the limit. A file in no workspace folder (`~/.tfrc` with
   nothing open) is checked against its load path and tf's library only; no folder is walked.

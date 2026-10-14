@@ -527,6 +527,30 @@ describe("undefined macros, when files change", () => {
     }
   });
 
+  it("asks once for a check when the second is up, when it skipped one with unwatched files cached", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const live = liveFs({ [p("lib", "stdlib.tf")]: "", [p("lib", "textutil.tf")]: "/def -i helper = /echo\n", [p("ws", "tfrc")]: tfrc });
+      const index = indexOf(live);
+      index.setWatchedRoots([p("ws")]);
+      const asked: number[] = [];
+      index.setRecheck((delay) => asked.push(delay));
+      expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["information"]);
+      vi.setSystemTime(50);
+      live.write(p("lib", "textutil.tf"), "");
+      vi.setSystemTime(150);
+      severities(index, p("ws", "tfrc"), tfrc);
+      vi.setSystemTime(300); // the debounced revalidation, still inside the second
+      severities(index, p("ws", "tfrc"), tfrc);
+      expect(asked).toEqual([850]);
+      vi.setSystemTime(1000); // the check it asked for
+      expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["warning"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lists a library no watcher covers again after a few seconds", () => {
     vi.useFakeTimers();
     try {

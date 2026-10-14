@@ -147,8 +147,19 @@ export class WorkspaceIndex {
    * (or that appeared or went away), and the graphs built from it. Run before a graph is used.
    */
   private refreshUnwatched(): void {
-    if (!this.fs.mtime || Date.now() - this.lastRefresh < UNWATCHED_CHECK_MS) return;
+    if (!this.fs.mtime) return;
+    const since = Date.now() - this.lastRefresh;
+    if (since < UNWATCHED_CHECK_MS) {
+      // Skipped: a file written just now would stay stale until something asks again, so ask for
+      // one check once the second is up (once, however many requests are skipped meanwhile).
+      if (!this.recheckPending && [...this.disk.values()].some((e) => !this.isWatched(e.file))) {
+        this.recheckPending = true;
+        this.recheck?.(UNWATCHED_CHECK_MS - since);
+      }
+      return;
+    }
     this.lastRefresh = Date.now();
+    this.recheckPending = false;
     let changed = false;
     for (const [key, entry] of this.disk) {
       if (this.isWatched(entry.file) || this.fs.mtime(entry.file) === entry.mtime) continue;
@@ -161,7 +172,17 @@ export class WorkspaceIndex {
     }
   }
 
-  /** The workspace folder holding `file` (the innermost one), or the file's own directory. */
+  private recheckPending = false;
+  private recheck: ((delayMs: number) => void) | undefined;
+
+  /**
+   * How to ask for the open documents to be checked again in `delayMs`: called when a check of
+   * unwatched files' modification times was skipped for being too soon after the last.
+   */
+  setRecheck(recheck: (delayMs: number) => void): void {
+    this.recheck = recheck;
+  }
+
   /**
    * Every macro-defining entry (`/def`, `/alias`, `/bind`, `/hook`, `/trig*`) in every tf
    * script under the workspace folders — reached by a load path or not — whose name contains

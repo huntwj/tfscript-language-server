@@ -1160,7 +1160,10 @@ class Parser {
           related: [{ start: percent, end: openerEnd, message: `this ${opener}` }],
         });
       }
-      const close: IssueFix = { title: "Close it with }", edits: [this.insertAtEnd(this.i, "}")] };
+      // Cut short by a separator with the } it was written with after it (`%{y-%;}`): a } before the
+      // separator would leave that one to be sent to the world (review rev-s2c q8m), so no fix.
+      const cutShort = this.isStatEnd(this.i) && s.indexOf("}", this.i) >= 0;
+      const close: IssueFix | undefined = cutShort ? undefined : { title: "Close it with }", edits: [this.insertAtEnd(this.i, "}")] };
       this.fail(
         "substitution",
         percent,
@@ -1175,7 +1178,16 @@ class Parser {
               related: [{ start: this.i, end: this.i + 1, message: `the name stops at this ${charName(ch)}` }],
               fix: { title: `Close it with } before the ${charName(ch)}`, edits: [{ start: this.i, end: this.i, newText: "}" }] },
             }
-          : { message: `This ${opener} is never closed: add }.`, label: "never closed", fix: close },
+          : cutShort
+            ? {
+                message: `This ${opener} is cut short by the ${s.slice(this.i, this.i + 2)} before its }: a separator ends the statement, even inside a substitution.`,
+                label: "cut short",
+                explanation:
+                  `${code(s.slice(this.i, this.i + 2))} ends the statement, even inside a ${code(`${opener}...}`)}, so tf ` +
+                  `never reaches the ${code("}")} after it, and rejects the ${code(opener)}. Closing it before the separator ` +
+                  `would leave that ${code("}")} to be sent to the world.`,
+              }
+            : { message: `This ${opener} is never closed: add }.`, label: "never closed", fix: close },
       );
     }
   }

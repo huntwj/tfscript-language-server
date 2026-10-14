@@ -39,6 +39,14 @@ describe("substitution-syntax: a selector with another substitution glued on", (
   it("calls a %{ cut off by a %; never closed", () => {
     expect(syntax("/def foo = /echo %{foo%; /echo x\n").map((d) => d.message)).toEqual(["This %{ is never closed: add }."]);
   });
+
+  // Proven live (s2/r/cs.tf): %{y-%;} is "unmatched { or illegal character '%'", and closing it
+  // before the %; (%{y-}%;}) sends the } to the world.
+  it("offers no fix for a %{ cut short by a separator before its own }", () => {
+    const [d] = syntax("/def c1 = /echo C1:%{y-%;}\n");
+    expect(d?.message).toBe("This %{ is cut short by the %; before its }: a separator ends the statement, even inside a substitution.");
+    expect(d?.fix).toBeUndefined();
+  });
 });
 
 describe("substitution-syntax only where tf substitutes", () => {

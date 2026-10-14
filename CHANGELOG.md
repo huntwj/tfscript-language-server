@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `undefined-macro` is on by default and a warning: a `/name` command calling a macro no file on
+  the load path, in the workspace or in tf's library defines, with a "did you mean" fix when one
+  visible name is a clear typo of it. A macro defined in a file the load path doesn't reach is a
+  note with a fix that adds the `/require`; when a load that might define it can't be followed,
+  the warning becomes a note naming that load. Only commands tf runs count (not `/echo try
+  /foo`), files off every load path are checked too, tf's own library isn't, and
+  `tfscript.diagnostics.ignoreMacros` lists names to leave alone.
+- Quick fixes now include the load-path diagnostics' (the server passes what it published).
 - Variables: go-to-definition, find-references and rename for `/set`, `/setenv` and `/let`
   variables and `getopts()`' `opt_` variables, read as `%name`, `%{name}`, `{name}` or a bare name
   in an expression, only where tf substitutes them (not in top-level commands, trigger patterns

@@ -182,7 +182,8 @@ under `tfscript`):
 | `workingDirectory` | tf's current directory | the workspace folder |
 | `homeDirectory` | what `~` means (tf's `HOME`) | your home directory |
 | `diagnostics.unresolvedLoads` | warn on a `/load`/`/require` tf wouldn't find (`unresolved-load`) | on |
-| `diagnostics.undefinedMacros` | note `/name` calls defined nowhere on the path (`undefined-macro`) | off |
+| `diagnostics.undefinedMacros` | warn on `/name` calls to macros defined nowhere (`undefined-macro`) | on |
+| `diagnostics.ignoreMacros` | macro names `undefined-macro` leaves alone, ignoring case; `*` is a wildcard | none |
 | `format.splitStatements` | when formatting, put each `%;` statement of a macro body on its own line | on |
 
 tf may be started more than one way — a tfrc per MUD or per character — and the same file can be
@@ -194,19 +195,33 @@ Load Context**) lists every context, whether and how each loads the file, and se
 `activeContext` for the folder. Other clients can ask the server the same with the
 `tfscript/contextInfo` request (`{ uri }`).
 
-Two diagnostics need the whole load path, so they only appear in files a load path reaches:
+Two diagnostics need the workspace:
 
-- `unresolved-load` (warning): a `/load` or `/require` whose file tf wouldn't find, with every
-  place tf would try, in order. An `/eval` path built from a variable that isn't set to literal
-  text on the path is only noted (information), since tf may well work it out at runtime.
-- `undefined-macro` (information, off by default): a `/name` call to something that is neither
-  a tf command nor defined anywhere on the path — at top level or inside a macro body, in any
-  order. It skips what only looks like a call (paths, globs and regexes, text in double
-  quotes, names built at runtime like `/run_%1`) and optional calls guarded by `ismacro`, and
-  counts a `/def ~body_%1` as defining every name starting `~body_`. What it can't see are
-  macros created by `/eval /def` with a computed name or loaded some other way, which is why
-  it's off by default. On tf's own library, with every file loaded, it flags only kbbind.tf's
-  `key_*` hooks that are left for you to define.
+- `unresolved-load` (warning), only in files a load path reaches: a `/load` or `/require` whose
+  file tf wouldn't find, with every place tf would try, in order. An `/eval` path built from a
+  variable that isn't set to literal text on the path is only noted (information), since tf may
+  well work it out at runtime.
+- `undefined-macro`: a `/name` command calling a macro that is neither a tf command nor defined
+  anywhere this can see. Real tf prints `NAME: no such command or macro`, sets `%?` to 1 and goes
+  on with the next command. Only a command tf runs counts: one at the start of a statement, in
+  a macro body, `/eval`, `/for` or `/repeat` text, a `$(...)` or a top-level line (not
+  `/echo try /foo`); `/@name` calls the builtin and `/!name` counts as a call. Names built at
+  runtime (`/run_%1`) and calls guarded by `ismacro` are skipped, a `/def ~body_%1` defines
+  every name starting `~body_`, and any `/def` counts, even one inside a body.
+  - A warning when no file on the load path, in the workspace or in tf's library defines it,
+    with a fix to the one visible name it's a clear typo of ("did you mean /wot_mount_setMount?").
+  - Information when a workspace or library file the load path doesn't reach defines it, with a
+    fix that adds `/require <path>` (a path tf resolves from its working directory or `TFPATH`).
+  - Information instead of a warning when a load that might define it can't be followed: one on
+    the load path built from a variable this can't see, or, for a file no load path reaches, a
+    load that doesn't resolve in it or in a file that loads it (by name: `/require
+    tf-wotmud/score.tf` loads `.../tf-wotmud/score.tf`).
+
+  tf's own library isn't checked: it calls hook points left for you to define (kbbind.tf's
+  `key_meta_f1 = /key_esc_f1`). Macros made while tf runs (`/eval /def` with a computed name, a
+  file loaded some other way) aren't seen; list them in `diagnostics.ignoreMacros`. Over the
+  WoTMUD scripts it reports nothing; over some 480 test scripts written to break tf, only the
+  calls they make to undefined names on purpose.
 
 tf's library files are read from your installation at runtime, never copied into this
 package, so their `;;;` doc comments show up in hover without any licensing question. The same

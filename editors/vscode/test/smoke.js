@@ -84,6 +84,17 @@ const timeout = setTimeout(() => {
   // The status bar's context picker relies on this non-LSP request.
   const contexts = await request("tfscript/contextInfo", { uri });
 
+  // "N references" lenses, resolved lazily into the extension's own tfscript.showReferences
+  // command, whose arguments are plain JSON the extension converts; and call hierarchy.
+  const defsUri = require("node:url").pathToFileURL(path.join(__dirname, "smoke-defs.tf")).href;
+  send("textDocument/didOpen", {
+    textDocument: { uri: defsUri, languageId: "tf", version: 1, text: "/def -i greet = /echo hi\n/def -i main = /greet\n" },
+  });
+  const lenses = await request("textDocument/codeLens", { textDocument: { uri: defsUri } });
+  const lens = lenses && (await request("codeLens/resolve", lenses[0]));
+  const items = await request("textDocument/prepareCallHierarchy", { textDocument: { uri: defsUri }, position: { line: 0, character: 9 } });
+  const incoming = items && (await request("callHierarchy/incomingCalls", { item: items[0] }));
+
   await request("shutdown", null);
   send("exit", null);
   proc.kill();
@@ -93,11 +104,20 @@ const timeout = setTimeout(() => {
     diag.diagnostics.some((d) => d.code === "if-multiline-top-level") &&
     labels.includes("echo") &&
     Array.isArray(contexts?.contexts) &&
-    contexts.contexts.length >= 1;
+    contexts.contexts.length >= 1 &&
+    lenses?.length === 2 &&
+    lens?.command?.title === "1 reference" &&
+    lens.command.command === "tfscript.showReferences" &&
+    lens.command.arguments?.[0] === defsUri &&
+    lens.command.arguments?.[2]?.[0]?.range?.start?.line === 1 &&
+    items?.[0]?.name === "greet" &&
+    incoming?.[0]?.from?.name === "main";
   if (!ok) {
     console.error("Unexpected server behaviour. diagnostics:", JSON.stringify(diag.diagnostics));
     console.error("completion labels:", labels.length, "includes echo:", labels.includes("echo"));
     console.error("contextInfo:", JSON.stringify(contexts));
+    console.error("lenses:", JSON.stringify(lenses), "resolved:", JSON.stringify(lens));
+    console.error("call hierarchy:", JSON.stringify(items), JSON.stringify(incoming));
   }
   console.log(ok ? "smoke test passed" : "smoke test FAILED");
   process.exit(ok ? 0 : 1);

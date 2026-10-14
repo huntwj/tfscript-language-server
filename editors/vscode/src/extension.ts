@@ -8,6 +8,11 @@ import {
   TransportKind,
 } from "vscode-languageclient/node";
 
+interface LspRange {
+  start: { line: number; character: number };
+  end: { line: number; character: number };
+}
+
 let client: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -57,6 +62,21 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     status,
     vscode.commands.registerCommand("tfscript.chooseContext", () => chooseContext()),
+    // The server's "N references" lenses: VS Code's own references peek needs a Uri, a Position
+    // and Locations, which the lens's JSON arguments can't carry, so they are converted here.
+    vscode.commands.registerCommand(
+      "tfscript.showReferences",
+      (uri: string, position: { line: number; character: number }, locations: { uri: string; range: LspRange }[]) => {
+        const convert = client?.protocol2CodeConverter;
+        if (!convert) return;
+        return vscode.commands.executeCommand(
+          "editor.action.showReferences",
+          vscode.Uri.parse(uri),
+          convert.asPosition(position),
+          locations.map((l) => convert.asLocation(l)),
+        );
+      },
+    ),
     vscode.window.onDidChangeActiveTextEditor(() => void refreshStatus(status)),
     vscode.workspace.onDidSaveTextDocument(() => void refreshStatus(status)),
     vscode.workspace.onDidChangeConfiguration((e) => {

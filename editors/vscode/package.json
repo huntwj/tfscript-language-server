@@ -101,6 +101,12 @@
           "scope": "resource",
           "markdownDescription": "Warn about a `/name` command that calls a macro defined nowhere: not a tf command, and not defined in any file on the load path, in the workspace or in tf's library. A macro defined in a workspace or library file the load path doesn't reach is a note, with a fix that adds the `/require`. When a load that might define it can't be followed (its path is built from a variable this can't see), the warning becomes a note naming that load. Macros made while tf runs (`/eval /def`, a file loaded some other way) aren't seen: list them in `#tfscript.diagnostics.ignoreMacros#`."
         },
+        "tfscript.codeLens.references": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "Show how many references each `/def` has above it (calls and `${name}` substitutions in the files on its load path), opening them in the references peek when clicked."
+        },
         "tfscript.diagnostics.ignoreMacros": {
           "type": "array",
           "items": { "type": "string" },

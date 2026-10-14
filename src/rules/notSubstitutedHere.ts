@@ -148,11 +148,28 @@ function plainSubstitutions(s: string): boolean {
   return true;
 }
 
-/** The innermost statement holding `offset`. */
-function statementAt(statements: ContextStatement[], offset: number): ContextStatement | undefined {
-  let found: ContextStatement | undefined;
-  for (const st of statements) if (st.start <= offset && offset < st.end) found = st;
-  return found;
+/**
+ * The statements of an entry, looked up by position: the innermost holding an offset, and whether
+ * a statement is inside a top-level /if or /while line. Built once (statements come outermost
+ * first, so an inner one overwrites the one around it), as a line can hold thousands of them.
+ */
+function statementIndex(statements: ContextStatement[], length: number) {
+  const owner = new Int32Array(length).fill(-1);
+  const inIfLine = new Array<boolean>(statements.length).fill(false);
+  statements.forEach((st, k) => {
+    const around = st.start < length ? (owner[st.start] as number) : -1;
+    const outer = around >= 0 ? (statements[around] as ContextStatement) : undefined;
+    inIfLine[k] = st.level === "newline" || (outer !== undefined && st.end <= outer.end && (inIfLine[around] as boolean));
+    owner.fill(k, Math.max(0, st.start), Math.min(length, st.end));
+  });
+  const position = new Map(statements.map((st, k) => [st, k]));
+  return {
+    at: (offset: number): ContextStatement | undefined => {
+      const k = offset >= 0 && offset < length ? (owner[offset] as number) : -1;
+      return k >= 0 ? statements[k] : undefined;
+    },
+    inIfLine: (st: ContextStatement): boolean => inIfLine[position.get(st) ?? -1] ?? false,
+  };
 }
 
 /** `/eval -soff`'s or `/quote -son`'s name, as written in the advice. */
@@ -172,11 +189,12 @@ export const notSubstitutedHere: EntryRule = {
   check(entry): EntryMatch[] {
     const text = entry.text;
     const { contexts, inExpression, statements } = entrySubstitution(entry);
+    const index = statementIndex(statements, text.length);
     const unsubstituted = (at: number): boolean => {
       const c = contexts[at];
       if (c !== "keyword" && c !== "newline") return false;
       // A macro definition's options aren't substituted either, but the body is what matters.
-      const st = statementAt(statements, at);
+      const st = index.at(at);
       return !(st && st.body !== undefined && at < st.body);
     };
     /** Edits that take an `/eval`'s or `/quote`'s `-s` options out, a word with the blanks after it. */
@@ -187,11 +205,6 @@ export const notSubstitutedHere: EntryRule = {
         return { start: o.start, end, newText: "" };
       });
     const out: EntryMatch[] = [];
-    const index = {
-      at: (offset: number): ContextStatement | undefined => statementAt(statements, offset),
-      inIfLine: (st: ContextStatement): boolean =>
-        statements.some((o) => o.level === "newline" && o.start <= st.start && st.end <= o.end),
-    };
 
     /**
      * What `/eval` would make of `st`, as it would get it (inside a top-level /if or /while line,
@@ -297,7 +310,7 @@ export const notSubstitutedHere: EntryRule = {
       });
     };
 
-    for (const m of percentBraces(text, (at) => statementAt(statements, at)?.end ?? text.length)) {
+    for (const m of percentBraces(text, (at) => index.at(at)?.end ?? text.length)) {
       const at = m.index;
       if (unsubstituted(at)) {
         variable(at, m.text);
@@ -326,7 +339,7 @@ export const notSubstitutedHere: EntryRule = {
     for (const m of text.matchAll(SEPARATOR_RE)) {
       const at = m.index as number;
       if (text[at - 1] === "%" || contexts[at] !== "keyword" || inExpression[at]) continue;
-      const st = statementAt(statements, at);
+      const st = index.at(at);
       // A macro definition's options (an -E expression) and body are read later, their own way.
       if (!st || st.body !== undefined) continue;
       let next = at + 2;

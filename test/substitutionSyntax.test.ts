@@ -203,6 +203,14 @@ describe("not-substituted-here and nested or malformed %{", () => {
     expect(Date.now() - start).toBeLessThan(2000);
   });
 
+  // Review rev-s2c: each %{ looked its statement up in a scan of them all.
+  it("stays near-linear on an /if line of thousands of statements", () => {
+    const text = `/if (1) ${"/echo %{x}%; ".repeat(20000)}/endif\n`;
+    const start = Date.now();
+    expect(getDiagnostics(text).filter((d) => d.code === "not-substituted-here")).toHaveLength(20000);
+    expect(Date.now() - start).toBeLessThan(3000);
+  });
+
   // Proven live (review rev-s2c deep.tf): under /eval tf reads a default nested 2000 deep to its
   // own }, then the %{y} after it.
   it("reads on after a %{ nested deeper than the parser follows", () => {

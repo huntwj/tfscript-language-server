@@ -10,6 +10,7 @@ import { blockStructure } from "./blockStructure";
 import { unclosedSubstitution } from "./unclosedSubstitution";
 import { separatorSendsBlankLine } from "./separatorSendsBlankLine";
 import { nestingTooDeep } from "./nestingTooDeep";
+import { incompleteContinuation } from "./incompleteContinuation";
 import type { Rule } from "./types";
 
 // bareLineAfterCommand.ts is deliberately not in this list: it doesn't just report a
@@ -28,6 +29,7 @@ export const RULES: Rule[] = [
   unclosedSubstitution,
   separatorSendsBlankLine,
   nestingTooDeep,
+  incompleteContinuation,
 ];
 
 export type { EntryRule, FileRule, Rule, EntryMatch, LineMatch, LineSpan, Severity } from "./types";

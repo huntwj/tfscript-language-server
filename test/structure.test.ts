@@ -199,6 +199,35 @@ describe("checkStructure in a macro body", () => {
     ]);
     // A rejected /break stops compiling; one that only fails when it runs doesn't.
     expect(issue("/echo $(/break)%; /if (1) /echo x")).toBe("block@/break block@/if");
+    const [noLoop] = checkStructure("/echo [$(/break)]", "body");
+    expect(noLoop?.message).toBe(
+      "This /break would jump out of the $(...) around it, and tf stops the macro with an internal error when it runs: " +
+        "only break out of loops inside the $(...).",
+    );
+    expect(noLoop?.explanation).toContain("To end the macro, put the `/break` outside the `$(...)`");
+    expect(checkStructure("/echo [$(/while (1) /break 2%; /done)]", "body")[0]?.explanation).toContain("no more levels");
+  });
+
+  // tf dev (tf-script-check, 2026-10-14): in an expression, the same error, and then the macro runs
+  // anyway, with the $(...) empty (v= printed each time round, the loop ending on its condition).
+  it("says tf still runs the macro when the $(...) is inside an expression", () => {
+    for (const body of [
+      "/set n=0%; /while (n < 2) /echo v=$[ $(/break) ]%; /set n=$[n+1]%; /done",
+      "/set n=0%; /while (n < 2) /if ($(/break)) /echo yes%; /endif%; /set n=$[n+1]%; /done",
+      "/set n=0%; /while (n < 2) /set n=$[n+1]%; /while ($(/break)) /echo inner%; /done%; /done",
+      "/set n=0%; /while (n < 2) /echo v=$[ $(/echo $(/break)) ]%; /set n=$[n+1]%; /done",
+      "/set n=0%; /while (n < 2) /echo v=$(/echo $[ $(/break) ])%; /set n=$[n+1]%; /done",
+    ]) {
+      const [found] = checkStructure(body, "body");
+      expect(found?.message, body).toBe(
+        "This /break would jump out of the $(...) around it, so tf reports an error and leaves it out: end the loop outside the $(...).",
+      );
+      expect(found?.explanation, body).toContain("still runs the macro");
+    }
+    // tf carries on compiling past it, so a later error is reported too.
+    expect(issue("/while (1) /echo $[ $(/break) ]%; /done%; /if (1) /echo x")).toBe("block@/break block@/if");
+    // In /test text it is a command's text, not an expression operand: the macro doesn't run.
+    expect(checkStructure("/while (1) /test $(/break)%; /done", "body")[0]?.message).toContain("tf rejects the macro");
   });
 });
 

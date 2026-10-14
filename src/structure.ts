@@ -286,8 +286,8 @@ class Parser {
   private i = 0;
   private block: Block = "";
   private cmdsub = 0;
-  /** Where each `$(` the parser is inside starts, outermost first. */
-  private readonly cmdsubStarts: number[] = [];
+  /** Where each `$(` the parser is inside starts, outermost first, and whether it is an expression operand. */
+  private readonly cmdsubStarts: { at: number; inExpression: boolean }[] = [];
   private depth = 0;
   private readonly open: Open[] = [];
   private readonly mids: MidKeyword[] = [];
@@ -845,47 +845,67 @@ class Parser {
    * value stack when it runs. A /break with more levels than there are loops, all of them inside
    * the `$(...)`, still compiles in tf dev, and running it stops the macro with "expression stack
    * underflow or dirty" and "invalid frame". Both proven in tf dev, 2026-10-14.
+   *
+   * Where the rejected /break is in a `$(...)` that is an expression operand (`$[ $(/break) ]`, an
+   * `/if` or `/while` condition), at any depth, tf dev prints the same error but still runs the
+   * macro, with that `$(...)` giving nothing; elsewhere (a command, `/test` text) the macro doesn't
+   * run. Proven in tf dev, 2026-10-14.
    */
   private breakOutOfCmdsub(start: number, end: number, levels: number): void {
     if (this.cmdsub === 0) return;
     const loops = this.open.filter((o) => o.keyword === "while");
     const ended = loops.slice(-levels).reverse();
     const outside = ended.find((o) => o.cmdsub < this.cmdsub);
-    const explanation = (problem: string): string =>
+    const rule =
       `A ${code("/break")} inside ${code("$(...)")} can only end ${code("/while")} loops that are inside the same ` +
-      `${code("$(...)")}: tf can't jump out of a command substitution part way through. ${problem} ` +
-      `Move the ${code("/break")} out of the ${code("$(...)")}, into the loop's own body.`;
+      `${code("$(...)")}: tf can't jump out of a command substitution part way through.`;
     if (outside) {
       // The $( it would jump out of: the outermost one the loop isn't inside.
-      const cmdsubStart = this.cmdsubStarts[outside.cmdsub] as number;
-      this.fail("block", start, end, {
-        message: "This /break would jump out of the $(...) around it, so tf rejects the macro: end the loop outside the $(...).",
+      const cmdsubStart = (this.cmdsubStarts[outside.cmdsub] as { at: number }).at;
+      const runs = this.cmdsubStarts.some((c) => c.inExpression);
+      const detail: IssueDetail = {
+        message: runs
+          ? "This /break would jump out of the $(...) around it, so tf reports an error and leaves it out: end the loop outside the $(...)."
+          : "This /break would jump out of the $(...) around it, so tf rejects the macro: end the loop outside the $(...).",
         label: "jumps out of the $(...)",
-        explanation: explanation(
-          `This one would end a loop opened outside it, so tf stops compiling the macro with "expected a /break that ` +
-            `stays inside this $(...)", and the macro does nothing. (TinyFugue releases before this check compile it, ` +
-            "and running it leaves tf's internal state broken.)",
-        ),
+        explanation:
+          `${rule} This one would end a loop opened outside it, so tf reports "expected a /break that stays inside ` +
+          "this $(...)\" when it compiles the macro. " +
+          (runs
+            ? `Here the ${code("$(...)")} is inside an expression, so tf still runs the macro, with that ${code("$(...)")} ` +
+              `giving nothing and the loop never ended by it.`
+            : "The macro then does nothing.") +
+          ` Move the ${code("/break")} out of the ${code("$(...)")}, into the loop's own body. (TinyFugue releases before ` +
+          "this check compile it, and running it leaves tf's internal state broken.)",
         related: [
           { start: cmdsubStart, end: cmdsubStart + 2, message: "the $(...) it would jump out of" },
           { start: outside.start, end: outside.end, message: "the loop it would end" },
         ],
-      });
+      };
+      // tf stops compiling in a command; in an expression it carries on past the $(...).
+      if (!runs) this.fail("block", start, end, detail);
+      this.issues.push({ kind: "block", start, end: Math.max(end, start + 1), ...detail });
+      return;
     }
     if (levels > loops.length) {
-      const cmdsubStart = this.cmdsubStarts[this.cmdsubStarts.length - 1] as number;
+      const cmdsubStart = (this.cmdsubStarts[this.cmdsubStarts.length - 1] as { at: number }).at;
+      const advice =
+        loops.length === 0
+          ? `To end the macro, put the ${code("/break")} outside the ${code("$(...)")}; to skip the rest of the ` +
+            `${code("$(...)")}'s commands, wrap them in an ${code("/if")} instead.`
+          : `Give the ${code("/break")} no more levels than there are loops inside the ${code("$(...)")}.`;
       this.issues.push({
         kind: "block",
         start,
         end: Math.max(end, start + 1),
         message:
           "This /break would jump out of the $(...) around it, and tf stops the macro with an internal error when it " +
-          "runs: break only loops inside the $(...).",
+          "runs: only break out of loops inside the $(...).",
         label: "jumps out of the $(...)",
-        explanation: explanation(
-          `This one has ${loops.length === 0 ? "no loop" : "more levels than there are loops"} to end inside it. tf compiles it, ` +
-            `but running it stops the macro with "expression stack underflow or dirty" and "invalid frame".`,
-        ),
+        explanation:
+          `${rule} This one has ${loops.length === 0 ? "no loop" : "more levels than there are loops"} to end inside ` +
+          `it. tf compiles it, but running it stops the macro with "expression stack underflow or dirty" and ` +
+          `"invalid frame". ${advice}`,
         related: [{ start: cmdsubStart, end: cmdsubStart + 2, message: "the $(...) it would jump out of" }],
       });
     }
@@ -1111,8 +1131,11 @@ class Parser {
     }
   }
 
-  /** `$$...`, `$[...]`, `$(...)` or `${name}`/`$name`, with `this.i` just after the `$` at `dollar`. */
-  private dollarsub(dollar: number): void {
+  /**
+   * `$$...`, `$[...]`, `$(...)` or `${name}`/`$name`, with `this.i` just after the `$` at `dollar`;
+   * `inExpression` when it is an operand of an expression.
+   */
+  private dollarsub(dollar: number, inExpression = false): void {
     const s = this.s;
     if (s[this.i] === "$") {
       while (s[this.i] === "$") this.i += 1;
@@ -1126,7 +1149,7 @@ class Parser {
       this.i += 1;
       const start = this.i;
       this.cmdsub += 1;
-      this.cmdsubStarts.push(dollar);
+      this.cmdsubStarts.push({ at: dollar, inExpression });
       const outer = this.block;
       // Known gap (found in review, 2026-10-14, left for later): a keyword such as /endif inside
       // a $(...), as in `$(/endif)`, is reported as a block-structure error here, though tf
@@ -1242,7 +1265,7 @@ class Parser {
       // primary_expr() (expr.c) hands these to the body scanners, where quotes are plain text.
       if (ch === "$") {
         this.i += 1;
-        this.dollarsub(this.i - 1);
+        this.dollarsub(this.i - 1, true);
         continue;
       }
       if (ch === "{") {

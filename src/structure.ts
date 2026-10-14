@@ -92,6 +92,14 @@ export function shiftIssue<T extends StructureIssue>(issue: T, by: number): T {
   };
 }
 
+/** One command statement, as offsets into the text that was parsed. */
+export interface Statement {
+  start: number;
+  end: number;
+  /** Read in a macro body, where `%{...}`, `$[...]` and `\` are processed (`SUB_FULL`). */
+  substituted: boolean;
+}
+
 const KEYWORDS = new Set([
   "break", "do", "done", "else", "elseif", "endif", "exit", "if",
   "let", "result", "return", "set", "setenv", "test", "then", "while",
@@ -167,6 +175,8 @@ class Parser {
   /** Where the last `(condition)` ended (after its blanks), and the keyword it belongs to. */
   private conditionEnd: { at: number; keyword: string } | undefined;
   readonly issues: StructureIssue[] = [];
+  /** Every plain command statement read, in order (not `/test`, `/return` or `/result`). */
+  readonly statements: Statement[] = [];
   constructor(private readonly s: string, private readonly mode: StructureMode) {}
 
   run(): void {
@@ -592,6 +602,12 @@ class Parser {
 
   /** Statement text, as `expand()` scans it, up to a separator, the end, or a `$(...)`'s `)`. */
   private statement(subs: number, keyword = ""): void {
+    const start = this.i;
+    this.statementText(subs, keyword);
+    if (!keyword) this.statements.push({ start, end: this.i, substituted: subs >= FULL });
+  }
+
+  private statementText(subs: number, keyword: string): void {
     const s = this.s;
     const stmtStart = this.i;
     let command = keyword;
@@ -937,6 +953,25 @@ export function macroBodyStart(text: string): number {
   else return -1;
   const eq = text.indexOf("=", from);
   return eq < 0 ? -1 : eq + 1;
+}
+
+/**
+ * The command statements of a top-level entry, with offsets into `entry.text`: the entry as tf
+ * reads a top-level line (one statement to the end of the line, unless it is an `/if` or
+ * `/while`), then, for a macro-defining entry, the statements of its body. Parsing stops at the
+ * first error, as tf's compiler does, so statements after it are missing.
+ */
+export function entryStatements(entry: LogicalEntry): Statement[] {
+  const top = new Parser(entry.text, "top");
+  top.run();
+  const statements = [...top.statements];
+  const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(entry.text) : -1;
+  if (body >= 0) {
+    const inner = new Parser(entry.text.slice(body), "body");
+    inner.run();
+    for (const st of inner.statements) statements.push({ ...st, start: st.start + body, end: st.end + body });
+  }
+  return statements;
 }
 
 const cache = new WeakMap<LogicalEntry, StructureIssue[]>();

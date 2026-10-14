@@ -194,6 +194,19 @@ describe("rule fixes", () => {
     ["indented-line-after-command", ["/def -i a =", "    /echo two"], ["/def -i a = \\", "    /echo two"]],
     ["indented-line-after-command", ["/def -i a = /if (1)", "    /echo yes", "/endif"], ["/def -i a = /if (1) \\", "    /echo yes%; \\", "/endif"]],
     ["indented-line-after-command", ["/set x=1", "  /set y=2"], ["/set x=1", "/set y=2"]],
+    // After a top-level block that already ends with /endif or /done, a join would run the line
+    // after the block whatever it decides (/else's body unconditionally, or /while (i < 3) /done,
+    // which never ends): proven in tf dev, 2026-10-14. So the indentation is what goes.
+    [
+      "indented-line-after-command",
+      ["/if (0) \\", "    /echo % a%; \\", "/else /endif", "    /echo % b", "/echo % after"],
+      ["/if (0) \\", "    /echo % a%; \\", "/else /endif", "/echo % b", "/echo % after"],
+    ],
+    [
+      "indented-line-after-command",
+      ["/set i=0", "/while (i < 3) \\", "/done", "    /test ++i", "/echo % i"],
+      ["/set i=0", "/while (i < 3) \\", "/done", "/test ++i", "/echo % i"],
+    ],
     // Only a real separator counts (proven live): =, %%; and \%; at the end of a body line are text.
     ["missing-continuation", ["/if (1)", "  /set x=", "  /echo y", "/endif"], ["/if (1) \\", "  /set x=%; \\", "  /echo y%; \\", "/endif"]],
     ["indented-line-after-command", ["/def -i a = /echo 100%%;", "    /echo two"], ["/def -i a = /echo 100%%;%; \\", "    /echo two"]],

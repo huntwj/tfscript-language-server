@@ -50,6 +50,8 @@ const MAX_TOTAL_TRIES = 1500;
 /** An /endif or /done as a word of its own, after a blank or a separator. */
 const CLOSER_RE = /(?<![^ \t;|\\])\/(?:endif|done)(?=[ \t\r\f\v%)]|$)/i;
 const TOP_BLOCK_RE = /^\/(?:if|while)\b/i;
+/** A command whose last statement is an /endif or /done. */
+const CLOSES_RE = /(?:^|[ \t;|\\])\/(?:endif|done)[ \t\r\f\v]*$/i;
 /** A line that starts with a keyword of a block: it can only belong to one opened above it. */
 const STRAY_KEYWORD_RE = /^\/(?:then|else|elseif|endif|do|done)(?![^ \t\r\f\v%])/i;
 /** Structural fixes the settle step applies; not "Add %; /endif ...", which would close a block early. */
@@ -448,7 +450,10 @@ function addJoins(text: string, diagnostics: TfDiagnostic[], diagnoseSlice: Diag
     // A \ with whitespace after it: backslash-not-last's fix is the one.
     if (/\\[ \t\f\v]+$/.test(lines[previous] ?? "")) continue;
     const own = lines[head.range.start.line] ?? "";
-    if (!separates(entry) && own[leadingWhitespaceLength(own)] === "/") {
+    // A top-level block that already ends with its /endif or /done: joined on, the lines would run
+    // after the block, whatever it decides, which is not what indenting them under it meant.
+    const closed = separates(entry) === "top" && CLOSES_RE.test(entry.text);
+    if ((!separates(entry) || closed) && own[leadingWhitespaceLength(own)] === "/") {
       // Two plain top-level commands can't be one, so the indentation is what's wrong.
       for (const d of run) {
         const line = d.range.start.line;

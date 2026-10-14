@@ -88,6 +88,18 @@ describe("let-swallows-endif (rule 5)", () => {
   it("does not flag /set when the value is a plain word", () => {
     expect(codes("/set world=wotmud\n")).not.toContain("let-swallows-endif");
   });
+
+  it("only counts /if or /endif as a word of its own, not inside a path or URL", () => {
+    expect(codes("/def a = /set path=/usr/local/if/x\n")).not.toContain("let-swallows-endif");
+    expect(codes("/def a = /let url=http://if.example.com\n")).not.toContain("let-swallows-endif");
+    expect(codes("/def a = /set p=/endif/x\n")).not.toContain("let-swallows-endif");
+    expect(codes("/def a = /if (1) /let v=1 /ENDIF\n")).toContain("let-swallows-endif");
+  });
+
+  it("leaves an /endif with no /if open to block-structure", () => {
+    expect(codes("/def a = /let x=1 /endif\n")).not.toContain("let-swallows-endif");
+    expect(codes("/def a = /if (1) /echo%; /endif%; /let x=1 /endif\n")).not.toContain("let-swallows-endif");
+  });
 });
 
 describe("dollar-bracket-in-if (rule 6)", () => {
@@ -197,7 +209,7 @@ describe("messages", () => {
     ["block-structure", "/while (1) /echo\n", "This /while has no /done in the same command."],
     ["load-no-expansion", "/load %{d}/ok.tf\n", "%{d} stays as it is in a command at the top level of a file: put /eval in front to substitute it."],
     ["let-swallows-endif", "/def a = /if (1) /let v=1 /endif\n", "This /endif is part of the /let value, not a command: put %; before it."],
-    ["let-swallows-endif", "/set v=1 /if (1) /echo%; /endif\n", "This /if is part of the /set value, not a command."],
+    ["let-swallows-endif", "/set v=1 /if (1) /echo%; /endif\n", "This /if is part of the /set value, not a command: put it on a line of its own."],
     ["dollar-bracket-in-if", "/def a = /if ($[1]) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: drop the $[ and ]."],
     ["dollar-bracket-in-if", "/def a = /if ($[1] + 1) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: write (...) instead."],
     ["indented-line-after-command", "/echo a\n  /echo b\n", "Line 1 has no \\ at the end, so this indented line starts a new command."],

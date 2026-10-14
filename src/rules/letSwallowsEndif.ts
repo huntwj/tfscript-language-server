@@ -23,7 +23,17 @@ import type { EntryRule, EntryMatch } from "./types";
  */
 const SEGMENT_SEPARATOR = "%;";
 const ASSIGNMENT_RE = /\/(let|set)\b\s+([^\s=]+)\s*=/gi;
-const TRAILING_COMMAND_RE = /\/(?:if|endif)\b/;
+// A word of its own, as a keyword would be: after a blank (or the = itself), and ending where
+// keyword_parse() ends one. So the `if` in /usr/local/if/x or http://if.example.com doesn't count.
+const TRAILING_COMMAND_RE = /(?<![^ \t])\/(?:if|endif)(?=[ \t\r\f\v%)]|$)/i;
+const BLOCK_WORD_RE = /(?<![^ \t])\/(if|endif)(?=[ \t\r\f\v%)(]|$)/gi;
+
+/** Whether an /if is open at `p` in `text`, counting the /if and /endif words before it. */
+function ifOpenAt(text: string, p: number): boolean {
+  let depth = 0;
+  for (const m of text.slice(0, p).matchAll(BLOCK_WORD_RE)) depth += (m[1] as string).toLowerCase() === "if" ? 1 : -1;
+  return depth > 0;
+}
 const TOP_BLOCK_RE = /^\/(?:if|while)\b/i;
 
 /** Where to insert a `%;` that ends the statement before `p` (structure.ts's separatorBefore). */
@@ -60,6 +70,8 @@ export const letSwallowsEndif: EntryRule = {
         const start = valueStart + trailing.index;
         const end = start + trailing[0].length;
         const keyword = trailing[0];
+        // An /endif with no /if open is stray either way; a %; before it would only move the error.
+        if (keyword.toLowerCase() === "/endif" && !ifOpenAt(entry.text, assignStart)) continue;
         const command = `/${(assignment[1] as string).toLowerCase()}`;
         const name = assignment[2] as string;
         // A swallowed /endif with more text after it needs a %; after it too.
@@ -73,7 +85,7 @@ export const letSwallowsEndif: EntryRule = {
           end,
           message: separates
             ? `This ${keyword} is part of the ${command} value, not a command: put %; before it.`
-            : `This ${keyword} is part of the ${command} value, not a command.`,
+            : `This ${keyword} is part of the ${command} value, not a command: put it on a line of its own.`,
           label: `part of the ${command} value`,
           explanation:
             `${code(command)} takes the rest of the statement, up to the next ${code("%;")}, as the value, so ` +

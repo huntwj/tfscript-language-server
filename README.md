@@ -67,12 +67,17 @@ file gets truncated, since tf never reads past the line it aborts on.
 a statement, follows nesting, and knows that a top-level line substitutes nothing while a macro
 body does. It reports only the first error in a body, as tf stops compiling there.
 
-Each of these diagnostics has a one-sentence message for the Problems pane, related locations
-(the `/if` a stray `/else` was meant for, an `/endif` swallowed as text), and a hover in the
-style of Rust's compiler errors: the source lines with the problem underlined and the related
-spans marked and labelled, a short explanation, and the lines as the quick fix leaves them.
-Most have a quick fix (a missing `%;`, `/endif`, `/done`, `]`, `}` or `)`, a stray `/then` or
-`)`, `%%-` for a literal `%-`).
+Every diagnostic has a one-sentence message for the Problems pane, related locations (the `/if`
+a stray `/else` was meant for, an `/endif` swallowed as text, the line missing its `\`), and a
+hover in the style of Rust's compiler errors: the source lines with the problem underlined and
+the related spans marked and labelled, a short explanation, and the lines as the quick fix
+leaves them. Most have a quick fix: a missing `%;`, `/endif`, `/done`, `]`, `}` or `)`; a stray
+`/then` or `)`; `%%-` for a literal `%-`; `(...)` for a redundant `$[...]`; `/eval` in front of a
+top-level command; deleting the whitespace after a `\`; commenting out a line that isn't a
+command. A top-level `/if` or `/while` spread over several lines, and an indented line that
+looks like it continues the one above, get their lines joined with `\` (`src/joinFix.ts`): how
+far to join, and where a joint needs a `%;`, is found by trying it, and a join is only offered if
+it leaves no new problem.
 
 The numbered rules are the case numbers in the private notes repo's `scripting.md` (below);
 they're kept only so the rule files, their tests, and that document stay cross-referenceable —
@@ -286,9 +291,10 @@ src/
   symbols.ts           getDocumentSymbols(text): one symbol per macro-defining entry; /def
                         names follow macro.c's macro_spec() option grammar
   folding.ts           getFoldingRanges(text): continued entries and comment runs
-  codeActions.ts       getCodeActions(text, range): quick fixes for the diagnostics that
-                        have a mechanical remedy (recomputed server-side)
+  codeActions.ts       getCodeActions(text, range): each diagnostic's own fix, offered once
+                        (recomputed server-side)
   documentLinks.ts     the filename in each /load and /require, as tf parses the command
+  joinFix.ts           the fixes that join lines with \, found by trying candidates
   explain.ts           a diagnostic's hover: the source excerpt with its spans marked, the
                         explanation, and the lines after its fix
   navigation.ts        getHover / getDefinition / getReferences: macro lookup (case-insensitive,

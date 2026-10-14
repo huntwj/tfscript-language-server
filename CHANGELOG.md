@@ -13,6 +13,13 @@
   locations, a hover with the source lines marked up the way Rust's compiler errors are (the
   problem underlined, related spans labelled), a short explanation and the fixed lines, and a
   quick fix where the remedy is mechanical. Messages no longer quote tf's own error text.
+- The older rules (`if-multiline-top-level`, `load-no-expansion`, `let-swallows-endif`,
+  `dollar-bracket-in-if`, `indented-line-after-command`, `trailing-space-after-backslash`,
+  `bad-substitution-selector`, `reserved-macro-name`, `bare-line-after-command`) get the same
+  treatment, and new quick fixes: `(...)` for a redundant `$[...]`, a `%;` before a swallowed
+  `/endif` or `/if`, commenting out a line that isn't a command, and joining the lines of a
+  multi-line top-level `/if` or `/while`, or an indented line and the one above it, with `\`.
+  A CRLF line's `\` gets its own message: the carriage return is what stops it continuing.
 - `if-multiline-top-level` uses the same model, so it follows nesting and no longer counts an
   `/endif` that is only text (`/if (1) /echo /endif`) as closing the `/if`.
 - `/load` and `/require` filenames are links (Ctrl+click) to the file tf would open, found the

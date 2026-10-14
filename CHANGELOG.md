@@ -25,9 +25,12 @@
   `undefined-macro`) get the same style of message.
 - `dollar-bracket-in-if` no longer flags a `$[...]` inside a `%{name-default}`, `${...}` or
   `$(...)`, where it isn't redundant, and `let-swallows-endif` no longer flags an `if` in a path
-  or URL, or an `/endif` with no `/if` open.
+  or URL, or an `/endif` with no `/if` open (it now asks the structural model which `/if`s are
+  open, so an `/if` that is only text doesn't count).
 - The fix that adds an `/endif` or `/done` isn't offered after an empty body, where it would send
   a blank line (or, for `/while`, loop forever).
+- Deeply nested blocks or substitutions (past 200 levels) no longer overflow the stack: the
+  structural check stops there.
 - `if-multiline-top-level` uses the same model, so it follows nesting and no longer counts an
   `/endif` that is only text (`/if (1) /echo /endif`) as closing the `/if`.
 - `/load` and `/require` filenames are links (Ctrl+click) to the file tf would open, found the

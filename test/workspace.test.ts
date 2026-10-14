@@ -243,3 +243,31 @@ describe("load contexts", () => {
     expect(goTarget(index("nope"))).toEqual(["wot.tf"]);
   });
 });
+
+describe("variables through the workspace index", () => {
+  const files = {
+    [p("lib", "stdlib.tf")]: "/set libwidth=72\n",
+    [p("ws", "tfrc")]: "/load conf.tf\n/load main.tf\n",
+    [p("ws", "conf.tf")]: "/set width=80\n",
+    [p("ws", "main.tf")]: "/def -i show = /echo %{width} %{libwidth}\n",
+  };
+  const ctx = () => {
+    const fs = memoryFs(files);
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    index.setSettings(p("ws"), { libraryPath: p("lib") });
+    return index.navContext(p("ws", "main.tf"), uriOf);
+  };
+  const text = files[p("ws", "main.tf")] as string;
+
+  it("finds a global's /set in another file on the load path, and in tf's library", () => {
+    expect(getDefinition(text, pos(0, 24), ctx()).map((l) => path.basename(l.uri))).toEqual(["conf.tf"]);
+    expect(getDefinition(text, pos(0, 34), ctx()).map((l) => path.basename(l.uri))).toEqual(["stdlib.tf"]);
+  });
+
+  it("renames a global across the load path, but not one tf's library sets", () => {
+    const edits = getRenameEdits(text, pos(0, 24), "cols", ctx());
+    expect(Array.isArray(edits) && edits.map((e) => path.basename(e.uri)).sort()).toEqual(["conf.tf", "main.tf"]);
+    expect(prepareRename(text, pos(0, 34), ctx())).toEqual({ error: "libwidth is set in tf's library, which isn't yours to rename." });
+  });
+});

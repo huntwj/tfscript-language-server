@@ -710,6 +710,8 @@ function statement(w: Walk, st: Statement, skip: Uint8Array): void {
     const body = macroBodyStart(s.slice(st.start, st.end));
     defExpression(w, argStart, body < 0 ? st.end : st.start + body - 1);
   }
+  // stdlib.tf's `/def -i expr = /result %*`: its arguments are an expression.
+  if (word === "expr") expression(w, argStart, st.end);
   // Text that runs text that runs text isn't read any further than this.
   if (w.depth >= 8) return;
   if (word === "eval") {

@@ -32,6 +32,19 @@ describe("unresolved-load", () => {
     expect(d?.message).toContain("not from this file's folder");
   });
 
+  it("points at the load the warning is about when an /eval line names the same file twice", () => {
+    const twice = "/eval /load x.tf%; /load x.tf\n";
+    const echo = "/eval /echo x.tf%; /load x.tf\n";
+    const at = (text: string) => check({ [p("tfrc")]: text }, p("tfrc")).map((d) => d.range.start.character);
+    expect(at(twice)).toEqual([twice.indexOf("x.tf"), twice.lastIndexOf("x.tf")]);
+    expect(at(echo)).toEqual([echo.lastIndexOf("x.tf")]);
+  });
+
+  it("points at a filename on a continuation line", () => {
+    const [d] = check({ [p("tfrc")]: "/eval \\\n  /load x.tf\n" }, p("tfrc"));
+    expect(d?.range).toEqual({ start: { line: 1, character: 8 }, end: { line: 1, character: 12 } });
+  });
+
   it("notes, without warning, an /eval path built from a variable it can't see", () => {
     const [d] = check({ [p("tfrc")]: "/eval /load %{somewhere}/x.tf\n" }, p("tfrc"));
     expect(d).toMatchObject({ code: "unresolved-load", severity: "information" });

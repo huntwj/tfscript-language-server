@@ -1,6 +1,6 @@
 import { ALL_COMMANDS } from "../data/commands";
 import type { TfDiagnostic } from "../diagnostics";
-import { splitRawLines } from "../logicalEntries";
+import { splitLogicalEntries, splitRawLines, type LogicalEntry } from "../logicalEntries";
 import { findUsages } from "../navigation";
 import { fileKey, type LoadGraph, type UnresolvedLoad } from "./loadGraph";
 
@@ -61,11 +61,12 @@ function guardedByIsmacro(lines: string[], line: number, name: string): boolean 
   return false;
 }
 
-function rangeOf(lines: string[], u: UnresolvedLoad) {
-  for (let line = u.line; line < Math.min(lines.length, u.line + 50); line += 1) {
-    const col = (lines[line] ?? "").indexOf(u.raw);
-    if (col !== -1) return { start: { line, character: col }, end: { line, character: col + u.raw.length } };
-  }
+/** The filename's range, mapped from the load's offsets in its entry; the entry's first line if that fails. */
+function rangeOf(lines: string[], entries: LogicalEntry[], u: UnresolvedLoad) {
+  const entry = entries.find((e) => e.startLine === u.line);
+  const from = entry?.offsetMap[u.start];
+  const last = entry?.offsetMap[u.end - 1];
+  if (from && last) return { start: { ...from }, end: { line: last.line, character: last.character + 1 } };
   const text = lines[u.line] ?? "";
   const start = text.length - text.trimStart().length;
   return { start: { line: u.line, character: start }, end: { line: u.line, character: text.trimEnd().length } };
@@ -108,13 +109,14 @@ export function loadPathDiagnostics(
   const self = fileKey(file);
   if (!graph.files.some((f) => fileKey(f.path) === self)) return [];
   const lines = splitRawLines(text);
+  const entries = splitLogicalEntries(text);
   const out: TfDiagnostic[] = [];
 
   if (options.unresolvedLoads) {
     for (const u of graph.unresolved) {
       if (fileKey(u.from) !== self || u.kind === "not-substituted") continue;
       out.push({
-        range: rangeOf(lines, u),
+        range: rangeOf(lines, entries, u),
         message: unresolvedMessage(u),
         code: "unresolved-load",
         severity: u.kind === "not-found" ? "warning" : "information",

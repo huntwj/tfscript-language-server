@@ -64,6 +64,9 @@ export interface UnresolvedLoad {
   from: string;
   /** The entry's first line in `from`. */
   line: number;
+  /** Where the filename is written, as offsets into the entry's joined text. */
+  start: number;
+  end: number;
   kind: UnresolvedKind;
   /** The path as written in the script, before any substitution. */
   raw: string;
@@ -201,7 +204,7 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     const raw = entry.text.slice(load.start, load.end);
     let file = load.file;
     const fail = (k: UnresolvedKind, reason: string, searched: string[] = []): void => {
-      unresolved.push({ from, line, kind: k, raw, file, reason, searched });
+      unresolved.push({ from, line, start: load.start, end: load.end, kind: k, raw, file, reason, searched });
     };
     if (load.substituted) {
       const expanded = expandVariables(file, vars);

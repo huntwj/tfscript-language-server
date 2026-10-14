@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findUsages, getDefinition, getHover, getReferences } from "../src/navigation";
+import { findUsages, getDefinition, getDocumentHighlights, getHover, getReferences, getRenameEdits } from "../src/navigation";
 
 const pos = (line: number, character: number) => ({ line, character });
 
@@ -134,5 +134,41 @@ describe("getHover", () => {
   it("returns nothing for unknown names or plain text", () => {
     expect(getHover("/nosuch\n", pos(0, 2))).toBeUndefined();
     expect(getHover("/echo hello\n", pos(0, 9))).toBeUndefined();
+  });
+});
+
+describe("macros called as functions in expressions", () => {
+  const text = [
+    "/def -i sq = /return {1}*{1}",
+    "/def -i show = /echo $[sq(3)]%; /if (sq (2) == 4) /sq 1%; /endif",
+    "/def -i strlen = /return 99",
+    "/def -i len = /echo $[strlen(\"ab\")]",
+    "",
+  ].join("\n");
+
+  it("counts name(...) as a reference, and finds the /def from it", () => {
+    expect(getReferences(text, pos(0, 9), false).map((r) => r.range.start)).toEqual([pos(1, 23), pos(1, 37), pos(1, 51)]);
+    expect(getDefinition(text, pos(1, 24)).map((l) => l.range.start)).toEqual([pos(0, 8)]);
+  });
+
+  it("doesn't count a builtin function's name as a call to a macro of that name", () => {
+    expect(getReferences(text, pos(2, 10), false)).toEqual([]);
+  });
+
+  it("renames name(...) calls with the macro", () => {
+    const edits = getRenameEdits(text, pos(0, 9), "square");
+    const starts = Array.isArray(edits) ? edits.map((e) => e.range.start).sort((x, y) => x.line - y.line || x.character - y.character) : [];
+    expect(starts).toEqual([pos(0, 8), pos(1, 23), pos(1, 37), pos(1, 51)]);
+  });
+
+  it("refuses a new name tf couldn't call as a function, or one a builtin function has", () => {
+    expect(getRenameEdits(text, pos(0, 9), "s.q")).toEqual({ error: expect.stringContaining("letters, digits and _") });
+    expect(getRenameEdits(text, pos(0, 9), "abs")).toEqual({ error: expect.stringContaining("builtin abs()") });
+    // Without a call in an expression, any macro name will do.
+    expect(Array.isArray(getRenameEdits("/def -i a = 1\n/a\n", pos(0, 9), "a.b"))).toBe(true);
+  });
+
+  it("highlights name(...) calls as reads", () => {
+    expect(getDocumentHighlights(text, pos(0, 9)).filter((h) => h.kind === "read")).toHaveLength(3);
   });
 });

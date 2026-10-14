@@ -1,6 +1,7 @@
 import { ALL_COMMANDS, RESERVED_MACRO_NAMES, type CommandSource } from "./data/commands";
 import { COMMAND_DESCRIPTIONS } from "./data/commandDescriptions";
 import { COMMAND_USAGES } from "./data/commandUsages.generated";
+import { FUNCTIONS } from "./data/functions.generated";
 import { getExpressionHover } from "./expressionHover";
 import { isCommentLine, splitRawLines } from "./logicalEntries";
 import { getDocumentSymbols, type Position, type Range, type TfSymbol } from "./symbols";
@@ -12,6 +13,7 @@ import {
   variableReferences,
   variableRenameEdits,
 } from "./variableNavigation";
+import { findFunctionCalls, isVariableName } from "./variables";
 
 /**
  * Single-file navigation: hover, go-to-definition and find-references for macro names.
@@ -23,7 +25,9 @@ import {
  *  - `/name ...` calls the macro if one is defined, the built-in otherwise (htmldoc
  *    topics/macros.html: a macro shadows a same-named builtin);
  *  - `/@name ...` always calls the built-in, never a macro, so it is never a reference to one;
- *  - `${name}` / `$name` substitutes the macro's body.
+ *  - `${name}` / `$name` substitutes the macro's body;
+ *  - `name(...)` in an expression calls the macro, unless name is one of tf's builtin
+ *    functions, which tf tries first (variables.ts findFunctionCalls()).
  * A `/` only starts a command at the start of a line or after whitespace, `;` or `|` (the
  * `%;`/`%|` separators) or `(` — the same boundary completion uses — so a path in
  * `/load %{d}/x.tf` or `/set d=/script` is not read as a call. Comment lines are skipped.
@@ -33,7 +37,7 @@ import {
  * definition targets here.
  */
 
-export type UsageKind = "call" | "builtin-call" | "substitution";
+export type UsageKind = "call" | "builtin-call" | "substitution" | "function-call";
 
 export interface NameUsage {
   name: string;
@@ -74,6 +78,12 @@ export function findUsages(text: string): NameUsage[] {
     for (const m of line.matchAll(BARE_SUBST_RE)) push(m[1] as string, "substitution", (m.index ?? 0) + 1, true);
   });
   return usages;
+}
+
+/** findUsages(), plus the `name(...)` calls in expressions that run a macro. */
+function macroUsages(text: string): NameUsage[] {
+  const calls: NameUsage[] = findFunctionCalls(text).map((c) => ({ name: c.name, kind: "function-call", range: c.range }));
+  return [...findUsages(text), ...calls];
 }
 
 function contains(range: Range, pos: Position): boolean {
@@ -158,7 +168,7 @@ interface Target {
 }
 
 function targetAt(text: string, pos: Position, symbols: TfSymbol[]): Target | undefined {
-  const usage = findUsages(text).find((u) => contains(u.range, pos));
+  const usage = macroUsages(text).find((u) => contains(u.range, pos));
   if (usage) return { name: usage.name, usage, range: usage.range };
   const def = symbols.find((s) => s.kind === "def" && contains(s.selectionRange, pos));
   return def && { name: def.name, range: def.selectionRange };
@@ -313,7 +323,7 @@ export function getReferences(text: string, pos: Position, includeDeclaration: b
   if (!target || target.usage?.kind === "builtin-call") return [];
 
   const uses = (uri: string, fileText: string): Location[] =>
-    findUsages(fileText)
+    macroUsages(fileText)
       .filter((u) => u.kind !== "builtin-call" && same(u.name, target.name))
       .map((u) => ({ uri, range: u.range }));
 
@@ -365,6 +375,7 @@ function renameTarget(text: string, pos: Position, ctx: NavContext | undefined):
 }
 
 const NEW_NAME_RE = new RegExp(`^${NAME}$`);
+const FUNCTION_NAMES: ReadonlySet<string> = new Set(FUNCTIONS.map((f) => f.name));
 const IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** The range of the name under the cursor, if it can be renamed; otherwise why not. */
@@ -376,8 +387,8 @@ export function prepareRename(text: string, pos: Position, ctx?: NavContext): { 
 }
 
 /**
- * Renames a macro you defined: its `/def` names, and every `/name`, `${name}` and `$name` in
- * this file and the others on its load path. A bare `$old` becomes `${new}` when the new name
+ * Renames a macro you defined: its `/def` names, and every `/name`, `${name}`, `$name` and
+ * `name(...)` in this file and the others on its load path. A bare `$old` becomes `${new}` when the new name
  * isn't a plain identifier, since only the braced form allows other characters.
  *
  * Not renamed, because nothing here can tell them from ordinary text: names inside strings or
@@ -396,19 +407,29 @@ export function getRenameEdits(text: string, pos: Position, newName: string, ctx
   const self = ctx?.uri ?? "";
   const edits: TextEditAt[] = defs.map((d) => ({ uri: d.uri, range: d.symbol.selectionRange, newText: newName }));
 
-  const usesIn = (uri: string, fileText: string): void => {
-    for (const u of findUsages(fileText)) {
-      if (u.kind === "builtin-call" || !same(u.name, target.name)) continue;
-      if (u.bare && !IDENTIFIER_RE.test(newName)) {
-        const start = { line: u.range.start.line, character: u.range.start.character - 1 };
-        edits.push({ uri, range: { start, end: u.range.end }, newText: `\${${newName}}` });
-      } else {
-        edits.push({ uri, range: u.range, newText: newName });
-      }
+  const uses = [{ uri: self, text }, ...(ctx?.files ?? [])].flatMap((f) =>
+    macroUsages(f.text)
+      .filter((u) => u.kind !== "builtin-call" && same(u.name, target.name))
+      .map((u) => ({ uri: f.uri, u })),
+  );
+  // A call in an expression only reaches the macro by a name tf reads as one there, and one
+  // that isn't a builtin function's (tf tries those first; proven: `$[s.q(2)]` is a syntax error,
+  // and `$[strlen("ab")]` gave 2 with a macro named strlen defined).
+  const fn = uses.find(({ u }) => u.kind === "function-call");
+  if (fn && !isVariableName(newName)) {
+    return { error: `${target.name} is called as ${fn.u.name}(...) on line ${fn.u.range.start.line + 1}, and tf only reads letters, digits and _ as a function name there: pick a name like that.` };
+  }
+  if (fn && FUNCTION_NAMES.has(newName)) {
+    return { error: `${target.name} is called as ${fn.u.name}(...) on line ${fn.u.range.start.line + 1}, and ${newName}(...) would call tf's builtin ${newName}() instead: pick another name.` };
+  }
+  for (const { uri, u } of uses) {
+    if (u.bare && !IDENTIFIER_RE.test(newName)) {
+      const start = { line: u.range.start.line, character: u.range.start.character - 1 };
+      edits.push({ uri, range: { start, end: u.range.end }, newText: `\${${newName}}` });
+    } else {
+      edits.push({ uri, range: u.range, newText: newName });
     }
-  };
-  usesIn(self, text);
-  for (const f of ctx?.files ?? []) usesIn(f.uri, f.text);
+  }
   return edits;
 }
 
@@ -429,7 +450,7 @@ export function getDocumentHighlights(text: string, pos: Position): TfHighlight[
   const target = targetAt(text, pos, symbols);
   if (!target || target.usage?.kind === "builtin-call") return [];
   const defs: TfHighlight[] = definitionsOf(target.name, text, symbols, undefined).map((d) => ({ range: d.symbol.selectionRange, kind: "write" }));
-  const uses: TfHighlight[] = findUsages(text)
+  const uses: TfHighlight[] = macroUsages(text)
     .filter((u) => u.kind !== "builtin-call" && same(u.name, target.name))
     .map((u) => ({ range: u.range, kind: "read" }));
   return [...defs, ...uses];

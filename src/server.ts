@@ -12,6 +12,8 @@ import {
   type Diagnostic,
   DiagnosticSeverity,
   type DocumentSymbol,
+  type DocumentLink,
+  type DocumentLinkParams,
   type DocumentSymbolParams,
   type DocumentFormattingParams,
   type DocumentRangeFormattingParams,
@@ -161,6 +163,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       textDocumentSync: TextDocumentSyncKind.Incremental,
       completionProvider: { triggerCharacters: ["/", "{"] },
       documentSymbolProvider: true,
+      documentLinkProvider: { resolveProvider: false },
       foldingRangeProvider: true,
       codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix] },
       hoverProvider: true,
@@ -365,6 +368,17 @@ connection.onReferences((params: ReferenceParams): Location[] => {
   return getReferences(document.getText(), params.position, params.context.includeDeclaration, ctx).map((l) => ({
     uri: l.uri || document.uri,
     range: l.range,
+  }));
+});
+
+connection.onDocumentLinks((params: DocumentLinkParams): DocumentLink[] => {
+  const document = documents.get(params.textDocument.uri);
+  const file = document && toPath(document.uri);
+  if (!document || file === undefined) return [];
+  return index.documentLinks(file, document.getText()).map((link) => ({
+    range: link.range,
+    target: toUri(link.target),
+    tooltip: `Open ${link.target}`,
   }));
 });
 

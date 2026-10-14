@@ -2,7 +2,9 @@ import * as path from "node:path";
 import { splitRawLines } from "../logicalEntries";
 import type { ExternalMacro, NavContext } from "../navigation";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
-import { buildLoadGraph, fileKey as keyOf, type LoadGraph, type LoadedFile } from "./loadGraph";
+import { findLoadPaths, type LoadPath } from "../documentLinks";
+import type { Range } from "../symbols";
+import { buildLoadGraph, fileKey as keyOf, resolveLoadPath, type LoadGraph, type LoadedFile } from "./loadGraph";
 import { resolveSettings, type Environment, type RawSettings, type ResolvedSettings } from "./settings";
 import { parseTfHelp, type HelpEntry } from "./tfHelp";
 import { loadPathDiagnostics } from "./loadPathDiagnostics";
@@ -211,6 +213,39 @@ export class WorkspaceIndex {
     return loadPathDiagnostics(file, text, graph, {
       unresolvedLoads: options?.unresolvedLoads ?? true,
       undefinedMacros: options?.undefinedMacros ?? false,
+    });
+  }
+
+  /**
+   * The file each `/load` and `/require` in `text` opens. A top-level load in a file the load
+   * path reaches resolves as the load graph found it, with the TFPATH and HOME that were set at
+   * that point (a tfrc may change them) and no link when tf wouldn't find it. Any other load —
+   * in a macro body, under `/eval`, or in a file nothing loads — runs at some unknown later
+   * time, so it resolves with the settings' TFPATH, TFLIBDIR, HOME and working directory.
+   */
+  documentLinks(file: string, text: string): { range: Range; target: string; kind: LoadPath["kind"] }[] {
+    const { settings, graph } = this.contextFor(file);
+    const self = keyOf(file);
+    const onPath = graph.files.some((f) => keyOf(f.path) === self);
+    const collapse = (s: string): string => s.trim().replace(/\s+/g, " ");
+    const env = {
+      home: settings.home,
+      tfPath: settings.tfPath,
+      libraryDir: settings.libraryDir,
+      workingDir: settings.workingDir,
+      readFile: this.read,
+    };
+    return findLoadPaths(text).flatMap((load) => {
+      let target: string | undefined;
+      if (onPath && load.topLevel) {
+        target = graph.resolved.find(
+          (r) => keyOf(r.from) === self && r.line === load.line && collapse(r.raw) === collapse(load.file),
+        )?.file;
+      } else {
+        const found = resolveLoadPath(load.file, env).found;
+        target = found === undefined ? undefined : path.resolve(found);
+      }
+      return target === undefined ? [] : [{ range: load.range, target, kind: load.kind }];
     });
   }
 

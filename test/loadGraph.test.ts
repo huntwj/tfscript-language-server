@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildLoadGraph, expandVariables, type LoadGraphOptions } from "../src/workspace/loadGraph";
+import { buildLoadGraph, expandVariables, resolveLoadPath, type LoadGraphOptions } from "../src/workspace/loadGraph";
 
 const ROOT = path.resolve("/fake");
 const p = (...parts: string[]) => path.join(ROOT, ...parts);
@@ -158,8 +158,11 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
   });
 
   describe("the default-value guard, /if (x =~ \"\") /set x=VALUE%; /endif (wotmud.tf's shape)", () => {
+    // Which of the two a.tf files the /eval load after it reached.
     const loadsWith = (tfrc: string) =>
-      defNames(graph({ [p("tfrc")]: `${tfrc}/eval /load %{d}/a.tf\n`, [p("real", "a.tf")]: "/def real = 1\n", [p("wrong", "a.tf")]: "/def wrong = 1\n" }));
+      defNames(graph({ [p("tfrc")]: `${tfrc}/eval /load %{d}/a.tf\n`, [p("real", "a.tf")]: "/def real = 1\n", [p("wrong", "a.tf")]: "/def wrong = 1\n" })).filter(
+        (n) => n === "real" || n === "wrong",
+      );
 
     it("skips the /set when the variable is already set (real tf loaded from the first value)", () => {
       expect(loadsWith(`/set d=${p("real")}\n/if (d =~ "") /set d=${p("wrong")}%; /endif\n`)).toEqual(["real"]);
@@ -169,6 +172,26 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
       for (const cond of ['d =~ ""', "{d} =~ ''", 'd == ""', "!d", "!{d}"]) {
         expect(loadsWith(`/if (${cond}) /set d=${p("real")}%; /endif\n`)).toEqual(["real"]);
       }
+    });
+
+    it("stops trusting it once something earlier may have set variables this can't see", () => {
+      // Real tf (tf-script-check, 2026-10-14): after each of these the variable was set, and the guard skipped.
+      const guard = `/if (d =~ "") /set d=${p("real")}%; /endif\n`;
+      const opaque = [
+        "/def setup = /set d=elsewhere\n/setup\n",
+        '/test d := "elsewhere"\n',
+        "/eval /set d%{nothing}=elsewhere\n",
+        "/eval /load %{unknownv}/conf.tf\n",
+        "/toggle d\n",
+        "/for i 1 1 /set d=x\n",
+        '/if (d := "elsewhere") /echo%; /endif\n',
+        ...(process.platform === "win32" ? ["/load /srv/only/in/tf/conf.tf\n"] : []),
+      ];
+      for (const before of opaque) expect([before, loadsWith(`${before}${guard}`)]).toEqual([before, []]);
+    });
+
+    it("still trusts it after tf's own commands, and after a load of a folder here that finds nothing", () => {
+      expect(loadsWith(`/echo hi\n/def x = /echo\n/set y=1\n/load ${p("nowhere", "gone.tf")}\n/if (d =~ "") /set d=${p("real")}%; /endif\n`)).toEqual(["real"]);
     });
 
     it("runs it when the variable is set to nothing", () => {
@@ -321,5 +344,17 @@ describe("what is not followed", () => {
       [p("cwd", "a.tf")]: "/load a.tf\n/def a = 1\n",
     });
     expect(defNames(g)).toEqual(["later", "a"]);
+  });
+});
+
+describe("resolveLoadPath with path mappings", () => {
+  const mappings = [{ tf: "/srv", local: p("host") }];
+  const readFile = fs({ [p("host", "lib", "a.tf")]: "", [path.join("/srv", "lib", "b.tf")]: "" });
+
+  it("maps a TFPATH directory tf named, but not one that came from the settings", () => {
+    const tfNamed = resolveLoadPath("a.tf", { home: "", tfPath: ["/srv/lib"], workingDir: p("cwd"), pathMappings: mappings, readFile });
+    expect(tfNamed.found).toBe(p("host", "lib", "a.tf"));
+    const fromSettings = resolveLoadPath("b.tf", { home: "", tfPath: ["/srv/lib"], workingDir: p("cwd"), pathMappings: mappings, local: { tfPath: true }, readFile });
+    expect(fromSettings.found).toBe(path.join("/srv", "lib", "b.tf"));
   });
 });

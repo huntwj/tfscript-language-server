@@ -1166,10 +1166,10 @@ export function parseStatements(text: string, mode: StructureMode): Statement[] 
 export function parseRegions(
   text: string,
   mode: StructureMode,
-): { statements: Statement[]; expressions: ExpressionRegion[]; cmdsubs: { start: number; end: number }[] } {
+): { statements: Statement[]; expressions: ExpressionRegion[]; cmdsubs: { start: number; end: number }[]; stopped: boolean } {
   const parser = new Parser(text, mode);
   parser.run();
-  return { statements: parser.statements, expressions: parser.expressions, cmdsubs: parser.cmdsubs };
+  return { statements: parser.statements, expressions: parser.expressions, cmdsubs: parser.cmdsubs, stopped: parser.stopped };
 }
 
 /**

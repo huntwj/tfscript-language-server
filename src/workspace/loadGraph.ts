@@ -62,6 +62,16 @@ export interface LoadedFile {
   defs: MacroDef[];
   /** Read while stdlib.tf was loading, so it is loaded no matter which entry file runs. */
   stdlib: boolean;
+  /** HOME, TFPATH and TFLIBDIR as they were when tf started reading it. */
+  searchEnv: SearchEnvironment;
+}
+
+/** tf's search variables at some point on the load path (see LoadPathEnvironment). */
+export interface SearchEnvironment {
+  home: string;
+  tfPath: string[];
+  libraryDir?: string;
+  local: { home: boolean; tfPath: boolean; libraryDir: boolean };
 }
 
 /**
@@ -128,6 +138,11 @@ export interface LoadGraphOptions {
 
 const LOADED_RE = /^\s*\/loaded\s+(\S+)/i;
 
+/** A path that can only be tf's, on another machine: on Windows, rooted with no drive (`\wotmud\x.tf`), and not UNC. */
+function isForeignPath(p: string): boolean {
+  return process.platform === "win32" && /^[\\/](?![\\/])/.test(p);
+}
+
 const NAME = "[A-Za-z_][A-Za-z0-9_]*";
 /**
  * A whole entry that is one `/if (<unset test of x>) <one statement>%; /endif`: `!x`, `!{x}`,
@@ -179,18 +194,24 @@ export interface LoadPathEnvironment {
   workingDir: string;
   /** Where tf's absolute paths are here, for a tf that runs somewhere else (settings.ts). */
   pathMappings?: readonly PathMapping[];
+  /**
+   * Which of `home`, `tfPath` and `libraryDir` already name folders here (they came from the
+   * settings, not from a script's /set), so they aren't mapped again.
+   */
+  local?: { home?: boolean; tfPath?: boolean; libraryDir?: boolean };
   readFile(file: string): string | undefined;
 }
 
 /**
  * Where tf finds the file `/load file` names (rules in the header comment), and every place it
  * tries, as files here: an absolute path tf would open (the file's, a TFPATH or TFLIBDIR entry,
- * HOME) goes through the path mappings first.
+ * HOME) goes through the path mappings first, unless it came from the settings.
  */
 export function resolveLoadPath(file: string, env: LoadPathEnvironment): { found?: string; searched: string[] } {
   const mappings = env.pathMappings ?? [];
-  // A directory tf names joined with a relative path, mapped if tf's directory is (as path.join when not).
-  const under = (dir: string, rel: string): string => path.normalize(toLocalPath(`${dir}/${rel}`, mappings));
+  // A directory joined with a relative path; a directory tf named is mapped first.
+  const under = (dir: string, rel: string, local: boolean | undefined): string =>
+    local ? path.join(dir, rel) : path.normalize(toLocalPath(`${dir}/${rel}`, mappings));
   // tf counts any path starting with ~ as absolute (tfio.h is_absolute_path()), so it never
   // searches TFPATH for one. `~user/...` is user's home directory from the password file, which
   // this can't read; when there is no such user, expand_filename() leaves the name as it is and
@@ -200,8 +221,9 @@ export function resolveLoadPath(file: string, env: LoadPathEnvironment): { found
   // with an unknown user (the tilde-prefix stays literal; zsh reports an error instead). Recheck
   // it if tf's ~ handling changes.
   if (file.startsWith("~")) {
-    const named = file === "~" || file.startsWith("~/") ? env.home + file.slice(1) : file;
-    const mapped = toLocalPath(named, mappings);
+    const underHome = file === "~" || file.startsWith("~/");
+    const named = underHome ? env.home + file.slice(1) : file;
+    const mapped = underHome && env.local?.home ? named : toLocalPath(named, mappings);
     const target = mapped === named ? path.resolve(env.workingDir, named) : path.normalize(mapped);
     return { found: env.readFile(target) !== undefined ? target : undefined, searched: [target] };
   }
@@ -212,9 +234,9 @@ export function resolveLoadPath(file: string, env: LoadPathEnvironment): { found
   } else {
     candidates.push(path.join(env.workingDir, target));
     if (env.tfPath.length > 0) {
-      for (const dir of env.tfPath) if (path.isAbsolute(dir)) candidates.push(under(dir, target));
+      for (const dir of env.tfPath) if (path.isAbsolute(dir)) candidates.push(under(dir, target, env.local?.tfPath));
     } else if (env.libraryDir && path.isAbsolute(env.libraryDir)) {
-      candidates.push(under(env.libraryDir, target));
+      candidates.push(under(env.libraryDir, target, env.local?.libraryDir));
     }
   }
   return { found: candidates.find((c) => env.readFile(c) !== undefined), searched: candidates };
@@ -232,6 +254,24 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   const guarded = new Set<string>();
   /** Every variable some /set on the path has set, or tried to: a default-value guard can't call them unset. */
   const everSet = new Set<string>(vars.keys());
+  /** The search variables still holding the settings' folders here, which aren't mapped again. */
+  const local = new Set(vars.keys());
+  /**
+   * The first thing on the path that may have set variables this can't see (an OpaqueCommand, a
+   * top-level /for, an assignment in a condition, a load it can't follow), after which a
+   * default-value guard is no longer trusted.
+   */
+  let opaque: string | undefined;
+
+  function searchEnv(): SearchEnvironment {
+    const libraryDir = vars.get("TFLIBDIR") || undefined;
+    return {
+      home: vars.get("HOME") ?? "",
+      tfPath: (vars.get("TFPATH") ?? "").split(/\s+/).filter(Boolean),
+      ...(libraryDir === undefined ? {} : { libraryDir }),
+      local: { home: local.has("HOME"), tfPath: local.has("TFPATH"), libraryDir: local.has("TFLIBDIR") },
+    };
+  }
 
   /**
    * Whether the /if around `command` runs it, when the whole entry is the default-value idiom
@@ -245,6 +285,9 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
    * convention.
    */
   function guardRuns(entry: LogicalEntry, command: SetCommand): boolean | undefined {
+    // Real tf: after /setup (which /sets it), /test x := "real", /eval /set x%{nothing}=..., or a
+    // load from a path this can't follow, the variable was set and the guard skipped.
+    if (opaque !== undefined) return undefined;
     const m = GUARD_RE.exec(entry.text);
     if (!m) return undefined;
     const name = (m[2] ?? m[3] ?? m[4] ?? m[5]) as string;
@@ -267,11 +310,10 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   let inStdlib = false;
 
   function resolve(file: string): { found?: string; searched: string[]; unknownVar?: string } {
-    const tfPath = (vars.get("TFPATH") ?? "").split(/\s+/).filter(Boolean);
+    const env = searchEnv();
+    const tfPath = env.tfPath;
     const result = resolveLoadPath(file, {
-      home: vars.get("HOME") ?? "",
-      tfPath,
-      libraryDir: vars.get("TFLIBDIR") || undefined,
+      ...env,
       workingDir: options.workingDir,
       ...(options.pathMappings ? { pathMappings: options.pathMappings } : {}),
       readFile: options.readFile,
@@ -310,6 +352,12 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     let file = load.file;
     const fail = (k: UnresolvedKind, reason: string, searched: string[] = [], variable?: string): void => {
       unresolved.push({ from, line, start: load.start, end: load.end, kind: k, raw, file, reason, searched, ...(variable ? { variable } : {}) });
+      // Any load this can't follow may set anything. One tf won't find here only loads nothing if
+      // every place it looked is a folder here: a tf path no mapping covers may exist where tf
+      // runs (proven: /eval /load %{d}/conf.tf, with d a path only tf's container had, set the
+      // variable and the guard after it skipped). On Windows such a path is rooted but has no
+      // drive; elsewhere it can't be told from a local one.
+      if (k !== "not-found" || searched.some(isForeignPath)) opaque ??= `the load of ${raw}`;
     };
     // A `%` in a run of them is text, not the start of a substitution.
     const namesVariable = /%\{|%[A-Za-z_]/.test(raw.replace(/%%+/g, ""));
@@ -353,7 +401,7 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     const text = options.readFile(file);
     if (text === undefined) return;
 
-    const loaded: LoadedFile = { path: path.resolve(file), text, sites: [site], defs: [], stdlib: inStdlib };
+    const loaded: LoadedFile = { path: path.resolve(file), text, sites: [site], defs: [], stdlib: inStdlib, searchEnv: searchEnv() };
     files.set(key, loaded);
 
     const entries = splitLogicalEntries(text);
@@ -374,13 +422,21 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
         tokens.add(token);
         continue;
       }
-      if (entry.isForLoop) continue;
+      if (entry.isForLoop) {
+        opaque ??= "a /for";
+        continue;
+      }
       for (const command of entryCommands(entry)) {
         if (!command.topLevel) continue;
+        if (command.kind === "opaque") {
+          opaque ??= command.what;
+          continue;
+        }
         if (command.kind !== "set") {
           handleLoad(entry, command, loaded.path);
           continue;
         }
+        if (command.name === "TFPATH" || command.name === "TFLIBDIR" || command.name === "HOME") local.delete(command.name);
         const value = valueAfter(command.value, command.pending);
         const runs = command.conditional ? guardRuns(entry, command) : true;
         everSet.add(command.name);

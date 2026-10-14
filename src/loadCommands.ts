@@ -1,5 +1,6 @@
+import { ALL_COMMANDS } from "./data/commands";
 import { isTfSpace, type LogicalEntry } from "./logicalEntries";
-import { entryStatements, parseStatements, type StructureMode, type SubLevel } from "./structure";
+import { entryStatements, parseRegions, parseStatements, type StructureMode, type SubLevel } from "./structure";
 
 /**
  * The `/load`, `/require`, `/set` and `/setenv` commands in an entry, as tf parses them. Both
@@ -68,7 +69,44 @@ export interface SetCommand extends CommandBase {
   value: string;
 }
 
-export type EntryCommand = LoadCommand | SetCommand;
+/**
+ * A command that may set variables this can't see: a call to a macro (other than tf's own
+ * commands that only set fixed variables), an expression (`/test x := 1`, a `$[...]` with an
+ * assignment), a `/set` whose name is built when it runs, or a command that runs text later
+ * read from elsewhere (`/quote`, `/repeat`, `/trigger`, stdlib's `/for` and `/toggle`). Proven in
+ * real tf: `/def setup = /set mydir=real` then `/setup`, `/test otherdir := "real"` and
+ * `/eval /set third%{nothing}dir=real` each set the variable.
+ */
+export interface OpaqueCommand extends CommandBase {
+  kind: "opaque";
+  /** What it is, for a message. */
+  what: string;
+}
+
+export type EntryCommand = LoadCommand | SetCommand | OpaqueCommand;
+
+/** tf's commands and stdlib macros that run text or set a variable named by their arguments. */
+const OPAQUE_COMMANDS = new Set(["test", "expr", "result", "return", "let", "for", "toggle", "repeat", "quote", "trigger"]);
+const KNOWN_COMMANDS: ReadonlySet<string> = new Set(ALL_COMMANDS.map((c) => c.name.toLowerCase()));
+/** An assignment in an expression: `:=`, `+=` and the like, `++x`, `x--`. */
+export const ASSIGNMENT_RE = /:=|[+\-*/]=(?!=)|\+\+|--(?=[A-Za-z_])|(?<=[A-Za-z0-9_])--/;
+
+/** What makes statement `stmt` opaque (see OpaqueCommand), if anything does. */
+function opaqueWhat(stmt: string): string | undefined {
+  // (A /set NAME with nothing after it only shows the variable.)
+  if (/^\/@?(?:set|setenv)\s+\S/i.test(stmt) && !/^\/@?(?:set|setenv)\s+[A-Za-z_][A-Za-z0-9_]*\s*$/i.test(stmt)) {
+    return "a /set whose name is built when it runs";
+  }
+  const call = /^\/(@?)!?([^\s%;|$]+)/.exec(stmt);
+  if (call) {
+    const name = (call[2] as string).toLowerCase();
+    if (OPAQUE_COMMANDS.has(name)) return `/${name}`;
+    if (!call[1] && !KNOWN_COMMANDS.has(name)) return `the call to /${call[2]}`;
+  }
+  const expression = /\$\[([^\]]*)\]/.exec(stmt);
+  if (expression && ASSIGNMENT_RE.test(expression[1] as string)) return "an assignment in an expression";
+  return undefined;
+}
 
 /**
  * What tf makes of `text` after the `pending` passes, when that doesn't depend on any variable:
@@ -176,6 +214,26 @@ interface Context {
 export function entryCommands(entry: LogicalEntry): EntryCommand[] {
   const out: EntryCommand[] = [];
 
+  /**
+   * The expressions tf compiles in `text`, read as `mode`: a `/test`, `/result` or `/return` (any
+   * expression statement may assign or call anything) or an assignment in a `$[...]` or a
+   * condition makes the text opaque. Text whose compile stops runs nothing.
+   */
+  const expressions = (text: string, mode: StructureMode, where: CommandBase): void => {
+    const regions = parseRegions(text, mode);
+    if (regions.stopped) return;
+    for (const ex of regions.expressions) {
+      if (ex.kind === "statement") {
+        out.push({ ...where, kind: "opaque", what: `the expression ${text.slice(ex.start, ex.end).trim()}` });
+        return;
+      }
+      if (ASSIGNMENT_RE.test(text.slice(ex.start, ex.end))) {
+        out.push({ ...where, kind: "opaque", what: "an assignment in an expression" });
+        return;
+      }
+    }
+  };
+
   /** The statement `src.text[start, end)`, read at `level` inside `ctx`. */
   const statement = (src: Source, start: number, end: number, level: SubLevel, ctx: Context): void => {
     if (ctx.pending.length > 0 || level === "full") {
@@ -210,6 +268,7 @@ export function entryCommands(entry: LogicalEntry): EntryCommand[] {
         mode = picked;
       }
       const from = i < args.length ? args[i]!.start : end;
+      expressions(text.slice(from, end), mode, { ...at(from, Math.max(from + 1, end)), ...ctx, viaEval: true });
       for (const st of parseStatements(text.slice(from, end), mode)) {
         statement(src, from + st.start, from + st.end, st.level, {
           ...ctx,
@@ -242,7 +301,11 @@ export function entryCommands(entry: LogicalEntry): EntryCommand[] {
     }
 
     const m = LOAD_RE.exec(stmt);
-    if (!m) return;
+    if (!m) {
+      const what = opaqueWhat(stmt);
+      if (what !== undefined) out.push({ kind: "opaque", what, ...at(start, Math.max(start + 1, end)), ...ctx });
+      return;
+    }
     const kind = (m[2] as string).toLowerCase() as "load" | "require";
     if (kind === "require" && m[1]) return;
     const args = words(text, start + m[0].length, end);
@@ -264,6 +327,9 @@ export function entryCommands(entry: LogicalEntry): EntryCommand[] {
 
   // One more offset than characters, so the statement's end (a separator, or the end) maps too.
   const source: Source = { text: entry.text, map: Array.from({ length: entry.text.length + 1 }, (_, i) => i) };
+  // A /test at the top level, or an assignment in a top-level /if's condition (a macro body's run later).
+  const whole = { start: 0, end: entry.text.length, pending: [], plain: true, viaEval: false, topLevel: true, conditional: false };
+  expressions(entry.text, "top", whole);
   for (const st of entryStatements(entry)) {
     statement(source, st.start, st.end, st.level, {
       pending: [],
@@ -277,5 +343,5 @@ export function entryCommands(entry: LogicalEntry): EntryCommand[] {
 }
 
 export function entryLoads(entry: LogicalEntry): LoadCommand[] {
-  return entryCommands(entry).filter((c): c is LoadCommand => c.kind !== "set");
+  return entryCommands(entry).filter((c): c is LoadCommand => c.kind === "load" || c.kind === "require");
 }

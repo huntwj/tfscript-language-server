@@ -228,6 +228,31 @@ describe("not-substituted-here (rule 4)", () => {
     expect(fixes("/echo C08a%; /@if (1) /echo C08b%; /@endif")).toEqual(["Put the next command on a line of its own", "none"]);
   });
 
+  // Proven live (review rev-s2e g.tf): /@@if is no keyword but a builtin lookup of "@if"; /@echo,
+  // /@@echo and /!@echo are "not a builtin command" (stdlib's /echo is a macro); /if(1) is "no such
+  // command or macro". /!echo runs the macro, and /@if is the keyword.
+  it("offers no split before a command tf wouldn't run", () => {
+    const fixes = (text: string) =>
+      getDiagnostics(`${text}\n`)
+        .filter((d) => d.message.startsWith("%; "))
+        .map((d) => (d.fix ? "split" : "none"));
+    for (const text of [
+      "/echo G01a%; /@@if (1) /echo b%; /endif",
+      "/echo G05a%; /@@while (0) /echo b%; /done",
+      "/echo G08a%; /@@!if (1) /echo b%; /endif",
+      "/echo G02a%; /@@echo b",
+      "/echo G03a%; /@!echo b",
+      "/echo G04a%; /!@echo b",
+      "/echo G11a%; /@echo b",
+      "/echo G06a%; /if(1) /echo b%; /endif",
+    ]) {
+      expect(fixes(text)[0]).toBe("none");
+    }
+    expect(fixes("/echo G10a%; /!echo b")).toEqual(["split"]);
+    expect(fixes("/echo G07a%; /@if (1) /echo b%; /endif")[0]).toBe("split");
+    expect(fixes("/echo a%; /@def x = /echo y")).toEqual(["split"]);
+  });
+
   it("stays near-linear on a line of thousands of %;", () => {
     const start = Date.now();
     expect(getDiagnostics(`/echo %{x} %{y ${"%; ".repeat(20000)}\n`).length).toBe(20000);

@@ -256,16 +256,24 @@ function isNameChar(ch: string | undefined): boolean {
   return ch !== undefined && (/[A-Za-z0-9_]/.test(ch) || ch.charCodeAt(0) >= 0x80);
 }
 
-/** A command at the start of a statement: its `/`, any `@` or `!`, and its name. */
-export const COMMAND_RE = /^\/[@!]*([^\s%)]*)/;
+/** A command at the start of a statement: its `/`, any `@` or `!` (the prefix), and its name. */
+export const COMMAND_RE = /^\/([@!]*)([^\s%)]*)/;
 
 /**
- * The command a statement at `start` runs, lower case, without its `/` and any `@` or `!`; "" for
- * text. The one reading of a command word, for every rule (`/@if` and `/!if` are `if`).
+ * The command a statement at `start` runs: its name, lower case, without its `/` and any `@` or
+ * `!`, and that prefix as written; "" for text. The one reading of a command word, for every rule.
+ * A keyword is one only with no prefix or exactly one `@` (keyword_parse(), expand.c): `/@if` is
+ * `/if`, but `/@@if` and `/!if` look for a command `@if` or `if`.
  */
+export function commandParts(s: string, start: number): { prefix: string; word: string } {
+  if (s[start] !== "/") return { prefix: "", word: "" };
+  const m = COMMAND_RE.exec(s.slice(start));
+  return { prefix: m?.[1] ?? "", word: (m?.[2] ?? "").toLowerCase() };
+}
+
+/** The command a statement at `start` runs, lower case, without its `/` and any `@` or `!` (commandParts). */
 export function commandWord(s: string, start: number): string {
-  if (s[start] !== "/") return "";
-  return (COMMAND_RE.exec(s.slice(start))?.[1] ?? "").toLowerCase();
+  return commandParts(s, start).word;
 }
 
 function isDigit(ch: string | undefined): boolean {

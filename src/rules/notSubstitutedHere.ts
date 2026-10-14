@@ -1,6 +1,7 @@
 import { entryLoads, shortened } from "../loadCommands";
+import { BUILTIN_COMMANDS } from "../data/builtinCommands.generated";
 import { isTfSpace } from "../logicalEntries";
-import { code, commandWord, parseRegions, type IssueEdit, type StructureMode } from "../structure";
+import { code, commandParts, parseRegions, type IssueEdit, type StructureMode } from "../structure";
 import { entrySubstitution, type ContextStatement, type EvalLevel, type LevelOption } from "../substitution";
 import type { EntryRule, EntryMatch } from "./types";
 
@@ -118,6 +119,20 @@ type Judgement = { kind: "plain" } | { kind: "rejected"; bad: string } | { kind:
 const SELECTOR_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+|[#?*]|-L?[0-9]*|L[0-9]*|P[0-9]+)$/;
 /** What a default may hold to be plain text: nothing /eval would substitute, escape or end it with. */
 const PLAIN_DEFAULT_RE = /^[^%${}\\]*$/;
+const BUILTINS = new Set(BUILTIN_COMMANDS.map((c) => c.toLowerCase()));
+
+/**
+ * Whether tf would refuse a command, written with this prefix and name, as no builtin: after any
+ * `!`s, one `@` asks for a builtin by the rest of the name, any further `@` or `!` included (proven,
+ * rev-s2e g.tf: `/@echo` is "echo: not a builtin command", stdlib's /echo being a macro; `/@@echo`
+ * "@echo: ...", `/!@echo` "echo: ..."; `/!echo` runs the macro).
+ */
+function notABuiltin(parts: { prefix: string; word: string }): boolean {
+  const afterBangs = parts.prefix.replace(/^!*/, "");
+  if (!afterBangs.startsWith("@")) return false;
+  return !BUILTINS.has(`${afterBangs.slice(1)}${parts.word}`);
+}
+
 /** The commands whose text /eval wouldn't run as a plain command with its text. */
 const NOT_PLAIN_COMMAND_RE = /^\/[@!]*(?:if|elseif|else|endif|while|do|done|then|break|test|return|result|exit)(?![^\s%])/i;
 
@@ -394,11 +409,18 @@ export const notSubstitutedHere: EntryRule = {
       // Not before a keyword: split off, /endif or /else is no command but a stray keyword
       // (keyword-mid-statement's case; second review's probe k1: -son made "unexpected /ELSE").
       // As tf reads a command word: /@endif and /!if are /endif and /if (review rev-s2d d.tf).
-      const nextWord = text[next] === "/" ? commandWord(text, next) : undefined;
-      // /!if is no keyword to tf, nor a command it has: split off, it is "if: no such command or
-      // macro" (review rev-s2d c.tf, proven).
-      const bangKeyword = /^\/[@!]*!/.test(text.slice(next, next + 3)) && (nextWord === "if" || nextWord === "while" || BLOCK_KEYWORDS.has(nextWord ?? ""));
-      const command = nextWord !== undefined && !BLOCK_KEYWORDS.has(nextWord) && !bangKeyword;
+      const parts = text[next] === "/" ? commandParts(text, next) : undefined;
+      const nextWord = parts?.word;
+      // A keyword's name with any prefix but none or one @ is no keyword to tf, nor a command it
+      // has: /!if is "if: no such command or macro", /@@if "@if: not a builtin command" (review
+      // rev-s2d c.tf, rev-s2e g.tf, proven).
+      const keywordName = nextWord === "if" || nextWord === "while" || BLOCK_KEYWORDS.has(nextWord ?? "");
+      // `/if(1)` is no /if either, but a command `if(1)` (proven: "if(1): no such command or macro").
+      const glued = /^(?:if|elseif|while)\(/.test(nextWord ?? "");
+      const notAKeyword = glued || (keywordName && parts!.prefix !== "" && parts!.prefix !== "@");
+      // /@if is the keyword itself (keyword_parse() takes one @), not a builtin lookup.
+      const keyword = keywordName && (parts!.prefix === "" || parts!.prefix === "@");
+      const command = nextWord !== undefined && !BLOCK_KEYWORDS.has(nextWord) && !notAKeyword && (keyword || !notABuiltin(parts!));
       // Nor where the commands it would split off open a block they don't close (review rev-s2c
       // h.tf: `/echo a%; /if (1) /echo b` on lines of their own is an /if with no /endif).
       // A line split off can only leave a block open if it starts one; -son reads the whole text.

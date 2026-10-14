@@ -68,7 +68,7 @@ import { formatText } from "./formatting";
 import type { RawSettings } from "./workspace/settings";
 import { fileKey } from "./workspace/loadGraph";
 import { WorkspaceIndex, type ContextInfo } from "./workspace/workspaceIndex";
-import { relevantChange, SKIP_DIRS, watchPlan, Watching } from "./watching";
+import { isSkippedDir, relevantChange, watchPlan, Watching } from "./watching";
 import { logUnhandledRejections } from "./rejections";
 
 // Explicit streams rather than relying on a `--stdio`/`--node-ipc`/`--socket` command-line
@@ -111,7 +111,7 @@ function walkTfFiles(dir: string, limit = Infinity): string[] {
       if (out.length >= limit) return;
       const full = path.join(d, e.name);
       if (e.isDirectory()) {
-        if (!SKIP_DIRS.has(e.name)) visit(full);
+        if (!isSkippedDir(e.name)) visit(full);
       } else if (e.name.endsWith(".tf") || e.name === "tfrc" || e.name === ".tfrc") {
         out.push(full);
       }
@@ -183,8 +183,8 @@ async function loadSettingsNow(): Promise<void> {
       }
     }
     // The folders to watch depend on the settings (the library, mapped folders).
-    await watching.update(
-      canWatch ? watchPlan(folders, folders.map((f) => index.settingsFor(f)), canWatchOutside) : undefined,
+    await watching.update(() =>
+      canWatch ? watchPlan(folders, folders.map((f) => index.settingsFor(f)), canWatchOutside, homedir()) : undefined,
     );
   } catch (error) {
     connection.console.error(`tfscript: reading the settings failed: ${String(error)}`);
@@ -199,7 +199,12 @@ const watching = new Watching(
   (watchers) => connection.client.register(DidChangeWatchedFilesNotification.type, { watchers }),
   (roots) => index.setWatchedRoots(roots),
   (message) => connection.console.error(message),
+  // Changes made before the new watchers were in place weren't reported to anyone.
+  () => index.filesChanged(),
 );
+
+// A check of unwatched files skipped for being too soon is made up for once the second is up.
+index.setRecheck((delayMs) => setTimeout(revalidateOpenDocuments, delayMs + 10));
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
   folders = (params.workspaceFolders ?? []).map((f) => toPath(f.uri)).filter((f): f is string => f !== undefined);

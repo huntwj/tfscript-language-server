@@ -447,7 +447,7 @@ class Parser {
     const ended = this.block as Block;
     const to = this.i + 1;
     // Where a missing /endif or /done would go: the end of the body, or before the $(...)'s ).
-    const where = this.cmdsub > 0 ? "before the )" : "at the end of the body";
+    const where = this.cmdsub > 0 ? "before the )" : this.mode === "top" ? "at the end of the line" : "at the end of the body";
     const closer = (word: string): IssueFix => ({ title: `Add %; /${word} ${where}`, edits: [this.appendStatement(this.i, word)] });
     const conditionList = (word: string, then: string): IssueDetail => ({
       message: `This /${word}'s condition list has no /${then}.`,
@@ -487,15 +487,26 @@ class Parser {
     } else if (ended === "while") {
       this.blockError(start, end, conditionList("while", "do"), "do", "block", to);
     } else if (ended === "do") {
+      const top = this.mode === "top" && this.cmdsub === 0 && this.i >= this.s.length;
       this.blockError(
         start,
         end,
-        {
-          message: "This /while has no /done.",
-          label: "never closed",
-          explanation: `A ${code("/while")} needs a ${code("/done")} later in the same macro body, at the start of a statement (after a ${code("%;")}).`,
-          fix: closer("done"),
-        },
+        top
+          ? {
+              message: "This /while has no /done in the same command.",
+              label: "no /done on this line",
+              explanation:
+                `tf reads a file one command per line, after joining lines that end in ${code("\\")}. A ${code("/while")} ` +
+                `and its ${code("/done")} have to end up in the same command: either on one line, separated with ` +
+                `${code("%;")}, or with a trailing ${code("\\")} on every line but the last.`,
+              fix: closer("done"),
+            }
+          : {
+              message: "This /while has no /done.",
+              label: "never closed",
+              explanation: `A ${code("/while")} needs a ${code("/done")} later in the same macro body, at the start of a statement (after a ${code("%;")}).`,
+              fix: closer("done"),
+            },
         "done",
         "block",
         to,

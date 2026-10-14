@@ -151,10 +151,11 @@ describe("not-substituted-here (rule 4)", () => {
     expect(message('/def n1 = /if ($(/echo \\) x") !~ "" & strlen("%{x}") == 4) /echo l%; /endif')).toEqual([inString]);
   });
 
-  // Third review: tf runs /if(1) as a command named "if(1)", so the line isn't raised to the newline level.
-  it("notes a %; on a line starting /if( with no blank, which isn't an /if", () => {
-    const [d] = getDiagnostics("/if(1) /echo a%; /echo b%; /endif\n").filter((x) => x.code === "not-substituted-here");
-    expect(d?.severity).toBe("information");
+  // Third review: tf runs /if(1) as a command named "if(1)", so the line isn't raised to the newline
+  // level. The missing blank is keyword-needs-space's to report: with it, the %; separates.
+  it("leaves a %; on a line starting /if( with no blank to keyword-needs-space", () => {
+    const found = getDiagnostics("/if(1) /echo a%; /echo b%; /endif\n").map((x) => x.code);
+    expect(found).toEqual(["keyword-needs-space"]);
   });
 
   // Review probes p1 (A4) and p2 (B1): the command after /quote's backquote is run as a macro body.

@@ -1,7 +1,7 @@
 import { entryLoads, shortened } from "../loadCommands";
 import { BUILTIN_COMMANDS } from "../data/builtinCommands.generated";
 import { isTfSpace } from "../logicalEntries";
-import { code, commandParts, parseRegions, type IssueEdit, type StructureMode } from "../structure";
+import { code, commandParts, gluedKeywordAt, parseRegions, type IssueEdit, type StructureMode } from "../structure";
 import { entrySubstitution, type ContextStatement, type EvalLevel, type LevelOption } from "../substitution";
 import type { EntryRule, EntryMatch } from "./types";
 
@@ -379,6 +379,8 @@ export const notSubstitutedHere: EntryRule = {
       const st = index.at(at);
       // A macro definition's options (an -E expression) and body are read later, their own way.
       if (!st || st.body !== undefined) continue;
+      // `/if(1) ...%; /endif`: the %; would separate, but for the missing blank (keyword-needs-space's).
+      if (gluedKeywordAt(text, st.start)) continue;
       let next = at + 2;
       while (next < st.end && isTfSpace(text[next])) next += 1;
       // A %; with nothing after it is a body line whose /def is missing (missing-continuation's case).

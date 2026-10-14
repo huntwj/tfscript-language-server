@@ -338,6 +338,8 @@ function undefinedMacros(
     const name = call.name.toLowerCase();
     // A path or pattern written as a statement (`/^...`, `/*`) isn't a macro name.
     if (!/^[A-Za-z0-9_~:]/.test(name) || /[/*]/.test(name)) continue;
+    // `/if(1)` is a keyword missing its blank (keyword-needs-space says so), not a macro to look for.
+    if (/^(?:if|elseif|while|then|else|endif|do|done|break)\(/.test(name)) continue;
     if (defines(visible, name) || ignored(ignore, name)) continue;
     if (guardedByIsmacro(lines, call.range.start.line, name)) continue;
     const there = elsewhere.find((e) => defines(e.defs, name));

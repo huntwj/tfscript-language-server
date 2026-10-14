@@ -46,6 +46,8 @@ export type StructureKind =
   | "keyword"
   /** A statement in a condition list that isn't a command: tf sends it to the world (list() in expand.c). */
   | "condition-text"
+  /** A keyword glued to what follows it (`/if(1)`), which tf reads as a command of that whole name. */
+  | "glued"
   /** A top-level /if or /while still open where its (joined) line ends. */
   | "continuation"
   /** A `%{...}`, `%-`, `${...}` or `$(...)` tf can't read (`varsub()`, `macsub()`, `cmdsub()`). */
@@ -284,6 +286,50 @@ export function commandParts(s: string, start: number): { prefix: string; word: 
   return { prefix: m?.[1] ?? "", word: (m?.[2] ?? "").toLowerCase() };
 }
 
+/** The keywords a block is made of, and /break: the ones a missing blank turns into a command name. */
+const GLUABLE_KEYWORDS = new Set(["if", "elseif", "while", "then", "else", "endif", "do", "done", "break"]);
+
+/**
+ * A block keyword at `start` glued to a `(` or `/` after it (`/if(1)`, `/else/echo b`): tf reads a
+ * keyword up to a blank, `%` or `)` (keyword_parse()), so it takes the whole word as the name of a
+ * command, and finds none ("if(1): no such command or macro", proven). The keyword's name, where
+ * it ends, and where the word tf runs ends (at a blank or `%`). Only with no prefix or one `@`, as
+ * a keyword is written; only before `(` or `/`, which no macro name has next to a keyword's.
+ */
+export function gluedKeywordAt(s: string, start: number): { word: string; nameEnd: number; tokenEnd: number } | undefined {
+  if (s[start] !== "/") return undefined;
+  let p = start + 1;
+  if (s[p] === "@") p += 1;
+  let q = p;
+  while (q < s.length && /[A-Za-z]/.test(s[q] as string)) q += 1;
+  const word = s.slice(p, q).toLowerCase();
+  if (!GLUABLE_KEYWORDS.has(word) || (s[q] !== "(" && s[q] !== "/")) return undefined;
+  let e = q;
+  while (e < s.length && !isTfSpace(s[e]) && s[e] !== "%") e += 1;
+  return { word, nameEnd: q, tokenEnd: e };
+}
+
+/**
+ * Where the text after the parenthesis at `open` and its matching `)` starts, past the blanks
+ * after it (strings skipped as expressions read them); the end of `s` if it never closes.
+ */
+function afterParens(s: string, open: number): number {
+  let depth = 0;
+  for (let p = open; p < s.length; p += 1) {
+    const ch = s[p];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      p += 1;
+      while (p < s.length && s[p] !== ch) p += s[p] === "\\" ? 2 : 1;
+    } else if (ch === "(") depth += 1;
+    else if (ch === ")" && --depth === 0) {
+      let q = p + 1;
+      while (isTfSpace(s[q])) q += 1;
+      return q;
+    }
+  }
+  return s.length;
+}
+
 /** The command a statement at `start` runs, lower case, without its `/` and any `@` or `!` (commandParts). */
 export function commandWord(s: string, start: number): string {
   return commandParts(s, start).word;
@@ -353,6 +399,8 @@ class Parser {
   private depth = 0;
   private readonly open: Open[] = [];
   private readonly mids: MidKeyword[] = [];
+  /** Every keyword glued to what follows it, with its issue, to note the problems it leads to on. */
+  private readonly glued: { word: string; start: number; issue: StructureIssue }[] = [];
   /** Where the last `(condition)` ended (after its blanks), and the keyword it belongs to. */
   private conditionEnd: { at: number; keyword: string } | undefined;
   readonly issues: StructureIssue[] = [];
@@ -479,6 +527,9 @@ class Parser {
     searchTo = start,
   ): never {
     const since = this.open.length > 0 ? (this.open[this.open.length - 1] as Open).start : -1;
+    // The keyword that would have fixed it is there, but glued to what follows it (/endif;, /do/echo):
+    // the one problem is reported there.
+    if (fix && this.gluedBefore(fix, searchTo, since, { start, end, message: `this /${this.open[this.open.length - 1]?.keyword ?? fix}, left open` })) throw new Stop();
     const fixer = fix ? this.mids.find((m) => m.word === fix && m.start > since && m.start < searchTo) : undefined;
     // Point at the first keyword of that statement: in "/echo a /else /echo b /endif" it is the /else.
     const mid = fixer && this.mids.find((m) => m.stmt === fixer.stmt && m.start > since);
@@ -540,6 +591,57 @@ class Parser {
       if (w.word === "if" && w.start < at && !w.stray) return w;
     }
     return undefined;
+  }
+
+  /**
+   * Whether a keyword `word` glued to what follows it sits between `after` and `before`: if so,
+   * `note` (the problem it leads to) is added to its issue, and that is the one reported.
+   */
+  private gluedBefore(word: string, before: number, after: number, note: IssueNote): boolean {
+    for (let k = this.glued.length - 1; k >= 0; k -= 1) {
+      const g = this.glued[k] as (typeof this.glued)[number];
+      if (g.start >= before || g.start <= after || g.word !== word) continue;
+      (g.issue.related ??= []).push(note);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * A statement at `start` whose command is a block keyword glued to what follows it (`/if(1)`,
+   * `/else/echo b`): keyword_parse() reads the word up to a blank, `%` or `)`, so tf takes the
+   * whole of it as a command name, and finds none.
+   */
+  private gluedKeyword(start: number): void {
+    const glued = gluedKeywordAt(this.s, start);
+    if (!glued) return;
+    const { word, nameEnd, tokenEnd } = glued;
+    const written = this.s.slice(start, tokenEnd);
+    // With one @, tf looks for a builtin of the rest of the name ("if(1): not a builtin command").
+    const named = this.s[start + 1] === "@" ? `the builtin command ${written.slice(2)}` : `a command named ${written.slice(1)}`;
+    const ends = (word === "endif" || word === "done" || word === "break") && this.s[nameEnd] === "/";
+    const issue: StructureIssue = {
+      kind: "glued",
+      start,
+      end: tokenEnd,
+      message: `tf reads ${written} as ${named}, not as /${word}: put ${ends ? "%;" : "a space"} after /${word}.`,
+      label: `not /${word}`,
+      explanation:
+        `tf reads a keyword up to the next blank, ${code("%")} or ${code(")")}, so ${code(written)} isn't ` +
+        `${code(`/${word}`)}: tf runs it as ${named}, and there is none. ` +
+        (ends
+          ? `${code(`/${word}`)} ends its statement, so the command after it needs a ${code("%;")} before it.`
+          : `A blank after ${code(`/${word}`)} makes it the keyword.`),
+      // /endif, /done and /break end their statement, so the command after them needs a %; too.
+      fix: ends
+        ? { title: `Put %; after /${word}`, edits: [{ start: nameEnd, end: nameEnd, newText: "%; " }] }
+        : { title: `Put a space after /${word}`, edits: [{ start: nameEnd, end: nameEnd, newText: " " }] },
+    };
+    // `/while(0)%; /done`: with the blank, the %; straight after the condition sends a blank line
+    // (tf warns, probe g1), so the fix would only trade one problem for another.
+    if (this.s[nameEnd] === "(" && this.isStatEnd(afterParens(this.s, nameEnd))) delete issue.fix;
+    this.issues.push(issue);
+    this.glued.push({ word, start, issue });
   }
 
   /** A keyword swallowed by the statement it sits in, which leaves its block unfinished. */
@@ -717,6 +819,7 @@ class Parser {
             break;
           default:
             this.i = stmtStart;
+            if (!kw) this.gluedKeyword(stmtStart);
             this.statement(subs);
             this.unit(stmtStart, commandWord(this.s, stmtStart));
         }
@@ -865,8 +968,8 @@ class Parser {
     const outer = this.block;
     const opener = word === "do" || word === "done" ? "while" : "if";
     const verb = word === "endif" || word === "done" ? "close" : "belong to";
-    // Left with no block by an /if a /let or /set value swallowed: tf stops compiling here, and
-    // the one problem is reported at the cause.
+    // Left with no block by an /if a /let or /set value swallowed, or by an opener glued to what
+    // follows it (/if(1)): tf stops compiling here, and the one problem is reported at the cause.
     if (!outer) {
       const note = { start, end, message: `this /${word}, left with no /${opener} to ${verb}` };
       const swallowed = word === "endif" || word === "else" || word === "elseif" ? this.swallowedIfBefore(start) : undefined;
@@ -874,6 +977,7 @@ class Parser {
         swallowed.stray = note;
         throw new Stop();
       }
+      if (this.gluedBefore(opener, start, -1, note)) throw new Stop();
     }
     const where = outer ? `: it is ${describeBlock(outer)}` : "";
     const problem: IssueDetail = {

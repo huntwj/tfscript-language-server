@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Two refactorings for a macro body: "Split the body onto separate lines" (one statement per
+  line, blocks indented, as the formatter lays it out) and "Join the body onto one line". Each is
+  offered only when tf would run the same program afterwards, and never on CRLF lines, across
+  comment lines, or where a tab would move to another column.
 - `undefined-macro` is on by default and a warning: a `/name` command calling a macro no file on
   the load path, in the workspace or in tf's library defines, with a "did you mean" fix when one
   visible name is a clear typo of it. A macro defined in a file the load path doesn't reach is a

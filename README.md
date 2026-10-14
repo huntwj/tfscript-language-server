@@ -9,8 +9,9 @@ completion (commands, functions, variables, selectors), document symbols (an out
 `/hook` and `/trig*`), folding, quick fixes for many of the diagnostics, and hover,
 go-to-definition and find-references for macros and variables across every file your tfrc's
 `/load` and `/require` lines reach (see "Load paths"), signature help, semantic highlighting,
-highlighting every use of the name under the cursor, workspace-wide symbol search, rename, clickable `/load` and `/require` filenames, and formatting that only
-changes whitespace tf ignores. There is a VS Code
+highlighting every use of the name under the cursor, workspace-wide symbol search, rename, clickable `/load` and `/require` filenames, formatting that only
+changes whitespace tf ignores, and refactorings that split a macro body onto separate lines or
+join it onto one. There is a VS Code
 extension (`editors/vscode/`) for syntax highlighting plus everything the server does; other editors can wire up the stdio server
 directly — see "Use".
 
@@ -335,6 +336,8 @@ src/
   folding.ts           getFoldingRanges(text): continued entries and comment runs
   codeActions.ts       getCodeActions(text, range): each diagnostic's own fix, offered once
                         (recomputed server-side)
+  bodyLayout.ts        getRefactorActions(text, range): split a macro body onto separate lines,
+                        or join one onto a single line, when tf would run the same program
   documentLinks.ts     the filename in each /load and /require, as tf parses the command
   joinFix.ts           the fixes that join lines with \, found by trying candidates
   explain.ts           a diagnostic's hover: the source excerpt with its spans marked, the
@@ -358,6 +361,7 @@ test/
                         unit tests for those modules
   symbols.test.ts, folding.test.ts, codeActions.test.ts, navigation.test.ts  unit tests for
                         the four above
+  bodyLayout.test.ts    split and join: layouts, when they aren't offered, and round trips
   variables.test.ts, variableNavigation.test.ts, highlights.test.ts  variable scopes,
                         lookups, rename and highlights
   documentLinks.test.ts  which /load and /require filenames link, and where to
@@ -392,7 +396,7 @@ node dist/server.js     # run the server directly (speaks LSP over stdio)
 ```
 
 The server advertises `completionProvider` (triggered on `/` and `{`), `documentSymbolProvider`,
-`foldingRangeProvider`, `codeActionProvider` (quick fixes only), `hoverProvider`,
+`foldingRangeProvider`, `codeActionProvider` (quick fixes and `refactor.rewrite`), `hoverProvider`,
 `definitionProvider`, `referencesProvider`, `documentHighlightProvider`, `signatureHelpProvider` (triggered on space, `(` and `,`), `semanticTokensProvider`
 (full documents), `documentFormattingProvider`, `documentRangeFormattingProvider`,
 `workspaceSymbolProvider`, `renameProvider` (with prepare) and `documentLinkProvider`, and publishes diagnostics
@@ -542,6 +546,33 @@ Every rebuilt entry is joined again the way tf does and compared with the origin
 but the whitespace beside a `%;` differs, the entry is only re-indented. Formatting tf's own
 library and the WoTMUD scripts this way and loading both versions into real tf gave the same
 1448 macro definitions.
+
+### Splitting and joining a body
+
+Two refactorings (`refactor.rewrite` code actions) move one macro body between layouts:
+
+- **Split the body onto separate lines**, on a `/def`, `/alias`, `/bind`, `/hook` or `/trig*`
+  written on one line: the formatter's layout for that entry, one statement per line ending
+  `%;\`, each block's children indented, using the file's own indentation (the smallest
+  indentation of a continuation line, else four spaces).
+- **Join the body onto one line**, on one that spans several: the text tf itself reads from the
+  lines (each line's indentation dropped, the `\` removed), with one blank after each `%;`.
+
+Each is offered only when the result reads back as the same program: the same head, the same
+body once the blanks beside each `%;` are dropped, the same statements and the same structural
+problems; a split must also join back to the same program. They aren't offered on CRLF lines
+(a `\` before the `\r` continues nothing), when a tab after a line's indentation would move to
+another column (a tab in the head, as tf's library writes `/def -i true<tab>= ...`, stays put
+and is fine), across comment lines (tf skips them, but joining would delete them), or on an
+entry the file ends in the middle of. Split isn't offered for a body with a single statement.
+
+Original, split and rejoined forms of `/if`/`/elseif`/`/else`, `/while`, a `/then` condition
+list, `%|`, nested `$(...)`, `/let` values with inner and trailing blanks, `\\` and `%%;` in
+values, a `-t` trigger body, `/trig`, `/alias` and a tab in the head printed the same in real tf
+(tf-script-check, 2026-10-14). Over tf's library and the WoTMUD scripts, split is offered on 9
+of 381 one-line bodies (the rest have one statement, or, in `self.tf`, quotes that make the
+layout uncertain) and join on 181 of 206 continued ones (23 have comment lines between their
+lines, 2 a tab that would move); every result parses to the same statements.
 
 ## Contributing
 

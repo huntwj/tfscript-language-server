@@ -156,6 +156,11 @@ describe("missing-continuation messages", () => {
     );
   });
 
+  it("says when the line ends in %\\, which never continues", () => {
+    expect(only(["/if (1) /echo % 5%\\", "/endif"]).message).toBe(
+      "This /if ends at the end of line 1, as a \\ after a % doesn't continue a line, so the /endif on line 2 is a separate command: end the line with a \\ that has no % before it.",
+    );
+  });
 });
 
 // The second review's probes (scratchpad rev-r1b), each fix applied and run in tf dev, 2026-10-14.
@@ -197,6 +202,12 @@ describe("missing-continuation: what a join can reach", () => {
     const q26 = ["/if (0)", ...body.slice(0, 20), "/endif", "/echo % after"];
     expect(opener(text(q26)).fix).toBeUndefined();
     expect(found(q26).filter((c) => !c.startsWith("indented"))).toEqual(["missing-continuation@0", "block-structure@21"]);
+  });
+
+  it("drops the add-a-closer fix when whitespace cuts off the \\, with no lines taken in", () => {
+    // Added, tf would send the "\ " to the world.
+    const t = text(["/if (1) /echo % a%; \\ ", "/echo % b"]);
+    expect(opener(t).fix).toBeUndefined();
   });
 
   it("takes in an indented /def, which a join brings into the block", () => {

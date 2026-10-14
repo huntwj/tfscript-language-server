@@ -84,8 +84,12 @@ function entryIndexAt(entries: LogicalEntry[], line: number): number {
   return -1;
 }
 
-/** How the opener's last line fails to continue: no `\`, or a `\` that whitespace (a CRLF's `\r` among it) follows. */
-function cutOff(line: string): "none" | "whitespace" | "crlf" {
+/**
+ * How the opener's last line fails to continue: no `\` at all, a `%\` (an escaped `\`, which never
+ * continues), or a `\` that whitespace (a CRLF's `\r` among it) follows.
+ */
+function cutOff(line: string): "none" | "percent" | "whitespace" | "crlf" {
+  if (/(?<!%)%\\[ \t\f\v\r]*$/.test(line)) return "percent";
   if (!/\\[ \t\f\v\r]+$/.test(line)) return "none";
   return /\\\r$/.test(line) ? "crlf" : "whitespace";
 }
@@ -167,6 +171,9 @@ export function consolidateContinuations(text: string, entries: LogicalEntry[], 
       const verb = s.word === "endif" || s.word === "done" ? "close" : "belong to";
       related.push({ range: s.d.range, message: `a command of its own, so this /${s.word} doesn't ${verb} the /${opener.word}` });
     }
+    const how = cutOff(lines[opener.endLine] ?? "");
+    // The \ is there: backslash-not-last's fix (or LF line endings) is what's needed, not a closer here.
+    if (how !== "none" && opener.d.fix?.title.startsWith("Add %; /")) delete opener.d.fix;
     if (related.length === 0) continue;
     related.sort(byPosition);
     opener.d.related = [...(opener.d.related ?? []), ...related];
@@ -175,16 +182,15 @@ export function consolidateContinuations(text: string, entries: LogicalEntry[], 
       ? `the /${closer.word} on line ${closer.d.range.start.line + 1} is a separate command`
       : `line ${(related[0] as Related).range.start.line + 1} starts a separate command`;
     const n = opener.endLine + 1;
-    const how = cutOff(lines[opener.endLine] ?? "");
     opener.d.message =
-      how === "crlf"
+      how === "percent"
+        ? `This /${opener.word} ends at the end of line ${n}, as a \\ after a % doesn't continue a line, so ${what}: end the line with a \\ that has no % before it.`
+        : how === "crlf"
         ? `This /${opener.word} ends at the end of line ${n}, where the file's Windows (CRLF) line ending puts a carriage return after the \\, so ${what}: save the file with LF line endings.`
         : how === "whitespace"
           ? `This /${opener.word} ends at the end of line ${n}, where whitespace follows the \\, so ${what}: remove the whitespace.`
           : `This /${opener.word} ends at the end of line ${n}, which has no \\, so ${what}: end every line but the last with \\.`;
     opener.d.label = `its command ends on line ${n}`;
-    // The \ is there: backslash-not-last's fix (or LF line endings) is what's needed, not a closer here.
-    if (how !== "none" && opener.d.fix?.title.startsWith("Add %; /")) delete opener.d.fix;
   }
 
   return diagnostics.filter((d) => !dropped.has(d));

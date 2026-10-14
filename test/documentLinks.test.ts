@@ -93,17 +93,18 @@ describe("findLoadPaths", () => {
   });
 
   it("links the literal name at the newline level, with each %% run one shorter", () => {
-    // Real tf: /eval -son /load a%%b.tf loaded a%b.tf, and -son /load %{x}.tf the file %{x}.tf.
-    expect(files("/eval -son /load a%%b.tf\n/eval -son /load %{x}.tf\n/if (1) /load u%%v.tf%; /endif\n/eval -s002 /load c.tf\n")).toEqual([
+    // Real tf: /eval -son /load a%%b.tf loaded a%b.tf.
+    expect(files("/eval -son /load a%%b.tf\n/if (1) /load u%%v.tf%; /endif\n/eval -s002 /load c.tf\n")).toEqual([
       "a%b.tf",
-      "%{x}.tf",
       "u%v.tf",
       "c.tf",
     ]);
   });
 
-  it("gives no link for a %{...} the load-no-expansion rule warns about, outside /eval", () => {
-    expect(files("/load %{d}/a.tf\n/if (1) /load %{d}/b.tf%; /endif\n/eval -son /load %{d}/c.tf\n")).toEqual(["%{d}/c.tf"]);
+  it("gives no link for a %{...} or %name the not-substituted-here rule warns about", () => {
+    // Real tf: -son /load %{x}.tf looks for the file %{x}.tf, but that is surely a mistake.
+    expect(files("/load %{d}/a.tf\n/if (1) /load %{d}/b.tf%; /endif\n/eval -son /load %{d}/c.tf\n/load %d/e.tf\n")).toEqual([]);
+    expect(files("/load %%d/e.tf\n")).toEqual(["%%d/e.tf"]);
   });
 
   it("covers a leading %% run as written, linking the shortened name", () => {

@@ -6,8 +6,8 @@ import type { Range } from "./symbols";
  * The filenames of the `/load` and `/require` commands in a document (loadCommands.ts parses
  * them), for document links, linking the name tf ends up with. No link for a filename that is
  * substituted when it runs and has something to substitute (in a macro body, or under `/eval`
- * at its default level), one with a `%{...}` the load-no-expansion rule warns about (outside
- * `/eval`), one with a `\` (so a Windows path like `C:\x\a.tf` gets none), or one split across
+ * at its default level), one with a `%{...}` or `%name` that isn't substituted (which the
+ * not-substituted-here rule warns about), one with a `\` (so a Windows path like `C:\x\a.tf` gets none), or one split across
  * lines.
  */
 
@@ -31,8 +31,10 @@ export function findLoadPaths(text: string): LoadPath[] {
     if (entry.incomplete) continue;
     for (const load of entryLoads(entry)) {
       const written = entry.text.slice(load.start, load.end);
-      // load-no-expansion warns about a %{...} outside /eval: no link to the literal name.
-      if (/\\/.test(written) || (!load.viaEval && /%\{[^}]*\}/.test(written))) continue;
+      // not-substituted-here warns about a %{...} or %name tf won't substitute: no link to the
+      // literal name. (A % in a run of them is text.)
+      const namesVariable = /%\{|%[A-Za-z_]/.test(written.replace(/%%+/g, ""));
+      if (/\\/.test(written) || (!load.pending.includes("full") && namesVariable)) continue;
       const file = literalText(load.file, load.pending);
       if (file === undefined) continue;
       const from = entry.offsetMap[load.start];

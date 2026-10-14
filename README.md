@@ -67,14 +67,15 @@ file gets truncated, since tf never reads past the line it aborts on.
 a statement, follows nesting, and knows that a top-level line substitutes nothing while a macro
 body does. It reports only the first error in a body, as tf stops compiling there.
 
-Every diagnostic has a one-sentence message for the Problems pane, related locations (the `/if`
-a stray `/else` was meant for, an `/endif` swallowed as text, the line missing its `\`), and a
-hover in the style of Rust's compiler errors: the source lines with the problem underlined and
-the related spans marked and labelled, a short explanation, and the lines as the quick fix
-leaves them. Most have a quick fix: a missing `%;`, `/endif`, `/done`, `]`, `}` or `)`; a stray
-`/then` or `)`; `%%-` for a literal `%-`; `(...)` for a redundant `$[...]`; `/eval` in front of a
-top-level command; deleting the whitespace after a `\`; commenting out a line that isn't a
-command. A top-level `/if` or `/while` spread over several lines, and an indented line that
+Every diagnostic has a one-sentence message for the Problems pane, saying the problem and, where
+there is one, the fix, and a hover in the style of Rust's compiler errors: the source lines with
+the problem underlined, a short explanation, and the lines as the quick fix leaves them. Where
+another place takes part, it is a related location, marked and labelled in the hover too (the
+`/if` a stray `/else` was meant for, an `/endif` swallowed as text, the line missing its `\`).
+Most have a quick fix: a missing `%;`, `/endif`, `/done`, `]`, `}` or `)`; a stray `/then` or `)`;
+`%%-` for a literal `%-`; `(...)` for a redundant `$[...]`; `/eval` in front of a top-level
+command; deleting the whitespace after a `\`; commenting out a line that isn't a command, or
+deleting the byte order mark that stops it being one. A top-level `/if` or `/while` spread over several lines, and an indented line that
 looks like it continues the one above, get their lines joined with `\` (`src/joinFix.ts`): how
 far to join, and where a joint needs a `%;`, is found by trying it, and a join is only offered if
 it leaves no new problem.

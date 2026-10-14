@@ -1,6 +1,6 @@
 import { entryLoads } from "../loadCommands";
 import { isTfSpace } from "../logicalEntries";
-import { code, type IssueEdit } from "../structure";
+import { code, parseRegions, type IssueEdit } from "../structure";
 import { entrySubstitution, type ContextStatement, type EvalLevel, type LevelOption } from "../substitution";
 import type { EntryRule, EntryMatch } from "./types";
 
@@ -23,34 +23,44 @@ import type { EntryRule, EntryMatch } from "./types";
  *
  * A `%` in a run of them (`%%{x}`) is left alone: whoever wrote it was thinking about escapes.
  */
+const PERCENT_NAME_RE = /%[A-Za-z_][A-Za-z0-9_]*/g;
+const SEPARATOR_RE = /%;/g;
+const BLOCK_KEYWORDS = new Set(["then", "else", "elseif", "endif", "do", "done"]);
+const VALUE_COMMANDS = new Set(["set", "let", "setenv"]);
+/** How far past a `%{` its end is looked for: a substitution is a few words, not a file. */
+const SUBSTITUTION_LIMIT = 4096;
+
 /**
- * Each `%{...}` in `text` that tf could read, to its own `}` (`%{x-%{y}}` is one, with the inner
- * one in its default), not one in a run of `%`s. Not one with another substitution glued onto its
- * selector (`%{foo%{bar}}`): tf can't read that as a substitution at all (substitution-syntax),
- * so putting `/eval` in front of it would only make an error of text that prints today.
+ * Each `%{...}` in `text` that tf could read if it substituted there, as `/eval` would, not one in
+ * a run of `%`s. Where it ends is the structure parser's to say: a default ends at the first `}`
+ * a nested substitution doesn't take (expand.c `varsub()`, review rev-s2 p6: `%{foo-a}b}` prints
+ * `ab}`), so `%{x-%{y}}` is one and `%{x-{} and %{y}` two. Not one tf can't read at all, such as
+ * `%{foo%{bar}}` (substitution-syntax): putting `/eval` in front of that would only make an error
+ * of text that prints today.
  */
 function percentBraces(text: string): { index: number; text: string }[] {
   const found: { index: number; text: string }[] = [];
   for (let at = text.indexOf("%{"); at >= 0; at = text.indexOf("%{", at + 1)) {
     if (text[at - 1] === "%") continue;
-    let selectorEnd = at + 2;
-    while (selectorEnd < text.length && !"-}%$".includes(text[selectorEnd] as string)) selectorEnd += 1;
-    let end = selectorEnd;
+    const read = parseRegions(text.slice(at, at + SUBSTITUTION_LIMIT), "body").spans.find(
+      (s) => s.start === 0 && s.kind === "substitution" && s.inner,
+    );
+    if (read) {
+      found.push({ index: at, text: text.slice(at, at + read.end) });
+      at += read.end - 1;
+      continue;
+    }
+    // Unreadable: nothing in it is a substitution of its own either (the `%{bar}` of
+    // `%{foo%{bar}}`), so skip to the } that balances its {, or to the end.
+    let end = at + 2;
     for (let depth = 1; end < text.length; end += 1) {
       if (text[end] === "{") depth += 1;
       else if (text[end] === "}" && (depth -= 1) === 0) break;
     }
-    if (end >= text.length) continue;
-    const glued = text[selectorEnd] !== "-" && text[selectorEnd] !== "}";
-    if (!glued) found.push({ index: at, text: text.slice(at, end + 1) });
     at = end;
   }
   return found;
 }
-const PERCENT_NAME_RE = /%[A-Za-z_][A-Za-z0-9_]*/g;
-const SEPARATOR_RE = /%;/g;
-const BLOCK_KEYWORDS = new Set(["then", "else", "elseif", "endif", "do", "done"]);
-const VALUE_COMMANDS = new Set(["set", "let", "setenv"]);
 
 /** The innermost statement holding `offset`. */
 function statementAt(statements: ContextStatement[], offset: number): ContextStatement | undefined {

@@ -131,4 +131,18 @@ describe("not-substituted-here and nested or malformed %{", () => {
   it("leaves a %{ with a substitution glued onto its selector alone", () => {
     expect(codes("/echo %{foo%{bar}}\n")).not.toContain("not-substituted-here");
   });
+
+  // Proven live (review rev-s2 p6, scratchpad s2/r/v.tf, under /eval): a default ends at the first }
+  // no nested substitution takes. %{foo-{} prints {, %{foo-a{b}c} prints a{bc}, and
+  // %{x-{} and %{y} is two substitutions.
+  it("ends a %{...} where tf ends it, at the first } its default doesn't take", () => {
+    const named = (text: string) =>
+      getDiagnostics(text)
+        .filter((d) => d.code === "not-substituted-here")
+        .map((d) => text.slice(d.range.start.character, d.range.end.character));
+    expect(named("/echo F1:%{foo-{}\n")).toEqual(["%{foo-{}"]);
+    expect(named("/echo F2:%{foo-a{b}c}\n")).toEqual(["%{foo-a{b}"]);
+    expect(named("/echo F7:%{x-{} and %{y}\n")).toEqual(["%{x-{}", "%{y}"]);
+    expect(named("/echo F5:%{x-$[1]} F6:%{x-${y}}\n")).toEqual(["%{x-$[1]}", "%{x-${y}}"]);
+  });
 });

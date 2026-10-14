@@ -170,7 +170,8 @@ export function quoteCommand(s: string, from: number, to: number): { start: numb
         mode = picked;
         break;
       }
-      if (flag !== "@" && flag !== "P" && flag !== "S") return undefined;
+      // (procopt's "-@" isn't an option letter: tf says "-@: invalid option", second review's q2.)
+      if (flag !== "P" && flag !== "S") return undefined;
     }
   }
   if (word) i = word.start;

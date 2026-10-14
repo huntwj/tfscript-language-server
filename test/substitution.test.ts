@@ -87,6 +87,11 @@ describe("quoteCommand and atCommand", () => {
     expect(quoted("-soff `/echo x")).toEqual({ command: "/echo x", mode: "top" });
     expect(quoted("-S !echo x")).toBeUndefined();
     expect(quoted("-S 'file")).toBeUndefined();
+    // Second review's probe q2: Q9, Q13 and Q20 ran; Q18's -@ is an invalid option.
+    expect(quoted("-S -0 `/echo x")).toEqual({ command: "/echo x", mode: "body" });
+    expect(quoted("-Ssoff `/echo x")).toEqual({ command: "/echo x", mode: "top" });
+    expect(quoted("-S -- `/echo x")).toEqual({ command: "/echo x", mode: "body" });
+    expect(quoted("-S -@ `/echo x")).toBeUndefined();
   });
 
   it("finds /at's command after its options, date and time", () => {

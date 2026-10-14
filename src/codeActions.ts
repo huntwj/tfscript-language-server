@@ -3,7 +3,8 @@ import { getDiagnostics, type Position, type Range, type TfDiagnostic, type TfTe
 /**
  * Quick fixes: the `fix` a diagnostic carries, the same one its hover shows. Diagnostics are
  * recomputed here rather than read back from the request's `context.diagnostics`: that copy only
- * carries what the client chose to echo, and getDiagnostics() is cheap enough to run per request.
+ * carries what the client chose to echo. getDiagnostics() is linear in the file, apart from the
+ * line-joining fixes, which try candidates but within a fixed budget per diagnostic (joinFix.ts).
  *
  * Two diagnostics can share one fix (load-no-expansion's `/eval` prefix covers every `%{...}` in
  * its command, and joining a top-level /if's lines fixes the indented lines inside it too); it is

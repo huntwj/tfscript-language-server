@@ -58,4 +58,22 @@ describe("keyword-needs-space", () => {
   it("leaves a macro whose name only starts with a keyword alone", () => {
     expect(all("/def ifx = /echo x%; /ifx%; /if_x%; /done1")).toEqual([]);
   });
+
+  // Review of step 4 (rev-s4 s09, s10, s16), proven in tf.
+  it("offers no blank for /else(, /then( or /do(, which take no condition", () => {
+    const d = first("/def s10 = /if (0) /echo a%; /else(1) /echo b%; /endif")!;
+    expect(d.message).toBe("tf reads /else(1) as a command named else(1), not as /else: did you mean /elseif (1)?");
+    expect(d.fix).toBeUndefined();
+    const e = first("/def s16 = /while (0) /echo x%; /do(1) /echo y%; /done")!;
+    expect(e.message).toBe("tf reads /do(1) as a command named do(1), not as /do: /do takes no (condition).");
+    expect(e.fix).toBeUndefined();
+  });
+
+  it("reads /endif; as one word, which leaves the /if open, and offers no fix", () => {
+    // tf: "expected /endif, found end"; an "Add %; /endif" would leave endif; to fail when it runs.
+    const found = all("/def s09 = /if (1) /echo a%; /endif;");
+    expect(found.map((d) => d.code)).toEqual([CODE]);
+    expect(found[0]?.message).toBe("tf reads /endif; as a command named endif;, not as /endif: a keyword ends at a blank, so take the ; away or put a blank before it.");
+    expect(found[0]?.fix).toBeUndefined();
+  });
 });

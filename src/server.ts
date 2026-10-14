@@ -23,6 +23,10 @@ import {
   type FoldingRangeParams,
   type Hover,
   DidChangeConfigurationNotification,
+  DidChangeWatchedFilesNotification,
+  type Disposable,
+  type FileSystemWatcher,
+  WatchKind,
   type InitializeParams,
   type InitializeResult,
   type Location,
@@ -42,7 +46,7 @@ import {
   type TextDocumentPositionParams,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -93,7 +97,8 @@ function listTfFiles(dir: string): string[] {
 
 const SKIP_DIRS = new Set([".git", ".jj", "node_modules"]);
 
-function walkTfFiles(dir: string): string[] {
+/** Stops as soon as it has `limit` files: a big tree isn't read to the end and then cut. */
+function walkTfFiles(dir: string, limit = Infinity): string[] {
   const out: string[] = [];
   const visit = (d: string): void => {
     let entries;
@@ -103,6 +108,7 @@ function walkTfFiles(dir: string): string[] {
       return;
     }
     for (const e of entries) {
+      if (out.length >= limit) return;
       const full = path.join(d, e.name);
       if (e.isDirectory()) {
         if (!SKIP_DIRS.has(e.name)) visit(full);
@@ -115,7 +121,15 @@ function walkTfFiles(dir: string): string[] {
   return out;
 }
 
-const index = new WorkspaceIndex({ readFile, listTfFiles, walkTfFiles }, { env: process.env, homedir: homedir(), exists: existsSync });
+function mtime(file: string): number | undefined {
+  try {
+    return statSync(file).mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
+
+const index = new WorkspaceIndex({ readFile, listTfFiles, walkTfFiles, mtime }, { env: process.env, homedir: homedir(), exists: existsSync });
 let folders: string[] = [];
 let hasConfiguration = false;
 let canRefreshTokens = false;
@@ -147,15 +161,58 @@ function contextFor(document: TextDocument): NavContext | undefined {
 }
 
 async function loadSettings(): Promise<void> {
-  if (!hasConfiguration) return;
-  for (const folder of folders) {
-    const raw = (await connection.workspace.getConfiguration({
-      scopeUri: pathToFileURL(folder).href,
-      section: "tfscript",
-    })) as RawSettings | null;
-    index.setSettings(folder, raw ?? {});
+  if (hasConfiguration) {
+    for (const folder of folders) {
+      const raw = (await connection.workspace.getConfiguration({
+        scopeUri: pathToFileURL(folder).href,
+        section: "tfscript",
+      })) as RawSettings | null;
+      index.setSettings(folder, raw ?? {});
+    }
   }
+  // The folders to watch depend on the settings (the library, mapped folders, HOME).
+  await registerWatchers();
   revalidateOpenDocuments();
+}
+
+let canWatch = false;
+let canWatchOutside = false;
+let watching: Disposable | undefined;
+
+/**
+ * Asks the client to report changes to tf scripts in the workspace folders, to any file or
+ * folder created or deleted there (a folder's delete or rename takes its files with it), and,
+ * where the client takes patterns relative to a folder of their own, to the tf files read from
+ * outside them: the library, mapped folders and the home directory's tfrc. The index trusts
+ * what it read from disk under those roots until a change; anything else it checks against
+ * the file's modification time.
+ */
+async function registerWatchers(): Promise<void> {
+  if (!canWatch) {
+    index.setWatchedRoots([]);
+    return;
+  }
+  const tf = WatchKind.Create | WatchKind.Change | WatchKind.Delete;
+  const watchers: FileSystemWatcher[] = [
+    { globPattern: "**/*.tf", kind: tf },
+    { globPattern: "**/{tfrc,.tfrc}", kind: tf },
+    { globPattern: "**/*", kind: WatchKind.Create | WatchKind.Delete },
+  ];
+  const outside = new Set<string>();
+  if (canWatchOutside) {
+    for (const folder of folders) {
+      const settings = index.settingsFor(folder);
+      for (const dir of [settings.libraryDir, ...settings.pathMappings.map((m) => m.local)]) if (dir) outside.add(dir);
+      outside.add(settings.home);
+    }
+    for (const dir of outside) {
+      const baseUri = pathToFileURL(dir).href;
+      watchers.push({ globPattern: { baseUri, pattern: "**/{*.tf,tfrc,.tfrc}" }, kind: tf });
+    }
+  }
+  watching?.dispose();
+  watching = await connection.client.register(DidChangeWatchedFilesNotification.type, { watchers });
+  index.setWatchedRoots([...folders, ...outside]);
 }
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
@@ -167,6 +224,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
   index.setFolders(folders);
   hasConfiguration = Boolean(params.capabilities.workspace?.configuration);
   canRefreshTokens = Boolean(params.capabilities.workspace?.semanticTokens?.refreshSupport);
+  canWatch = Boolean(params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration);
+  canWatchOutside = canWatch && Boolean(params.capabilities.workspace?.didChangeWatchedFiles?.relativePatternSupport);
   return {
     capabilities: {
       workspace: { workspaceFolders: { supported: true, changeNotifications: true } },
@@ -191,10 +250,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 });
 
 connection.onInitialized(() => {
-  if (hasConfiguration) {
-    void connection.client.register(DidChangeConfigurationNotification.type, undefined);
-    void loadSettings();
-  }
+  if (hasConfiguration) void connection.client.register(DidChangeConfigurationNotification.type, undefined);
+  void loadSettings();
   connection.workspace.onDidChangeWorkspaceFolders((event) => {
     const removed = event.removed.map((f) => toPath(f.uri));
     folders = folders.filter((f) => !removed.some((r) => r !== undefined && sameFile(r, f)));

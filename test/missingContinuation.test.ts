@@ -243,6 +243,15 @@ describe("missing-continuation: what a join can reach", () => {
     expect(getDiagnostics(fixed)).toEqual([]);
   });
 
+  it("leaves indented lines after a stray closer to indented-line-after-command: a closer starts no branch", () => {
+    // r50, r17 (tf dev, 2026-10-14): the line after the /endif runs after the block either way.
+    const r50 = ["/if (0)", "    /echo % a", "/endif", "    /echo % b", "/echo % after"];
+    expect(found(r50)).toEqual(["missing-continuation@0", "indented-line-after-command@3"]);
+    expect(relatedLines(opener(text(r50)))).toEqual([1, 2]);
+    const r17 = ["/if (0)", "    /echo % a", "    /endif", "    /echo % b", "/echo % after"];
+    expect(found(r17)).toEqual(["missing-continuation@0", "indented-line-after-command@3"]);
+  });
+
   it("takes in the indented lines after a comment line", () => {
     const d = only(["/if (0)", "; comment", "    /echo % a", "/echo % after"]);
     expect(relatedLines(d)).toEqual([2]);

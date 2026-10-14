@@ -147,16 +147,19 @@ export function consolidateContinuations(text: string, entries: LogicalEntry[], 
   const indented = diagnostics.filter((d) => d.code === "indented-line-after-command").sort(byPosition);
   for (const opener of openers) {
     const related: Related[] = [];
-    const lastStray = opener.strays[opener.strays.length - 1]?.d.range.start.line;
-    // The indented lines up to the last stray keyword, and the run of them straight after that
-    // (or, with none, after the opener): the body of the branch it starts. Comment lines don't
-    // break the run, as tf skips them inside a continuation.
+    const last = opener.strays[opener.strays.length - 1];
+    const lastStray = last?.d.range.start.line;
+    // The indented lines up to the last stray keyword, and the run of them straight after the
+    // opener or a stray /then, /else, /elseif or /do: the body of the branch it starts. A closer
+    // starts none, so indented lines after it are left to indented-line-after-command. Comment
+    // lines don't break the run, as tf skips them inside a continuation.
     const after = (line: number): number => {
       let next = (entries[entryIndexAt(entries, line)]?.endLine ?? line) + 1;
       while (next < lines.length && isCommentLine(lines[next] ?? "")) next += 1;
       return next;
     };
-    let next = after(lastStray ?? opener.endLine);
+    const closed = last?.word === "endif" || last?.word === "done";
+    let next = closed ? -1 : after(lastStray ?? opener.endLine);
     for (const d of indented) {
       const line = d.range.start.line;
       if (line <= opener.endLine || line > opener.spanEnd || dropped.has(d)) continue;

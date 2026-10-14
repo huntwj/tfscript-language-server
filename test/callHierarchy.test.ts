@@ -178,3 +178,71 @@ describe("WorkspaceIndex.callerFiles", () => {
     expect(index.referenceLenses(p("ws", "main.tf"))).toBe(false);
   });
 });
+
+describe("incomingCalls resolves each call from the caller's own load path", () => {
+  const a = { uri: "file:///ws/a.tf", text: "/def -i helper = /echo a\n/def -i usea = /helper\n" };
+  const b = { uri: "file:///ws/b.tf", text: "/def -i helper = /echo b\n/def -i useb = /helper%; /test helper(1)\n" };
+  const c = { uri: "file:///ws/c.tf", text: "/def -i usec = /helper\n" };
+  const own = (uri: string): NavContext => ({ uri, files: [], macros: [] });
+  const [helperA] = prepareCallHierarchy(a.text, pos(0, 10), own(a.uri)) as TfCallItem[];
+
+  it("leaves out a call that runs another file's macro of the same name", () => {
+    const calls = incomingCalls(helperA as TfCallItem, [a, b, c], { contextOf: own });
+    expect(calls.map((x) => x.from.name)).toEqual(["usea", "usec"]);
+  });
+
+  it("keeps a call whose name resolves to no /def at all, which may run this one", () => {
+    const calls = incomingCalls(helperA as TfCallItem, [c], { contextOf: own });
+    expect(calls.map((x) => x.from.name)).toEqual(["usec"]);
+  });
+
+  it("compares the files by the given key, so differently written URIs of one file match", () => {
+    const upper = { uri: "file:///WS/A.tf", text: a.text };
+    const calls = incomingCalls(helperA as TfCallItem, [upper], { contextOf: own, keyOf: (u) => u.toLowerCase() });
+    expect(calls.map((x) => x.from.name)).toEqual(["usea"]);
+  });
+});
+
+describe("findFunctionCalls and stdlib's /expr", () => {
+  it("reads /expr's arguments as an expression (stdlib.tf: /def -i expr = /result %*)", () => {
+    expect(findFunctionCalls("/def -i e = /expr sq(4)\n").map((c) => c.name)).toEqual(["sq"]);
+  });
+});
+
+describe("WorkspaceIndex.callerFiles for a /def outside every workspace folder", () => {
+  const ROOT = path.resolve("/fake");
+  const p = (...parts: string[]) => path.join(ROOT, ...parts);
+  const key = (f: string) => path.resolve(f).toLowerCase();
+  const files: Record<string, string> = {
+    [p("lib", "stdlib.tf")]: "/def -i loaded = /echo loaded\n",
+    [p("ws", "tfrc")]: "/load main.tf\n",
+    [p("ws", "main.tf")]: "/loaded __main__\n",
+    [p("other", "x.tf")]: "/def -i x = /loaded __x__\n",
+  };
+  const byKey = new Map(Object.entries(files).map(([k, v]) => [key(k), v]));
+  const fs = {
+    readFile: (f: string) => byKey.get(key(f)),
+    listTfFiles: (dir: string) => Object.keys(files).filter((f) => key(path.dirname(f)) === key(dir)),
+    walkTfFiles: (dir: string) => Object.keys(files).filter((f) => key(f).startsWith(key(dir) + path.sep)),
+  };
+
+  it("searches every workspace folder, and the caller's load path decides the call runs the library's /def", () => {
+    const index = new WorkspaceIndex(fs, { env: {}, homedir: p("home"), exists: (f) => byKey.has(key(f)) });
+    index.setFolders([p("ws"), p("other")]);
+    for (const folder of [p("ws"), p("other")]) index.setSettings(folder, { libraryPath: p("lib"), entryFiles: ["tfrc"] });
+    const stdlib = p("lib", "stdlib.tf");
+    const callers = index.callerFiles(stdlib, (f) => f);
+    expect(callers.map((f) => key(f.uri))).toEqual(expect.arrayContaining([key(p("ws", "main.tf")), key(p("other", "x.tf"))]));
+    const [item] = prepareCallHierarchy(files[stdlib] as string, pos(0, 9), index.navContext(stdlib, (f) => f)) as TfCallItem[];
+    const calls = incomingCalls({ ...(item as TfCallItem), uri: stdlib }, callers, {
+      contextOf: (uri) => index.navContext(uri, (f) => f),
+      keyOf: key,
+    });
+    expect(calls.map((c) => [path.basename(c.from.uri), c.from.name])).toEqual(
+      expect.arrayContaining([
+        ["main.tf", "main.tf"],
+        ["x.tf", "x"],
+      ]),
+    );
+  });
+});

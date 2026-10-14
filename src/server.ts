@@ -491,7 +491,14 @@ connection.languages.callHierarchy.onPrepare((params): CallHierarchyItem[] | nul
 connection.languages.callHierarchy.onIncomingCalls((params): CallHierarchyIncomingCall[] => {
   const file = toPath(params.item.uri);
   if (file === undefined) return [];
-  return incomingCalls(fromCallItem(params.item), index.callerFiles(file, toUri)).map((c) => ({
+  const callers = {
+    contextOf: (uri: string) => {
+      const caller = toPath(uri);
+      return caller === undefined ? undefined : index.callerContext(caller, toUri);
+    },
+    keyOf: (uri: string) => fileKey(toPath(uri) ?? uri),
+  };
+  return incomingCalls(fromCallItem(params.item), index.callerFiles(file, toUri), callers).map((c) => ({
     from: toCallItem(c.from),
     fromRanges: c.fromRanges,
   }));

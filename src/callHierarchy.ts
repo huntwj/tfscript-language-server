@@ -125,18 +125,36 @@ export function prepareCallHierarchy(text: string, pos: Position, ctx?: NavConte
   return call ? targets(call.name, a, ctx).map(defItem) : [];
 }
 
+/** How to look at a caller's file: its load path, and what makes two URIs the same file. */
+export interface CallerContext {
+  /** The file's load path, which decides which `/def` a call in it runs. */
+  contextOf?: (uri: string) => NavContext | undefined;
+  /** Two URIs for the same file compare equal under this (the editor's and a built one differ in case or escaping). */
+  keyOf?: (uri: string) => string;
+}
+
 /**
- * Every call to the item's macro in `files` (its file and whatever else may call it), grouped by
- * the definition each is in, or the file's top level.
+ * Every call in `files` (its file and whatever else may call it) that runs the item's `/def`,
+ * grouped by the definition each is in, or the file's top level. A call runs it when, from the
+ * caller's own load path, the name resolves to that `/def` (one of them, for a macro defined more
+ * than once), or to no `/def` at all: a file nothing loads, or one that calls a macro its load
+ * path doesn't define, may still be run after a file that defines this one, so it is kept.
  */
-export function incomingCalls(item: TfCallItem, files: ContextFile[]): TfIncomingCall[] {
+export function incomingCalls(item: TfCallItem, files: ContextFile[], callers: CallerContext = {}): TfIncomingCall[] {
   if (item.kind !== "macro") return [];
+  const keyOf = callers.keyOf ?? ((uri: string) => uri);
+  const isItem = (d: Def, uri: string): boolean =>
+    keyOf(d.uri || uri) === keyOf(item.uri) && compare(d.symbol.selectionRange.start, item.selectionRange.start) === 0;
   const out: TfIncomingCall[] = [];
   for (const file of files) {
     const a = analyse(file.uri, file.text);
     const groups = new Map<TfSymbol | undefined, Range[]>();
+    let ctx: NavContext | undefined;
     for (const site of a.sites) {
       if (!same(site.name, item.name)) continue;
+      ctx ??= callers.contextOf?.(file.uri) ?? { uri: file.uri, files: [], macros: [] };
+      const runs = targets(site.name, a, ctx);
+      if (runs.length > 0 && !runs.some((d) => isItem(d, file.uri))) continue;
       const from = enclosing(a, site.range.start);
       groups.set(from, [...(groups.get(from) ?? []), site.range]);
     }

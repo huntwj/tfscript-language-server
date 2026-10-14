@@ -6,7 +6,7 @@ terminal MUD client. tf scripts are `.tf` files full of `/def` macros, triggers,
 
 This is early, pre-1.0 software: diagnostics for the handful of rules proven so far (below),
 completion (commands, functions, variables, selectors), document symbols (an outline of every `/def`, `/alias`, `/bind`,
-`/hook` and `/trig*`), folding, quick fixes for two of the diagnostics, and hover,
+`/hook` and `/trig*`), folding, quick fixes for many of the diagnostics, and hover,
 go-to-definition and find-references for macros across every file your tfrc's `/load` and
 `/require` lines reach (see "Load paths"), signature help, semantic highlighting, workspace-wide
 symbol search, rename, and formatting that only changes whitespace tf ignores. There is a VS Code
@@ -65,6 +65,13 @@ file gets truncated, since tf never reads past the line it aborts on.
 `statement()` and the substitution scanners in `expand.c`): it reads keywords only at the start of
 a statement, follows nesting, and knows that a top-level line substitutes nothing while a macro
 body does. It reports only the first error in a body, as tf stops compiling there.
+
+Each of these diagnostics has a one-sentence message for the Problems pane, related locations
+(the `/if` a stray `/else` was meant for, an `/endif` swallowed as text), and a hover in the
+style of Rust's compiler errors: the source lines with the problem underlined and the related
+spans marked and labelled, a short explanation, and the lines as the quick fix leaves them.
+Most have a quick fix (a missing `%;`, `/endif`, `/done`, `]`, `}` or `)`, a stray `/then` or
+`)`, `%%-` for a literal `%-`).
 
 The numbered rules are the case numbers in the private notes repo's `scripting.md` (below);
 they're kept only so the rule files, their tests, and that document stay cross-referenceable —
@@ -256,6 +263,8 @@ src/
   folding.ts           getFoldingRanges(text): continued entries and comment runs
   codeActions.ts       getCodeActions(text, range): quick fixes for the diagnostics that
                         have a mechanical remedy (recomputed server-side)
+  explain.ts           a diagnostic's hover: the source excerpt with its spans marked, the
+                        explanation, and the lines after its fix
   navigation.ts        getHover / getDefinition / getReferences: macro lookup (case-insensitive,
                         like tf), across files when given a NavContext; /@name always means the
                         built-in

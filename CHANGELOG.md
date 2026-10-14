@@ -9,6 +9,10 @@
   close, and `%-` naming no selector) and the warning `separator-sends-blank-line` (`%;` right
   after `/if (...)` or `/else`). Each is proven against real tf; over tf's library and the WoTMUD
   scripts they found one real bug, `/session` in `tintin.tf`.
+- Richer diagnostics for those rules: a one-sentence message for the Problems pane, related
+  locations, a hover with the source lines marked up the way Rust's compiler errors are (the
+  problem underlined, related spans labelled), a short explanation and the fixed lines, and a
+  quick fix where the remedy is mechanical. Messages no longer quote tf's own error text.
 - `if-multiline-top-level` uses the same model, so it follows nesting and no longer counts an
   `/endif` that is only text (`/if (1) /echo /endif`) as closing the `/if`.
 

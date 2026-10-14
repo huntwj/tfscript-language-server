@@ -1,9 +1,10 @@
 import { ALL_COMMANDS } from "./data/commands";
 import { FUNCTIONS } from "./data/functions.generated";
 import { SPECIAL_VARIABLES } from "./data/variables.generated";
-import { evalMode, shortened, type Source } from "./loadCommands";
+import { shortened, type Source } from "./loadCommands";
 import { isTfSpace, splitLogicalEntries, type LogicalEntry } from "./logicalEntries";
 import { macroBodyStart, parseRegions, type ExpressionRegion, type Statement, type StructureMode, type SubLevel } from "./structure";
+import { evalArguments, repeatArguments } from "./substitution";
 import { defOptionsEnd, type Range } from "./symbols";
 
 /**
@@ -566,21 +567,10 @@ function handedOn(w: Walk, st: Statement, argStart: number): Source {
 /** `/eval [-s<level>] TEXT`: TEXT is read again, as `level` reads it (the default, a macro body). */
 function evalText(w: Walk, st: Statement, argStart: number): void {
   const src = handedOn(w, st, argStart);
-  const s = src.text;
-  let i = 0;
-  let mode: StructureMode = "body";
-  for (;;) {
-    const word = nextWord(s, i, s.length);
-    if (!word || s[word.start] !== "-") break;
-    const opt = s.slice(word.start, word.end);
-    i = word.end;
-    if (opt === "-" || opt === "--") break;
-    const picked = opt.startsWith("-s") ? evalMode(opt.slice(2)) : undefined;
-    if (!picked) return; // an error: nothing runs
-    mode = picked;
-  }
+  const e = evalArguments(src.text, 0, src.text.length);
+  if (!e) return; // an error: nothing runs
   // /eval runs its text in a scope of its own, inside the running macro's (expand.c).
-  walk(inner(w, slice(src, i, s.length), [newScope(w, "eval"), ...callerChain(w, st)]), mode);
+  walk(inner(w, slice(src, e.text, src.text.length), [newScope(w, "eval"), ...callerChain(w, st)]), e.mode);
 }
 
 /** The scopes a command sees when it runs straight away, inside the macro running it. */
@@ -633,33 +623,10 @@ function forCommand(w: Walk, st: Statement, argStart: number): void {
  */
 function repeatCommand(w: Walk, st: Statement, argStart: number): void {
   const src = handedOn(w, st, argStart);
-  const s = src.text;
-  // procopt("-@PSw:n") through nextopt(): flags group in one word (-Sn); -w takes the rest of its
-  // word as the world (-wfoo; a bare -w means the current one, and the next word is the count);
-  // a digit or : after the - is the time; -- or - ends the options. Anything else is an error.
-  let now = false;
-  let word = nextWord(s, 0, s.length);
-  while (word && s[word.start] === "-") {
-    const opt = s.slice(word.start, word.end);
-    word = nextWord(s, word.end, s.length);
-    if (opt === "-" || opt === "--") break;
-    for (let k = 1; k < opt.length; k += 1) {
-      const flag = opt[k] as string;
-      if (isDigit(flag) || flag === ":") {
-        now = false;
-        break;
-      }
-      if (flag === "S" || flag === "P") now = true;
-      else if (flag === "w") break; // (a quoted world name with blanks in it isn't followed)
-      else if (flag !== "n") return; // an invalid option: nothing runs
-    }
-  }
-  // tf takes "i" (forever) or a positive number, and nothing else, as the count.
-  if (!word || !/^(?:[iI]|0*[1-9][0-9]*)$/.test(s.slice(word.start, word.end))) return;
-  const command = nextWord(s, word.end, s.length);
-  if (!command) return;
-  const chain = [newScope(w, "repeat"), ...(now ? callerChain(w, st) : [])];
-  walk(inner(w, slice(src, command.start, s.length), chain), "body");
+  const r = repeatArguments(src.text, 0, src.text.length);
+  if (!r) return;
+  const chain = [newScope(w, "repeat"), ...(r.now ? callerChain(w, st) : [])];
+  walk(inner(w, slice(src, r.command, src.text.length), chain), "body");
 }
 
 /** `/def -E"expr"`: its expression, from the options before the body. */

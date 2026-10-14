@@ -239,6 +239,15 @@ export const notSubstitutedHere: EntryRule = {
       if (!judged.has(st)) judged.set(st, judge(st));
       return judged.get(st) as Judgement;
     };
+    /** Whether `s`, read as `mode`, leaves a block open or stray (for the %; fixes below). */
+    const blockError = (s: string, mode: StructureMode): boolean =>
+      parseRegions(s, mode).issues.some((i) => i.kind === "block" || i.kind === "continuation");
+    // Read with -son, once per statement: an /eval's text can hold thousands of %;.
+    const openWithSon = new Map<ContextStatement, boolean>();
+    const blockErrorOnce = (st: ContextStatement): boolean => {
+      if (!openWithSon.has(st)) openWithSon.set(st, blockError(text.slice(st.start, st.end), "newline"));
+      return openWithSon.get(st) as boolean;
+    };
     const rejected = (bad: string): string =>
       `It also holds ${code(bad)}, which tf can't read as a substitution. Substituting the command as written ` +
       `would make tf reject it, where today it runs with the text as it is, so fix that first.`;
@@ -375,9 +384,10 @@ export const notSubstitutedHere: EntryRule = {
       const command = nextWord !== undefined && !BLOCK_KEYWORDS.has(nextWord);
       // Nor where the commands it would split off open a block they don't close (review rev-s2c
       // h.tf: `/echo a%; /if (1) /echo b` on lines of their own is an /if with no /endif).
-      const blockError = (s: string, mode: StructureMode): boolean =>
-        parseRegions(s, mode).issues.some((i) => i.kind === "block" || i.kind === "continuation");
-      const splits = st.viaEval ? !blockError(text.slice(st.start, st.end), "newline") : !blockError(text.slice(next, st.end), "top");
+      // A line split off can only leave a block open if it starts one; -son reads the whole text.
+      const splits = st.viaEval
+        ? !blockErrorOnce(st)
+        : (nextWord !== "if" && nextWord !== "while") || !blockError(text.slice(next, st.end), "top");
       if (command && !value && splits) {
         if (st.viaEval) {
           const last = st.viaEval.options.at(-1)!;

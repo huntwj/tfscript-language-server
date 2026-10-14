@@ -215,6 +215,13 @@ describe("not-substituted-here (rule 4)", () => {
     expect(fixes("/echo a%; /if (1) /echo b%; /endif")).toEqual(["Put the next command on a line of its own", "none"]);
   });
 
+  it("stays near-linear on a line of thousands of %;", () => {
+    const start = Date.now();
+    expect(getDiagnostics(`/echo %{x} %{y ${"%; ".repeat(20000)}\n`).length).toBe(20000);
+    expect(getDiagnostics(`/eval -soff /echo a${"%; /echo b".repeat(20000)}\n`).length).toBe(20000);
+    expect(Date.now() - start).toBeLessThan(3000);
+  });
+
   // Review probe p2 (B5): a value holding %; can be meant, for a later /eval.
   it("says a /set, /let or /setenv value includes the %;, and offers no fix", () => {
     const [d, ...rest] = getDiagnostics("/set cmd=/echo a%; /echo b\n");

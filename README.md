@@ -153,11 +153,14 @@ not taken from the manual:
   so they are true for `0` and `abc` too). A variable counts as unset when nothing on the path set
   it, it isn't one of tf's special variables (which have defaults), and its name has a lower-case
   letter: tf makes every environment variable a global, and those are upper case by convention.
-  The guard stops being trusted once anything earlier on the path may have set variables
-  unseen, each proven to in real tf: a call to a macro (`/setup`), a `/test` or an assignment in
-  an expression, a `/set` with a computed name, `/for`, `/toggle`, `/repeat`, `/quote` or
-  `/trigger`, or a load the path can't follow (including one tf won't find here because only
-  tf's machine has the path);
+  The guard on `x` stops being trusted once something earlier on the path may have set `x`
+  unseen, each proven to in real tf: an assignment in an expression (`/test x := 1`), a macro
+  call whose body (read through the macros it calls and its `/eval` text) sets it, a `/set` whose
+  name is built when it runs and starts the way `x` does (`/set x%i=...`), `/toggle x` or a
+  `/for` that does. Anything at all stops it: a name built from nothing literal, `/quote`,
+  `/repeat`, `/trigger`, a call to a macro it can't read, or a load the path can't follow
+  (including one tf won't find here because only tf's machine has the path). tf's own library
+  sets only names of its own, so it leaves the guard alone;
 - when tf runs somewhere else (a container, WSL, another host), `pathMappings` says where its
   absolute paths are here: `[{ "tf": "/wotmud", "local": "C:/Users/me/wotmud" }]`. An absolute
   `/load` path, a `TFPATH` or `HOME` a script sets, and the path settings when written as tf's

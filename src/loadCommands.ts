@@ -89,14 +89,14 @@ export function shortenPercents(text: string): string {
 }
 
 /** Text a level has produced, with where each character came from in the entry's text. */
-interface Source {
+export interface Source {
   text: string;
   /** Offset into `entry.text` of each character of `text`. */
   map: number[];
 }
 
 /** The `newline` pass over `src.text[start, end)`: each run of `%`s loses its first one. */
-function shortened(src: Source, start: number, end: number): Source {
+export function shortened(src: Source, start: number, end: number): Source {
   let text = "";
   const map: number[] = [];
   let i = start;
@@ -157,7 +157,7 @@ function optionArgument(arg: string): string | undefined {
   return undefined;
 }
 
-function evalMode(arg: string): StructureMode | undefined {
+export function evalMode(arg: string): StructureMode | undefined {
   const value = optionArgument(arg);
   if (value === undefined) return undefined;
   if (/^[0-9]+$/.test(value)) return NUMBERED_LEVELS[Number(value)];

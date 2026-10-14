@@ -15,6 +15,8 @@
   quick fix where the remedy is mechanical. Messages no longer quote tf's own error text.
 - `if-multiline-top-level` uses the same model, so it follows nesting and no longer counts an
   `/endif` that is only text (`/if (1) /echo /endif`) as closing the `/if`.
+- `/load` and `/require` filenames are links (Ctrl+click) to the file tf would open, found the
+  way tf searches: the current directory, then `TFPATH` or `TFLIBDIR`, with `~` as `HOME`.
 
 ## 0.2.0
 

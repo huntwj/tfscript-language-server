@@ -9,7 +9,8 @@ completion (commands, functions, variables, selectors), document symbols (an out
 `/hook` and `/trig*`), folding, quick fixes for many of the diagnostics, and hover,
 go-to-definition and find-references for macros across every file your tfrc's `/load` and
 `/require` lines reach (see "Load paths"), signature help, semantic highlighting, workspace-wide
-symbol search, rename, and formatting that only changes whitespace tf ignores. There is a VS Code
+symbol search, rename, clickable `/load` and `/require` filenames, and formatting that only
+changes whitespace tf ignores. There is a VS Code
 extension (`editors/vscode/`) for syntax highlighting plus everything the server does; other editors can wire up the stdio server
 directly — see "Use".
 
@@ -138,6 +139,13 @@ not taken from the manual:
 - a top-level line isn't substituted, so `/load %{dir}/x.tf` fails in tf too, while
   `/eval /load %{dir}/x.tf` works; `/set` lines on the path are tracked so these resolve.
 
+The same rules make each `/load` and `/require` filename a link to the file tf would open
+(`src/documentLinks.ts`). A top-level load in a file the load path reaches links to what the
+walk found, with any `TFPATH` or `HOME` a tfrc set before it; a load in a macro body, under
+`/eval` or in a file nothing loads runs at some unknown time, so it resolves with the settings
+below. A filename tf wouldn't find, or one with a `%`, `$` or `\` in it (substituted when it runs),
+gets no link.
+
 Settings (folder-scoped in VS Code; any client can send them through `workspace/configuration`
 under `tfscript`):
 
@@ -263,6 +271,7 @@ src/
   folding.ts           getFoldingRanges(text): continued entries and comment runs
   codeActions.ts       getCodeActions(text, range): quick fixes for the diagnostics that
                         have a mechanical remedy (recomputed server-side)
+  documentLinks.ts     the filename in each /load and /require, as tf parses the command
   explain.ts           a diagnostic's hover: the source excerpt with its spans marked, the
                         explanation, and the lines after its fix
   navigation.ts        getHover / getDefinition / getReferences: macro lookup (case-insensitive,
@@ -281,6 +290,7 @@ test/
                         unit tests for those modules
   symbols.test.ts, folding.test.ts, codeActions.test.ts, navigation.test.ts  unit tests for
                         the four above
+  documentLinks.test.ts  which /load and /require filenames link, and where to
   loadGraph.test.ts, workspace.test.ts  load order and path resolution (each rule proven
                         against real tf), settings defaults, cross-file navigation
   tokenize.test.ts       unit tests for extract-command-tables.js's shell-style tokenizer
@@ -315,7 +325,7 @@ The server advertises `completionProvider` (triggered on `/` and `{`), `document
 `foldingRangeProvider`, `codeActionProvider` (quick fixes only), `hoverProvider`,
 `definitionProvider`, `referencesProvider`, `signatureHelpProvider` (triggered on space, `(` and `,`), `semanticTokensProvider`
 (full documents), `documentFormattingProvider`, `documentRangeFormattingProvider`,
-`workspaceSymbolProvider` and `renameProvider` (with prepare), and publishes diagnostics
+`workspaceSymbolProvider`, `renameProvider` (with prepare) and `documentLinkProvider`, and publishes diagnostics
 tagged `source: "tfscript"`. Many editors' LSP clients also pass a `--stdio` flag by
 convention — this server doesn't need it (it talks over stdio either way) but accepts and
 ignores it.

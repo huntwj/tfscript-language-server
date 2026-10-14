@@ -51,8 +51,7 @@ import { getDiagnostics, type TfDiagnostic } from "./diagnostics";
 import { getCompletions } from "./completions";
 import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
-import { getRefactorActions } from "./bodyLayout";
-import { getCodeActions } from "./codeActions";
+import { routeCodeActions, type CodeActionRequest } from "./codeActions";
 import { explainDiagnostic, rangeContains } from "./explain";
 import {
   getDefinition,
@@ -348,34 +347,18 @@ connection.onFoldingRanges((params: FoldingRangeParams): FoldingRange[] => {
   return getFoldingRanges(document.getText()).map(toFoldingRange);
 });
 
-// `only` lists the kinds the client wants; a kind matches itself and anything nested under it
-// (`quickfix` covers `quickfix.foo`; `""` covers everything).
-function wants(only: string[] | undefined, kind: string): boolean {
-  if (!only) return true;
-  return only.some((k) => k === "" || kind === k || kind.startsWith(`${k}.`));
-}
-
 connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  const text = document.getText();
-  const actions: CodeAction[] = [];
-  if (wants(params.context.only, CodeActionKind.QuickFix)) {
-    for (const action of getCodeActions(text, params.range, diagnosticsFor(document))) {
-      actions.push({
-        title: action.title,
-        kind: CodeActionKind.QuickFix,
-        diagnostics: [toLspDiagnostic(action.diagnostic, document.uri)],
-        edit: { changes: { [document.uri]: action.edits } },
-      });
-    }
-  }
-  if (wants(params.context.only, CodeActionKind.RefactorRewrite)) {
-    for (const action of getRefactorActions(text, params.range)) {
-      actions.push({ title: action.title, kind: CodeActionKind.RefactorRewrite, edit: { changes: { [document.uri]: action.edits } } });
-    }
-  }
-  return actions;
+  const request: CodeActionRequest = { range: params.range, diagnostics: diagnosticsFor(document) };
+  if (params.context.only) request.only = params.context.only;
+  if (params.context.triggerKind !== undefined) request.triggerKind = params.context.triggerKind;
+  return routeCodeActions(document.getText(), request).map((action) => ({
+    title: action.title,
+    kind: action.kind,
+    ...(action.diagnostic ? { diagnostics: [toLspDiagnostic(action.diagnostic, document.uri)] } : {}),
+    edit: { changes: { [document.uri]: action.edits } },
+  }));
 });
 
 connection.onHover((params: TextDocumentPositionParams): Hover | null => {

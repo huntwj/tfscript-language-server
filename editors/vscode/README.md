@@ -34,8 +34,9 @@ source). Node and npm are only needed to *build* this extension from source.
   semantic highlighting, go-to-definition, find-references and rename (F2) for macros and
   variables, highlighting every use of the name under the cursor, Show Call Hierarchy
   (Shift+Alt+H) for macros, "N references" above each `/def` (off with
-  `tfscript.codeLens.references`), Go to Symbol in Workspace (Ctrl+T) and Format Document, via
-  the LSP server, same as any other client.
+  `tfscript.codeLens.references`), Go to Symbol in Workspace (Ctrl+T), Format Document, and
+  refactorings (Ctrl+Shift+R) that split or join a macro body and extract selected statements to
+  a new macro, via the LSP server, same as any other client.
 - A status bar item on tf files showing the load context the file is seen in and the chain of
   `/load`s that reaches it; click it (or run **tfscript: Choose Load Context**) to switch
   between the contexts listed in `tfscript.contexts`.

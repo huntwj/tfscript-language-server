@@ -11,8 +11,8 @@ go-to-definition and find-references for macros and variables across every file 
 `/load` and `/require` lines reach (see "Load paths"), signature help, semantic highlighting,
 highlighting every use of the name under the cursor, call hierarchy and "N references" lenses
 for macros, workspace-wide symbol search, rename, clickable `/load` and `/require` filenames, formatting that only
-changes whitespace tf ignores, and refactorings that split a macro body onto separate lines or
-join it onto one. There is a VS Code
+changes whitespace tf ignores, and refactorings that split a macro body onto separate lines,
+join it onto one, or extract some of its statements to a new macro. There is a VS Code
 extension (`editors/vscode/`) for syntax highlighting plus everything the server does; other editors can wire up the stdio server
 directly — see "Use".
 
@@ -342,6 +342,8 @@ src/
                         (recomputed server-side)
   bodyLayout.ts        getRefactorActions(text, range): split a macro body onto separate lines,
                         or join one onto a single line, when tf would run the same program
+  extractMacro.ts      getExtractActions(text, range): move selected statements of a macro body
+                        to a new /def and call it, when tf would run the same
   documentLinks.ts     the filename in each /load and /require, as tf parses the command
   joinFix.ts           the fixes that join lines with \, found by trying candidates
   explain.ts           a diagnostic's hover: the source excerpt with its spans marked, the
@@ -368,6 +370,8 @@ test/
   symbols.test.ts, folding.test.ts, codeActions.test.ts, navigation.test.ts  unit tests for
                         the four above
   bodyLayout.test.ts    split and join: layouts, when they aren't offered, and round trips
+  extractMacro.test.ts  extract to a new macro: what moves, the call left behind, and why not
+  units.test.ts         the statements and blocks of a body, and the list each runs in
   codeActionRouting.test.ts  which kinds of code action a request gets, and when
   endOfFile.test.ts     a final newline, a command the file ends inside, incomplete-continuation
   variables.test.ts, variableNavigation.test.ts, highlights.test.ts  variable scopes,
@@ -405,7 +409,7 @@ node dist/server.js     # run the server directly (speaks LSP over stdio)
 ```
 
 The server advertises `completionProvider` (triggered on `/` and `{`), `documentSymbolProvider`,
-`foldingRangeProvider`, `selectionRangeProvider`, `codeActionProvider` (quick fixes and `refactor.rewrite`), `hoverProvider`,
+`foldingRangeProvider`, `selectionRangeProvider`, `codeActionProvider` (quick fixes, `refactor.rewrite` and `refactor.extract`), `hoverProvider`,
 `definitionProvider`, `referencesProvider`, `documentHighlightProvider`, `signatureHelpProvider` (triggered on space, `(` and `,`), `semanticTokensProvider`
 (full documents), `documentFormattingProvider`, `documentRangeFormattingProvider`,
 `workspaceSymbolProvider`, `renameProvider` (with prepare), `documentLinkProvider`, `callHierarchyProvider` and
@@ -621,6 +625,52 @@ without a final newline, still loaded and ran. Over tf's library and the WoTMUD 
 of 381 one-line bodies (the rest have one statement, or, in `self.tf`, quotes that make the
 layout uncertain) and join on 181 of 206 continued ones (23 have comment lines between their
 lines, 2 a tab that would move); every result parses to the same statements.
+
+### Extracting statements to a new macro
+
+"Extract to a new macro" (a `refactor.extract` code action) moves the selected statements of a
+`/def`, `/bind`, `/hook` or `/trig*` body into a `/def` of their own, `/<macro>_extracted` (or
+`/extracted` for a trigger or hook without a name, numbered past any name already defined in the
+file, on its load path, in the rest of the workspace folder or in tf's library), and leaves a call
+to it where they were. The new `/def` goes just above the macro and its `;;;` doc comment, laid
+out the way the formatter would, with `-i` when the macro has it.
+
+The selection has to cover whole statements, or whole `/if`...`/endif` and `/while`...`/done`
+blocks, that run one after another: in the body itself, or in one branch or loop body of a
+block. Otherwise (half a statement or a block, the head) it isn't offered. Where it can't be done
+safely it is offered disabled, with the reason, to clients that can show one (VS Code does).
+
+Why the call runs the same, proven in real tf (tf-script-check, 2026-10-14):
+
+- The new body is the same text, at the same level (a top-level `/def` body), so it is substituted
+  the same way.
+- tf's scoping is dynamic: a macro called from another sees the caller's `/let` locals, and an
+  assignment in an expression (`:=`, `++`) sets the nearest local, the caller's included.
+- When the statements use the macro's arguments, the call is `/name %*`, which passes them on word
+  for word: `%1`, `%*`, `%#`, `%L`, `%-1`, `%-L`, `{#}`, `{1}`, `{*}` and the braced forms came
+  out the same, with arguments holding quotes, `%;`, `%%`, `$[...]` and `\`, and in a trigger's
+  and a hook's body. `%Pn` reads the caller's last regexp match, `%?` its last result, and after
+  the call `%?` is the new macro's last result, which is what it was before.
+
+When it is disabled:
+
+- a `/let` in the selection, when the rest of the body names the variable or runs a macro,
+  `/eval`, `/for`, `/repeat` or `/trigger` that might read it: the `/let` would make a local of
+  the new macro, gone when it returns;
+- `regmatch()` in the selection when the rest of the body reads `%P`: the new macro's match ends
+  with it;
+- `/return`, `/result`, `/exit` (they would end the new macro), `/shift` and `getopts()` (they
+  act on the running macro's arguments), `%0` (its name), and a `/break` not inside a `/while`
+  that is selected too;
+- a `%|` or `%\` beside the selection, which ties it to the statement next to it;
+- the inside of a `$(...)`, or a condition list on its own;
+- a tab after a line's indentation (tf turns it into spaces by column, and the column moves), or
+  comment lines inside the selection, which would be lost.
+
+It isn't offered in an `/alias` or in a file with CRLF line endings. Over tf's library and the
+WoTMUD scripts, of the 3,763 runs of consecutive statements in a list, 1,491 can be extracted
+and the rest are disabled with a reason (most often a `/let` the rest of the macro uses, 848, or
+a `/return`, 640); none of the extractions adds a diagnostic.
 
 ## Contributing
 

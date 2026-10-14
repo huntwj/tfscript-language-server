@@ -95,6 +95,14 @@ describe("substitution-syntax only where tf substitutes", () => {
     expect(errors("/for i 1 %{x-1}) /echo %% A13:%i\n")).toEqual([]);
   });
 
+  // Proven live (review rev-s2d f2.tf): tf rejects /for j( 1 2, whose VAR leaves the condition open.
+  it("blames VAR, not END, when it is VAR that leaves stdlib's condition open", () => {
+    const [d, ...rest] = getDiagnostics("/for j( 1 2 /echo G1\n").filter((x) => x.severity === "error");
+    expect(rest).toEqual([]);
+    expect(d?.message).toBe("This /for's variable, j(, isn't a complete variable name: write a name, such as i.");
+    expect([d?.range.start.character, d?.range.end.character]).toEqual([5, 7]);
+  });
+
   // Proven live (review rev-s2 p3): tf runs these clean. Read as one body, the whole of /for's
   // text has its COMMAND mid-statement, where the /if's (...) would be no condition.
   it("reads a /for's COMMAND as a command list, not its whole text", () => {

@@ -362,36 +362,45 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
 
   /**
    * A `/for`'s END, compiled where stdlib puts it: `/while ( VAR <= END )` (stdlib.tf). A problem
-   * the parser finds in END itself is kept as it is. One it reports at the text around END (a `)`
-   * of stdlib's that END's own `(` or `$[` takes, say) is no character the file holds, so it is
-   * said of END as a whole; one in VAR was already said of the `/let`.
+   * the parser finds in END itself is kept as it is; one in VAR was already said of the `/let`. One
+   * it reports at the text around them (a `)` of stdlib's that END's own `(` or `$[` takes, say) is
+   * no character the file holds, so it is said of the word that leaves the condition open: END if
+   * END alone isn't a whole expression, else VAR if VAR alone isn't (review rev-s2d f2.tf: tf
+   * rejects `/for j( 1 2`), else of neither.
    */
   const forEnd = (h: Source, name: { start: number; end: number }, to: { start: number; end: number }): void => {
     // A body, as stdlib has, so a ) END leaves over starts it rather than meeting /done.
     const wrapped = built(h, ["/while ( ", name, " <= ", to, " ) x%; /done"]);
-    const endStart = "/while ( ".length + (name.end - name.start) + " <= ".length;
+    const nameStart = "/while ( ".length;
+    const nameEnd = nameStart + (name.end - name.start);
+    const endStart = nameEnd + " <= ".length;
     const endEnd = endStart + (to.end - to.start);
-    const written = h.text.slice(to.start, to.end);
-    const incomplete: StructureIssue = {
-      kind: "expression",
-      start: endStart,
-      end: endEnd,
-      message: `This /for's END, ${written}, isn't a complete expression: write a number, or an expression that closes.`,
-      label: "not a complete expression",
-      explanation:
-        `stdlib's ${code("/for")} compares the loop variable with END in a condition, ${code("/while ( VAR <= END )")}, ` +
-        `so END has to be a whole expression of its own. This one leaves something open that the condition ` +
-        `around it would have to close.`,
+    // Whether a word, compiled as an expression of its own (a top-level /test is compiled as written), is whole.
+    const whole = (word: { start: number; end: number }): boolean =>
+      !parseRegions(`/test ${h.text.slice(word.start, word.end)}`, "top").issues.some((i) => i.kind === "expression" || i.kind === "substitution");
+    const blame = (start: number, end: number, what: string, advice: string): StructureIssue => {
+      const written = wrapped.text.slice(start, end);
+      return {
+        kind: "expression",
+        start,
+        end,
+        message: `This /for's ${what}, ${written}, isn't a complete ${what === "END" ? "expression" : "variable name"}: ${advice}.`,
+        label: `not a complete ${what === "END" ? "expression" : "name"}`,
+        explanation:
+          `stdlib's ${code("/for")} compares the loop variable with END in a condition, ${code("/while ( VAR <= END )")}, ` +
+          `so each has to be whole on its own. This one leaves something open that the condition around it would ` +
+          `have to close.`,
+      };
     };
     const kept: StructureIssue[] = [];
     let said = false;
-    const nameStart = "/while ( ".length;
     for (const issue of parseRegions(wrapped.text, "body").issues) {
       if (issue.start >= endStart && issue.start < endEnd) kept.push(issue);
-      else if (issue.start >= nameStart && issue.start < nameStart + (name.end - name.start)) continue;
+      else if (issue.start >= nameStart && issue.start < nameEnd) continue;
       else if (!said) {
-        kept.push(incomplete);
         said = true;
+        if (!whole(to)) kept.push(blame(endStart, endEnd, "END", "write a number, or an expression that closes"));
+        else if (!whole(name)) kept.push(blame(nameStart, nameEnd, "variable", "write a name, such as i"));
       }
     }
     collect(wrapped, kept);

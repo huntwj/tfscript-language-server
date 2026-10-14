@@ -85,19 +85,23 @@ describe("missing-continuation: lines that belong to something else", () => {
     expect(found(["/if (1) /echo a%;", "/if (2) /echo b%; /endif%; /endif"])).toEqual(["missing-continuation@0", "block-structure@1"]);
   });
 
-  it("offers no closer when a stray one of its kind follows, even out of reach", () => {
-    // Added, tf would still report the /endif below as unexpected (q02, q30; tf dev, 2026-10-14).
-    const [blank] = getDiagnostics("/if (1) /echo forgot-endif\n\n/endif\n");
-    expect(blank?.fix).toBeUndefined();
-    // The message names that /endif rather than say to add one.
-    expect(blank?.message).toBe(
-      "This /if ends at the end of line 1, which has no \\, so the /endif on line 3 is a separate command: end every line but the last with \\.",
-    );
-    expect(blank?.related).toBeUndefined();
-    const q02 = ["/if (0) /echo % in", ...Array.from({ length: 20 }, (_, k) => `/echo % l${k}`), "/endif", "/echo % after"];
-    expect(getDiagnostics(`${q02.join("\n")}\n`).find((d) => d.code === "missing-continuation")?.fix).toBeUndefined();
-    const q30 = ["/if (1) /echo % forgot-endif", "", "/echo % x", "/set foo=1", "    /echo % indented", "", "/endif"];
-    expect(getDiagnostics(`${q30.join("\n")}\n`).find((d) => d.code === "missing-continuation")?.fix).toBeUndefined();
+  it("offers no closer when it takes in its own, which adding one would leave an error", () => {
+    // No join either: joined, the /elseif after /else is still an error.
+    const d = only(["/if (0) /echo a%;", "/else /echo b", "/elseif (1) /echo c", "/endif"]);
+    expect(relatedLines(d)).toEqual([1, 2, 3]);
+    expect(d.fix).toBeUndefined();
+  });
+
+  it("keeps the closer fix when the closer below isn't its own: past a blank line or the reach, or another block's", () => {
+    const add = "Add %; /endif at the end of the line";
+    const mc = (lines: string[]) => getDiagnostics(`${lines.join("\n")}\n`).find((d) => d.code === "missing-continuation");
+    const blank = mc(["/if (1) /echo forgot-endif", "", "/endif"]);
+    expect(blank?.fix?.title).toBe(add);
+    expect(blank?.message).toBe("This /if's command ends without an /endif: add %; /endif, or end each line but the last with \\.");
+    expect(mc(["/if (0) /echo % in", ...Array.from({ length: 20 }, (_, k) => `/echo % l${k}`), "/endif", "/echo % after"])?.fix?.title).toBe(add);
+    expect(mc(["/if (1) /echo % forgot-endif", "", "/echo % x", "/set foo=1", "    /echo % indented", "", "/endif"])?.fix?.title).toBe(add);
+    // r13: the /endif is the second /if's.
+    expect(mc(["/if (1) /echo % one", "", "/if (0)", "    /echo % two", "/endif", "/echo % after"])?.fix?.title).toBe(add);
   });
 
   it("keeps the closer fix when no stray closer of its kind follows", () => {

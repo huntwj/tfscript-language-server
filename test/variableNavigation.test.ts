@@ -115,17 +115,30 @@ describe("variable rename", () => {
     const text = "/def -i _show = /echo show [%_pattern]\n/def -i caller = /let _pattern=%1%; /_show\n";
     expect(prepareRename(text, at(text, "/let _pattern", 0, 6))).toEqual({
       error:
-        "Other macros read _pattern without a /let of their own, and nothing sets a global _pattern, so they probably " +
-        "read this macro's local: tf lets a macro's locals through to the macros it calls. Renaming it here would leave them behind.",
+        "_pattern is also read on line 1, outside this one's scope, and nothing sets a global _pattern, so tf's dynamic scoping " +
+        "probably hands it this one. Rename both by hand if they are the same variable.",
     });
     expect(prepareRename(text, at(text, "%_pattern", 0, 2))).toEqual({
       error:
-        "Nothing sets a global _pattern, and some macros have their own /let _pattern, so this probably reads one of " +
-        "their locals: tf lets a macro's locals through to the macros it calls. Renaming it here would leave them behind.",
+        "Nothing sets a global _pattern, so this probably reads the /let _pattern on line 2 through tf's dynamic scoping. " +
+        "Rename both by hand if they are the same variable.",
     });
     // Once something sets the global, the reads are taken to be of it.
     const set = `/set _pattern=x\n${text}`;
     expect(prepareRename(set, at(set, "/let _pattern", 0, 6))).toHaveProperty("range");
+  });
+
+  it("names the file of the other end, and what kind of local it is", () => {
+    const ctx: NavContext = { uri: "file:///w/main.tf", files: [], libraryFiles: [{ uri: "file:///lib/grep.tf", text: "\n/def -i g = /echo %_world\n" }], macros: [] };
+    expect(prepareRename("/def -i a = /let _world=x%; /g\n", pos(0, 18), ctx)).toEqual({
+      error:
+        "_world is also read on grep.tf line 2, outside this one's scope, and nothing sets a global _world, so tf's dynamic scoping " +
+        "probably hands it this one. Rename both by hand if they are the same variable.",
+    });
+    const loop = "/def -i show = /echo %n\n/def -i a = /for n 1 3 /show\n";
+    expect(prepareRename(loop, pos(0, 22))).toEqual({
+      error: "Nothing sets a global n, so this probably reads the /for n loop variable on line 2 through tf's dynamic scoping. Rename both by hand if they are the same variable.",
+    });
   });
 
   it("renames across the files on the load path", () => {

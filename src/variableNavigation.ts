@@ -102,23 +102,27 @@ const WRITES = new Set(["set", "setenv", "assign"]);
  */
 function passedOn(target: VariableOccurrence, text: string, ctx?: NavContext): string | undefined {
   const name = target.name;
-  const all = [text, ...(ctx?.files ?? []).map((f) => f.text), ...(ctx?.libraryFiles ?? []).map((f) => f.text)].flatMap((t) =>
-    findVariables(t).filter((v) => v.name === name),
-  );
+  const self = ctx?.uri ?? "";
+  const files = [{ uri: self, text }, ...(ctx?.files ?? []), ...(ctx?.libraryFiles ?? [])];
+  const all = files.flatMap((f) => findVariables(f.text).filter((v) => v.name === name).map((v) => ({ ...v, uri: f.uri })));
   if (all.some((v) => v.scope === "global" && WRITES.has(v.access))) return undefined;
-  if (target.scope !== "global" && all.some((v) => v.scope === "global" && v.access === "read")) {
-    return (
-      `Other macros read ${name} without a /let of their own, and nothing sets a global ${name}, so they probably ` +
-      `read this macro's local: tf lets a macro's locals through to the macros it calls. Renaming it here would leave them behind.`
-    );
+  // Where another occurrence is, for the user to judge: "line 12", or "stdlib.tf line 40".
+  const where = (v: VariableOccurrence & { uri: string }): string => {
+    const line = `line ${v.range.start.line + 1}`;
+    return v.uri === self ? line : `${decodeURIComponent(v.uri.split("/").pop() ?? v.uri)} ${line}`;
+  };
+  const advice = "Rename both by hand if they are the same variable.";
+  if (target.scope !== "global") {
+    const read = all.find((v) => v.scope === "global" && v.access === "read");
+    if (read) {
+      return `${name} is also read on ${where(read)}, outside this one's scope, and nothing sets a global ${name}, so tf's dynamic scoping probably hands it this one. ${advice}`;
+    }
+    return undefined;
   }
-  if (target.scope === "global" && all.some((v) => v.access === "let" || v.access === "getopts")) {
-    return (
-      `Nothing sets a global ${name}, and some macros have their own /let ${name}, so this probably reads one of ` +
-      `their locals: tf lets a macro's locals through to the macros it calls. Renaming it here would leave them behind.`
-    );
-  }
-  return undefined;
+  const bound = all.find((v) => v.access === "let" || v.access === "getopts");
+  if (!bound) return undefined;
+  const kind = bound.access === "getopts" ? "getopts() option" : bound.form === "loop-variable" ? `/for ${name} loop variable` : `/let ${name}`;
+  return `Nothing sets a global ${name}, so this probably reads the ${kind} on ${where(bound)} through tf's dynamic scoping. ${advice}`;
 }
 
 /**

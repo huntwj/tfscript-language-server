@@ -2,6 +2,7 @@ import type { Range, TfTextEdit } from "./diagnostics";
 import { hasInnerTab, normalise, rejoin, splitEntry, topLevelSeparators } from "./formatting";
 import { isCommentLine, leadingWhitespaceLength, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { checkStructure, macroBodyStart, parseStatements } from "./structure";
+import { getDocumentSymbols, type TfSymbol, type TfSymbolKind } from "./symbols";
 
 /**
  * Refactorings that move a macro body between one line and a `\`-continued block of lines,
@@ -104,10 +105,19 @@ function wholeLines(entry: LogicalEntry, original: string[], newText: string): T
   return { range: { start: { line: entry.startLine, character: 0 }, end: { line: entry.endLine, character: last.length } }, newText };
 }
 
+const UNNAMED: Record<TfSymbolKind, string> = { def: "this macro's", alias: "this alias's", trig: "this trigger's", hook: "this hook's", bind: "this key binding's" };
+
+/** Whose body an action moves: `/foo's` for a named macro or alias, else what kind of body it is. */
+function owner(symbol: TfSymbol | undefined): string {
+  if (!symbol) return "the";
+  return symbol.kind === "def" || symbol.kind === "alias" ? `/${symbol.name}'s` : UNNAMED[symbol.kind];
+}
+
 /** Split or join actions for the macro-defining entries the range touches. */
 export function getRefactorActions(text: string, range: Range, indent = detectIndent(text)): TfRefactorAction[] {
   const lines = splitRawLines(text);
   const actions: TfRefactorAction[] = [];
+  const symbols = new Map(getDocumentSymbols(text).map((s) => [s.range.start.line, s]));
   for (const entry of splitLogicalEntries(text)) {
     if (!overlapsLines(entry, range)) continue;
     if (entry.incomplete || !(entry.isDefBody || entry.isOtherMacroBody)) continue;
@@ -120,7 +130,7 @@ export function getRefactorActions(text: string, range: Range, indent = detectIn
       const joinedBack = splitLogicalEntries(split.join("\n"))[0];
       const back = joinedBack && joinedLine(joinedBack, split[0] ?? "");
       if (!sameProgram(entry.text, rejoin(split)) || back === undefined || !sameProgram(entry.text, rejoin([back]))) continue;
-      actions.push({ title: "Split the body onto separate lines", edits: [wholeLines(entry, original, split.join("\n"))] });
+      actions.push({ title: `Split ${owner(symbols.get(entry.startLine))} body onto separate lines`, edits: [wholeLines(entry, original, split.join("\n"))] });
       continue;
     }
 
@@ -131,7 +141,7 @@ export function getRefactorActions(text: string, range: Range, indent = detectIn
     // The joined line must read back as one entry: not a comment, and not ending in a `\`.
     const reread = splitLogicalEntries(line);
     if (reread.length !== 1 || reread[0]?.parts.length !== 1) continue;
-    actions.push({ title: "Join the body onto one line", edits: [wholeLines(entry, original, line)] });
+    actions.push({ title: `Join ${owner(symbols.get(entry.startLine))} body onto one line`, edits: [wholeLines(entry, original, line)] });
   }
   return actions;
 }

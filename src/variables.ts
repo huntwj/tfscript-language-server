@@ -17,6 +17,9 @@ import type { Range } from "./symbols";
  *    one, then the global (hfindnearestvar(), findlocalvar() walks every scope). An assignment in
  *    an expression (`x := 1`, `x += 1`, `++x`) sets the nearest one the same way (hsetnearestvar()).
  *  - Before a macro's `/let x` runs, `%x` there still reads the global.
+ *  - `getopts("ab:", ...)` sets a local `opt_a` and `opt_b` in the calling macro (expr.c
+ *    FN_getopts), leaving a global `opt_a` alone (proven).
+ *  - `{x}` is only a substitution in an expression: in a command it stays text (proven).
  *
  * Approximated, because which scope a read finds depends on how the code runs:
  *  - Each macro body is one scope. A read or assignment in a body counts as local when a `/let`

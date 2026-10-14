@@ -29,8 +29,11 @@
   open, so an `/if` that is only text doesn't count).
 - The fix that adds an `/endif` or `/done` isn't offered after an empty body, where it would send
   a blank line (or, for `/while`, loop forever).
+- `let-swallows-endif` flags one keyword per statement, blaming its first `/let` or `/set` (which
+  takes the rest), and only the first swallowed `/endif` per `/if`, so its fixes can all be applied
+  together; the fix adds no `%;` where the statement ends anyway (`%\`, `%|`, a `$(...)`'s `)`).
 - Deeply nested blocks or substitutions (past 200 levels) no longer overflow the stack: the
-  structural check stops there.
+  structural check stops there, and says so with an information diagnostic, `nesting-too-deep`.
 - `if-multiline-top-level` uses the same model, so it follows nesting and no longer counts an
   `/endif` that is only text (`/if (1) /echo /endif`) as closing the `/if`.
 - `/load` and `/require` filenames are links (Ctrl+click) to the file tf would open, found the

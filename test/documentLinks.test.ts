@@ -108,6 +108,17 @@ describe("WorkspaceIndex.documentLinks", () => {
     expect(index.documentLinks(p("ws", "tfrc"), tfrc).map((l) => l.target)).toEqual([p("ws", "lib2", "a.tf"), p("ws", "lib2", "b.tf")]);
   });
 
+  it("links a top-level /require whose words are spaced out, as tf joins them", () => {
+    const tfrc = "/require my   f.tf\n";
+    const fs = memoryFs({ [p("ws", "tfrc")]: tfrc, [p("ws", "my f.tf")]: "" });
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    index.setSettings(p("ws"), { entryFiles: ["tfrc"] });
+    expect(index.documentLinks(p("ws", "tfrc"), tfrc).map((l) => [l.range, l.target])).toEqual([
+      [{ start: { line: 0, character: 9 }, end: { line: 0, character: 18 } }, p("ws", "my f.tf")],
+    ]);
+  });
+
   it("resolves loads in a file nothing loads against the working directory, then TFLIBDIR", () => {
     const text = "/load here.tf\n/require tools.tf\n/load ~/mine.tf\n/load nowhere.tf\n/load ~bob/a.tf\n";
     const fs = memoryFs({

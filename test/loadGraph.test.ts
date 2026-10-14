@@ -104,6 +104,27 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
     ]);
   });
 
+  it("only takes /load at the start of a statement", () => {
+    const g = graph({ [p("tfrc")]: "/echo hi /load a.tf\n", [p("cwd", "a.tf")]: "/def a = 1\n" });
+    expect(defNames(g)).toEqual([]);
+    expect(g.unresolved).toEqual([]);
+  });
+
+  it("reads a plain top-level /load to the end of the line, %; included, but splits an /eval", () => {
+    // Real tf: "/load /script/a.tf%; /echo ..." was No such file; /eval /load c%; /load d loaded both.
+    const files = { [p("cwd", "a.tf")]: "/def a = 1\n", [p("cwd", "b.tf")]: "/def b = 1\n" };
+    const plain = graph({ ...files, [p("tfrc")]: "/load a.tf%; /load b.tf\n" });
+    expect(defNames(plain)).toEqual([]);
+    expect(plain.unresolved).toMatchObject([{ kind: "not-found", file: "a.tf%; /load b.tf" }]);
+    expect(defNames(graph({ ...files, [p("tfrc")]: "/eval /load a.tf%; /load b.tf\n" }))).toEqual(["a", "b"]);
+  });
+
+  it("follows nothing from a top-level line tf can't compile", () => {
+    // Real tf: /if (1) /load /script/e.tf%; /echo ... with no /endif loaded nothing.
+    const g = graph({ [p("tfrc")]: "/if (1) /load a.tf%; /echo x\n", [p("cwd", "a.tf")]: "/def a = 1\n" });
+    expect(defNames(g)).toEqual([]);
+  });
+
   it("ends the options at - or --, so a filename may start with -", () => {
     const g = graph({ [p("tfrc")]: "/load - -a.tf\n/load -q -- -b.tf\n", [p("cwd", "-a.tf")]: "/def a = 1\n", [p("cwd", "-b.tf")]: "/def b = 1\n" });
     expect(defNames(g)).toEqual(["a", "b"]);

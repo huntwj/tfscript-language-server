@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { entryLoads, type LoadCommand } from "../loadCommands";
 import { splitLogicalEntries, type LogicalEntry } from "../logicalEntries";
 import { findAbortEntry } from "../rules/bareLineAfterCommand";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
@@ -9,10 +10,10 @@ import { getDocumentSymbols, type TfSymbol } from "../symbols";
  * top-level `/load` and `/require` at the point it occurs, so files come out in the order tf
  * would read them. Rules, each proven against real tf with tf-script-check on 2026-10-12, not
  * just read from the source:
- *  - `/load [-q] file` (command.c handle_load_command): options, then the rest of the line,
- *    trimmed, is the filename. `/require` is stdlib.tf's `/load %{-L} %{L}` plus a skip.
+ *  - How tf reads a `/load` or `/require` command, and which ones run while the file loads (a
+ *    top-level command, or one a top-level `/eval` runs): see loadCommands.ts.
  *  - Path resolution (command.c do_file_load(), tfio.c expand_filename()): a leading `~` is the
- *    HOME variable; a relative path is tried against tf's current directory — NOT the loading
+ *    HOME variable, and such a path is absolute; a relative path is tried against tf's current directory — NOT the loading
  *    file's directory (a file beside the loader was not found) — then, only if that fails,
  *    against each TFPATH directory in order (first hit wins, checked both orders), or against
  *    TFLIBDIR when TFPATH is empty.
@@ -78,6 +79,8 @@ export interface ResolvedLoad {
   from: string;
   /** The entry's first line in `from`. */
   line: number;
+  /** Where the filename starts in the entry's joined text: with `line`, the load's identity. */
+  offset: number;
   /** The path as written in the script, before any substitution. */
   raw: string;
   file: string;
@@ -105,7 +108,6 @@ export interface LoadGraphOptions {
 
 const LOADED_RE = /^\s*\/loaded\s+(\S+)/i;
 const SET_RE = /^\s*(\/eval\s+(?:-\S+\s+)*)?\/set\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*=\s*|\s+)(.*)$/is;
-const LOAD_RE = /(?:^|\s)(\/eval\s+(?:-\S+\s+)*)?\/@?(load|require)(?=\s|$)(.*)$/is;
 
 /** A path's identity for comparisons: resolved, and case-folded where the filesystem is. */
 export function fileKey(file: string): string {
@@ -169,20 +171,6 @@ export function resolveLoadPath(file: string, env: LoadPathEnvironment): { found
   return { found: candidates.find((c) => env.readFile(c) !== undefined), searched: candidates };
 }
 
-/** The filename after `/load`'s options, or undefined for an option tf rejects (it then loads nothing). */
-function stripLoadOptions(args: string): string | undefined {
-  let rest = args.trim();
-  while (rest.startsWith("-")) {
-    const end = rest.search(/\s/);
-    const opt = end === -1 ? rest : rest.slice(0, end);
-    rest = end === -1 ? "" : rest.slice(end).trim();
-    // util.c nextopt(): a lone "-" ends the options, as "--" does.
-    if (opt === "-" || opt === "--") break;
-    if (!/^-q+$/.test(opt)) return undefined;
-  }
-  return rest;
-}
-
 export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   const vars = new Map<string, string>([
     ["TFLIBDIR", options.libraryDir ?? ""],
@@ -206,36 +194,29 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     });
   }
 
-  function handleLoads(entryText: string, from: string, line: number): void {
-    for (const segment of entryText.split("%;")) handleLoad(segment, from, line);
-  }
-
-  function handleLoad(segment: string, from: string, line: number): void {
-    const m = LOAD_RE.exec(segment);
-    if (!m) return;
-    const isEval = Boolean(m[1]);
-    const kind = (m[2] as string).toLowerCase() as "load" | "require";
-    const raw = stripLoadOptions(m[3] as string);
-    if (!raw) return;
-    let file = raw;
+  function handleLoad(entry: LogicalEntry, load: LoadCommand, from: string): void {
+    const line = entry.startLine;
+    const raw = entry.text.slice(load.start, load.end);
+    let file = load.file;
     const fail = (k: UnresolvedKind, reason: string, searched: string[] = []): void => {
       unresolved.push({ from, line, kind: k, raw, file, reason, searched });
     };
-    if (isEval) {
-      const expanded = expandVariables(raw, vars);
+    if (load.substituted) {
+      const expanded = expandVariables(file, vars);
       if (!expanded.ok) return fail("unknown-variable", expanded.reason);
       file = expanded.value;
     } else if (/%\{|%[A-Za-z_]/.test(raw)) {
       return fail("not-substituted", "a top-level path is not substituted; prefix the line with /eval");
     }
-    // stdlib.tf's /require passes its words on to /load with single blanks.
-    if (kind === "require") file = file.trim().split(/[ \t\r\f\v]+/).join(" ");
+    // stdlib.tf's /require passes its words on to /load with single blanks; /load trims.
+    file = load.kind === "require" ? file.trim().split(/[ \t\r\f\v]+/).join(" ") : file.trim();
+    if (!file) return;
     const user = /^~([^/]+)/.exec(file);
     if (user) return fail("user-home", `~${user[1]} is the home directory of user ${user[1]}, which tf looks up in the system's password file`);
     const { found, searched } = resolve(file);
     if (!found) return fail("not-found", "file not found", searched);
-    resolved.push({ from, line, raw, file: path.resolve(found) });
-    walk(found, { kind, from, line });
+    resolved.push({ from, line, offset: load.start, raw, file: path.resolve(found) });
+    walk(found, { kind: load.kind, from, line });
   }
 
   function walk(file: string, site: LoadSite): void {
@@ -277,7 +258,8 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
         else vars.delete(set[2] as string);
         continue;
       }
-      if (!entry.isForLoop) handleLoads(entry.text, loaded.path, entry.startLine);
+      if (entry.isForLoop) continue;
+      for (const load of entryLoads(entry)) if (load.topLevel) handleLoad(entry, load, loaded.path);
     }
 
   }

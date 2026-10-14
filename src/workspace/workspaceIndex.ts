@@ -228,7 +228,6 @@ export class WorkspaceIndex {
     const { settings, graph } = this.contextFor(file);
     const self = keyOf(file);
     const onPath = graph.files.some((f) => keyOf(f.path) === self);
-    const collapse = (s: string): string => s.trim().replace(/\s+/g, " ");
     const env = {
       home: settings.home,
       tfPath: settings.tfPath,
@@ -239,9 +238,7 @@ export class WorkspaceIndex {
     return findLoadPaths(text).flatMap((load) => {
       let target: string | undefined;
       if (onPath && load.topLevel) {
-        target = graph.resolved.find(
-          (r) => keyOf(r.from) === self && r.line === load.line && collapse(r.raw) === collapse(load.file),
-        )?.file;
+        target = graph.resolved.find((r) => keyOf(r.from) === self && r.line === load.line && r.offset === load.offset)?.file;
       } else {
         const found = resolveLoadPath(load.file, env).found;
         target = found === undefined ? undefined : path.resolve(found);

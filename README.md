@@ -140,11 +140,17 @@ not taken from the manual:
   `/eval /load %{dir}/x.tf` works; `/set` lines on the path are tracked so these resolve.
 
 The same rules make each `/load` and `/require` filename a link to the file tf would open
-(`src/documentLinks.ts`). A top-level load in a file the load path reaches links to what the
-walk found, with any `TFPATH` or `HOME` a tfrc set before it; a load in a macro body, under
-`/eval` or in a file nothing loads runs at some unknown time, so it resolves with the settings
-below. A filename tf wouldn't find, or one with a `%`, `$` or `\` in it (substituted when it runs),
-gets no link.
+(`src/documentLinks.ts`). A load that runs while the file loads — a top-level command, or one a
+top-level `/eval` runs — in a file the load path reaches links to what the walk found, with any
+`TFPATH` or `HOME` a tfrc set before it. A load in a macro body runs whenever the macro does, and
+nothing is known about a file nothing loads, so those resolve with the settings below. No link
+for:
+
+- a filename tf wouldn't find;
+- one with a `%`, `$` or `\` in it, which is substituted when it runs — so a Windows path like
+  `/load C:\x\a.tf` gets none either;
+- a load in a `/def` nested inside another macro's body, which is only text until the outer
+  macro runs.
 
 Settings (folder-scoped in VS Code; any client can send them through `workspace/configuration`
 under `tfscript`):

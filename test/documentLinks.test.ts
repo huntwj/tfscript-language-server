@@ -57,8 +57,21 @@ describe("findLoadPaths", () => {
     ]);
   });
 
-  it("skips substituted names, ~user, and text that only mentions /load", () => {
-    expect(files("/eval /load %{d}/a.tf\n/def x = /load ${f}\n/load ~bob/a.tf\n/echo try /load a.tf\n")).toEqual([]);
+  it("skips substituted names, a Windows path, and text that only mentions /load", () => {
+    expect(files("/eval /load %{d}/a.tf\n/def x = /load ${f}\n/load C:\\x\\a.tf\n/echo try /load a.tf\n")).toEqual([]);
+  });
+
+  it("runs a top-level /eval while the file loads, splitting its text on %; as tf does", () => {
+    // Real tf: /eval /load -q c.tf%; /load -q d.tf loaded both.
+    expect(findLoadPaths("/eval /load a.tf%; /load -q b.tf\n/eval - /load c.tf\n").map((l) => [l.file, l.topLevel])).toEqual([
+      ["a.tf", true],
+      ["b.tf", true],
+      ["c.tf", true],
+    ]);
+  });
+
+  it("lists no loads for an /eval with an option it doesn't model, or text tf won't compile", () => {
+    expect(files("/eval -s0 /load a.tf\n/if (1) /load a.tf%; /echo x\n")).toEqual([]);
   });
 
   it("maps a filename on a continuation line, but not one split across lines", () => {
@@ -84,6 +97,15 @@ describe("WorkspaceIndex.documentLinks", () => {
     expect(index.documentLinks(p("ws", "tfrc"), fs.readFile(p("ws", "tfrc"))!).map((l) => l.target)).toEqual([p("ws", "lib2", "mod.tf")]);
     // gone.tf doesn't exist; the body's load runs later, against the settings' (empty) TFPATH.
     expect(index.documentLinks(p("ws", "lib2", "mod.tf"), fs.readFile(p("ws", "lib2", "mod.tf"))!)).toEqual([]);
+  });
+
+  it("resolves a top-level /eval load as the load graph did, too", () => {
+    const tfrc = `/set TFPATH=${p("ws", "lib2")}\n/eval /load a.tf%; /load b.tf\n`;
+    const fs = memoryFs({ [p("ws", "tfrc")]: tfrc, [p("ws", "lib2", "a.tf")]: "", [p("ws", "lib2", "b.tf")]: "" });
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    index.setSettings(p("ws"), { entryFiles: ["tfrc"] });
+    expect(index.documentLinks(p("ws", "tfrc"), tfrc).map((l) => l.target)).toEqual([p("ws", "lib2", "a.tf"), p("ws", "lib2", "b.tf")]);
   });
 
   it("resolves loads in a file nothing loads against the working directory, then TFLIBDIR", () => {

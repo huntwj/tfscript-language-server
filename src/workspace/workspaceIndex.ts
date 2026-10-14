@@ -217,11 +217,12 @@ export class WorkspaceIndex {
   }
 
   /**
-   * The file each `/load` and `/require` in `text` opens. A top-level load in a file the load
-   * path reaches resolves as the load graph found it, with the TFPATH and HOME that were set at
-   * that point (a tfrc may change them) and no link when tf wouldn't find it. Any other load —
-   * in a macro body, under `/eval`, or in a file nothing loads — runs at some unknown later
-   * time, so it resolves with the settings' TFPATH, TFLIBDIR, HOME and working directory.
+   * The file each `/load` and `/require` in `text` opens. A load that runs while the file loads
+   * (a top-level command, or one a top-level `/eval` runs), in a file the load path reaches,
+   * resolves as the load graph found it, with the TFPATH and HOME that were set at that point (a
+   * tfrc may change them), and has no link when tf wouldn't find it. A load in a macro body runs
+   * whenever the macro does, and nothing is known about a file nothing loads, so those resolve
+   * with the settings' TFPATH, TFLIBDIR, HOME and working directory.
    */
   documentLinks(file: string, text: string): { range: Range; target: string; kind: LoadPath["kind"] }[] {
     const { settings, graph } = this.contextFor(file);

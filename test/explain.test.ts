@@ -76,7 +76,8 @@ describe("explainDiagnostic", () => {
   });
 
   it("has nothing to add for a diagnostic with only a message", () => {
-    const [d] = getDiagnostics("/load %{d}/x.tf\n");
-    expect(d && explainDiagnostic("/load %{d}/x.tf\n", d)).toBeUndefined();
+    const range = { start: { line: 0, character: 6 }, end: { line: 0, character: 13 } };
+    const d = { range, message: "Not found.", code: "load-path", severity: "warning" as const };
+    expect(explainDiagnostic("/load nope.tf\n", d)).toBeUndefined();
   });
 });

@@ -180,3 +180,32 @@ describe("structural rules and the rules they overlap", () => {
     expect(found("/def -t*hp=* -i sh = /if (1) /echo ok%; /endif\n")).toEqual([]);
   });
 });
+
+describe("messages", () => {
+  // One plain sentence each, for the Problems pane: the problem, then the fix where there is one.
+  const cases: [string, string, string][] = [
+    ["if-multiline-top-level", "/if (1)\n  /echo yes\n/endif\n", "This /if has no /endif in the same command."],
+    ["block-structure", "/while (1) /echo\n", "This /while has no /done in the same command."],
+    ["load-no-expansion", "/load %{d}/ok.tf\n", "%{d} stays as it is in a command at the top level of a file: put /eval in front to substitute it."],
+    ["let-swallows-endif", "/def a = /if (1) /let v=1 /endif\n", "This /endif is part of the /let value, not a command: put %; before it."],
+    ["let-swallows-endif", "/set v=1 /if (1) /echo%; /endif\n", "This /if is part of the /set value, not a command."],
+    ["dollar-bracket-in-if", "/def a = /if ($[1]) /echo%; /endif\n", "This $[...] is redundant: the condition is already an expression."],
+    ["indented-line-after-command", "/echo a\n  /echo b\n", "Line 1 has no \\ at the end, so this indented line starts a new command."],
+    ["trailing-space-after-backslash", "/echo a \\ \n", "This \\ doesn't continue the line, because whitespace follows it."],
+    [
+      "trailing-space-after-backslash",
+      "/echo a \\\r\n/echo b\r\n",
+      "This \\ doesn't continue the line: the file's Windows (CRLF) line endings put a carriage return after it.",
+    ],
+    ["bad-substitution-selector", "/def f = /echo %{foo%{bar}}\n", "%{foo needs a } or a - after the name: another substitution can't follow it directly."],
+    ["reserved-macro-name", "/def if = /echo\n", '"if" is a reserved word, so tf refuses this /def and defines nothing: pick another name.'],
+    ["bare-line-after-command", "hello\n", "This line isn't a command, so tf stops loading the file here."],
+  ];
+  for (const [code, text, message] of cases) {
+    it(`${code}: ${JSON.stringify(text)}`, () => {
+      const d = getDiagnostics(text).find((x) => x.code === code);
+      expect(d?.message).toBe(message);
+      expect(d?.explanation).toBeTruthy();
+    });
+  }
+});

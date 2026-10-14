@@ -152,6 +152,79 @@ describe("structural fixes", () => {
   });
 });
 
+describe("rule fixes", () => {
+  // [code, before, after]: the one fix offered for `code`, which leaves the file clean.
+  const cases: [string, string[], string[]][] = [
+    ["dollar-bracket-in-if", ["/def -i a = /if ($[x]) /echo y%; /endif"], ["/def -i a = /if (x) /echo y%; /endif"]],
+    ["dollar-bracket-in-if", ["/def -i a = /if ($[1+1] * 3 == 6) /echo y%; /endif"], ["/def -i a = /if ((1+1) * 3 == 6) /echo y%; /endif"]],
+    ["dollar-bracket-in-if", ['/def -i a = /while ($["]"] =~ "]") /echo y%; /done'], ['/def -i a = /while (("]") =~ "]") /echo y%; /done']],
+    ["let-swallows-endif", ["/def -i a = /if (1) /let x=1 /endif"], ["/def -i a = /if (1) /let x=1%; /endif"]],
+    ["let-swallows-endif", ["/def -i a = /if (1) /set x=1 /endif /echo b"], ["/def -i a = /if (1) /set x=1%; /endif%; /echo b"]],
+    ["let-swallows-endif", ["/def -i a = /let x=50% /if (1) /echo%; /endif"], ["/def -i a = /let x=50% %; /if (1) /echo%; /endif"]],
+    ["let-swallows-endif", ["/if (1) /let x=1 /endif"], ["/if (1) /let x=1%; /endif"]],
+    ["bare-line-after-command", ["hello world", "/echo x"], ["; hello world", "/echo x"]],
+    ["bare-line-after-command", ["hello \\", "  world", "/echo x"], ["; hello \\", "  ; world", "/echo x"]],
+    ["if-multiline-top-level", ["/if (1)", "  /echo yes", "/endif"], ["/if (1) \\", "  /echo yes%; \\", "/endif"]],
+    [
+      "if-multiline-top-level",
+      ["/if (1)", "    /echo yes", "/else", "    /echo no", "/endif"],
+      ["/if (1) \\", "    /echo yes%; \\", "/else \\", "    /echo no%; \\", "/endif"],
+    ],
+    ["if-multiline-top-level", ["/if (1)", "; a note", "  /echo yes", "/endif"], ["/if (1) \\", "; a note", "  /echo yes%; \\", "/endif"]],
+    ["block-structure", ["/if /test 1", "/then /echo x", "/endif"], ["/if /test 1%; \\", "/then /echo x%; \\", "/endif"]],
+    ["block-structure", ["/while (i < 3)", "  /test ++i", "/done"], ["/while (i < 3) \\", "  /test ++i%; \\", "/done"]],
+    ["block-structure", ["/while /test i < 3", "/do /test ++i", "/done"], ["/while /test i < 3%; \\", "/do /test ++i%; \\", "/done"]],
+    ["if-multiline-top-level", ["/if (1) /echo 50%", "/endif"], ["/if (1) /echo 50% %; \\", "/endif"]],
+    ["indented-line-after-command", ["/def -i a = /echo one", "    /echo two"], ["/def -i a = /echo one%; \\", "    /echo two"]],
+    ["indented-line-after-command", ["/def -i a = /echo one%;", "    /echo two"], ["/def -i a = /echo one%; \\", "    /echo two"]],
+    ["indented-line-after-command", ["/def -i a =", "    /echo two"], ["/def -i a = \\", "    /echo two"]],
+    ["indented-line-after-command", ["/def -i a = /if (1)", "    /echo yes", "/endif"], ["/def -i a = /if (1) \\", "    /echo yes%; \\", "/endif"]],
+    ["indented-line-after-command", ["/set x=1", "  /set y=2"], ["/set x=1", "/set y=2"]],
+  ];
+  for (const [code, before, after] of cases) {
+    it(`${code}: ${before.join(" | ")}`, () => {
+      const text = `${before.join("\n")}\n`;
+      // Several diagnostics can share one fix; the action is offered once, under the first of them.
+      const fixes = new Set(getDiagnostics(text).flatMap((d) => (d.code === code && d.fix ? [JSON.stringify(d.fix.edits)] : [])));
+      expect(fixes.size).toBe(1);
+      const actions = getCodeActions(text, WHOLE_FILE).filter((a) => fixes.has(JSON.stringify(a.edits)));
+      expect(actions).toHaveLength(1);
+      const fixed = applyEdits(text, actions[0]!.edits);
+      expect(fixed).toBe(`${after.join("\n")}\n`);
+      expect(codes(fixed)).toEqual([]);
+    });
+  }
+
+  it("offers the /if's fix once, for the indented lines inside it too", () => {
+    const text = ["/if (1)", "    /echo yes", "/else", "    /echo no", "/endif", ""].join("\n");
+    expect(getCodeActions(text, WHOLE_FILE).map((a) => a.title)).toEqual(["Join the /if's lines with \\"]);
+    for (const line of [1, 2, 3, 4]) expect(getCodeActions(text, at(line, 2)).map((a) => a.title)).toEqual(["Join the /if's lines with \\"]);
+  });
+
+  it("drops the add-an-/endif fix when joining the lines brings in the real one", () => {
+    const text = ["/def -i a = /if (1)", "    /echo yes", "/endif", ""].join("\n");
+    expect(getCodeActions(text, WHOLE_FILE).map((a) => a.title)).toEqual(["Join these lines with \\"]);
+  });
+
+  it("continues a line of text without a %;", () => {
+    const text = ["/def -i a = /echo one", "    two", "/echo x", ""].join("\n");
+    const [action] = getCodeActions(text, WHOLE_FILE).filter((a) => a.diagnostic.code === "indented-line-after-command");
+    expect(applyEdits(text, action!.edits)).toBe(["/def -i a = /echo one \\", "    two", "/echo x", ""].join("\n"));
+  });
+
+  it("offers no fix where a %; would only be text, or on a CRLF line", () => {
+    expect(getCodeActions("/set v=1 /if (1) /echo%; /endif\n", WHOLE_FILE)).toEqual([]);
+    const crlf = ["/def -i a = /echo one\r", "    /echo two\r", ""].join("\n");
+    expect(codes(crlf)).toContain("indented-line-after-command");
+    expect(getCodeActions(crlf, WHOLE_FILE)).toEqual([]);
+  });
+
+  it("leaves a \\ followed by whitespace to the trailing-space fix", () => {
+    const text = ["/def -i a = /echo one%; \\ ", "    /echo two", ""].join("\n");
+    expect(getCodeActions(text, WHOLE_FILE).map((a) => a.diagnostic.code)).toEqual(["trailing-space-after-backslash"]);
+  });
+});
+
 describe("range filtering", () => {
   const text = ["/load %{d}/one.tf", "/echo plain", "/echo x \\ ", ""].join("\n");
 
@@ -170,8 +243,8 @@ describe("range filtering", () => {
   });
 
   it("offers nothing for diagnostics without a mechanical fix", () => {
-    const unfixable = ["/if (1)", "  /echo yes", "/endif", ""].join("\n");
-    expect(codes(unfixable)).toContain("if-multiline-top-level");
+    const unfixable = "/def f = /echo %{foo%{bar}}\n";
+    expect(codes(unfixable)).toContain("bad-substitution-selector");
     expect(getCodeActions(unfixable, WHOLE_FILE)).toEqual([]);
   });
 });

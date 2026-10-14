@@ -8,7 +8,7 @@ import { substitutionSyntax } from "./substitutionSyntax";
 import { reservedMacroName } from "./reservedMacroName";
 import { blockStructure } from "./blockStructure";
 import { expressionSyntax } from "./expressionSyntax";
-import { separatorSendsBlankLine } from "./separatorSendsBlankLine";
+import { emptyStatement } from "./emptyStatement";
 import { nestingTooDeep } from "./nestingTooDeep";
 import { incompleteContinuation } from "./incompleteContinuation";
 import { bodyContinuesWithoutBackslash } from "./bodyContinuesWithoutBackslash";
@@ -28,7 +28,7 @@ export const RULES: Rule[] = [
   reservedMacroName,
   blockStructure,
   expressionSyntax,
-  separatorSendsBlankLine,
+  emptyStatement,
   nestingTooDeep,
   incompleteContinuation,
   bodyContinuesWithoutBackslash,

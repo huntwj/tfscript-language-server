@@ -155,8 +155,8 @@ describe("checkStructure in a macro body", () => {
   });
 
   it("warns about a %; straight after /if (...) or /else, and carries on", () => {
-    expect(issue("/if (1)%; /echo ok%; /endif")).toBe("blank-line@%;");
-    expect(issue("/if (1) /echo ok%; /else%; /endif")).toBe("blank-line@%;");
+    expect(issue("/if (1)%; /echo ok%; /endif")).toBe("empty-statement@%;");
+    expect(issue("/if (1) /echo ok%; /else%; /endif")).toBe("empty-statement@%;");
   });
 
   // tf dev (tf-script-check, 2026-10-14): "/BREAK syntax error: expected a /break that stays

@@ -58,7 +58,7 @@ const CLOSES_RE = /(?:^|[ \t;|\\])\/(?:endif|done)(?:[ \t\r\f\v]|%[;|\\])*$/i;
 /** A line that starts with a keyword of a block: it can only belong to one opened above it. */
 const STRAY_KEYWORD_RE = /^\/(?:then|else|elseif|endif|do|done)(?![^ \t\r\f\v%])/i;
 /** Structural fixes the settle step applies; not "Add %; /endif ...", which would close a block early. */
-const SETTLE_CODES = new Set(["block-structure", "separator-sends-blank-line"]);
+const SETTLE_CODES = new Set(["block-structure", "empty-statement"]);
 
 /** How `%;` reads in the command: "body" in a macro body, "top" in a top-level /if or /while, or not at all. */
 type Separates = "body" | "top" | undefined;

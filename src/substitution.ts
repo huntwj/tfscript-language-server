@@ -89,7 +89,7 @@ export interface SubstitutionModel {
   issues: StructureIssue[];
 }
 
-const SYNTAX_KINDS = new Set(["substitution", "expression", "operand"]);
+const SYNTAX_KINDS = new Set(["substitution", "expression", "operand", "empty-statement"]);
 
 /**
  * The commands that take a `= body` tf stores as a macro body (without `/` or `@`): /def and /edit
@@ -408,6 +408,7 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
       said = true;
     }
     for (const issue of parseRegions(wrapped.text, "body").issues) {
+      if (issue.kind === "empty-statement") continue;
       if (issue.start >= endStart && issue.start < endEnd) kept.push(issue);
       else if (issue.start >= nameStart && issue.start < nameEnd) continue;
       else if (!said) {

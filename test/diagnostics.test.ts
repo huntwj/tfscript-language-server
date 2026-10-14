@@ -499,9 +499,9 @@ describe("structural rules (structure.ts)", () => {
     expect(found("/if (1 /echo a%; /endif\n")).toEqual(["expression-syntax@0:4"]);
   });
 
-  it("separator-sends-blank-line warns, and nothing else fires", () => {
+  it("empty-statement warns, and nothing else fires", () => {
     const diags = getDiagnostics("/def go = /if (1)%; /echo a%; /endif\n");
-    expect(diags.map((d) => `${d.code}:${d.severity}`)).toEqual(["separator-sends-blank-line:warning"]);
+    expect(diags.map((d) => `${d.code}:${d.severity}`)).toEqual(["empty-statement:warning"]);
   });
 
   it("checks /alias bodies", () => {

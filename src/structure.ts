@@ -50,8 +50,8 @@ export type StructureKind =
    * legal, but tf warns. Reported as it comes; compiling carries on.
    */
   | "operand"
-  /** A %; right after /if (...) or /else, which sends a blank line to the world. */
-  | "blank-line"
+  /** A statement with nothing in it (`%;%;`, `/then%;`, `$(...%;)`), which tf sends as a blank line. */
+  | "empty-statement"
   /** Nesting past MAX_DEPTH levels, where the check stops (information, not a problem in tf). */
   | "too-deep";
 
@@ -363,6 +363,10 @@ class Parser {
   readonly units: Unit[] = [];
   readonly lists: UnitList[] = [];
   private listId = -1;
+  /** The keyword or condition the next statement follows, for an empty statement's message. */
+  private emptyAfter: { label: string; warns: boolean } | undefined;
+  /** The separator that ended the last statement, and where: an empty statement after `%|` is an error, not a send. */
+  private lastSep: { at: number; char: string } | undefined;
   constructor(private readonly s: string, private readonly mode: StructureMode) {}
 
   run(): void {
@@ -572,10 +576,17 @@ class Parser {
   private listAt(subsIn: number): void {
     let subs = subsIn;
     this.newList(this.block === "if" || this.block === "elseif" || this.block === "while" ? "condition" : "body");
+    let first = true;
+    // After a /break, /return or /result, the rest of this part of the block never runs.
+    let unreachable = false;
     do {
       if (subs >= NEWLINE) {
         while (isTfSpace(this.s[this.i]) || (this.s[this.i] === "\\" && isTfSpace(this.s[this.i + 1]))) this.i += 1;
+        if (!unreachable) this.emptyStatement(first);
       }
+      first = false;
+      this.emptyAfter = undefined;
+      this.lastSep = undefined;
       const stmtStart = this.i;
       let special: "if" | "while" | "" = "";
 
@@ -599,12 +610,16 @@ class Parser {
             this.block = "then";
             this.bodyStarts();
             this.newList("body");
+            this.emptyAfter = { label, warns: false };
+            unreachable = false;
             continue;
           case "do":
             if (this.block !== "while") this.unexpected(word, stmtStart, kwEnd);
             this.block = "do";
             this.bodyStarts();
             this.newList("body");
+            this.emptyAfter = { label, warns: false };
+            unreachable = false;
             continue;
           case "else":
           case "elseif":
@@ -615,8 +630,11 @@ class Parser {
             // An /endif swallowed before this was never going to close the /if: with a %; it
             // would, and leave this /else or /elseif stray ("unexpected /ELSE in outer block").
             (this.open[this.open.length - 1] as Open).swallowed = undefined;
-            if (word === "else") this.bodyStarts();
-            if (word === "else" && this.isStatEnd(this.i)) this.blankLine(label, this.i);
+            unreachable = false;
+            if (word === "else") {
+              this.bodyStarts();
+              this.emptyAfter = { label, warns: true };
+            }
             continue;
           case "endif":
             if (this.block !== "then" && this.block !== "else") this.unexpected(word, stmtStart, kwEnd);
@@ -632,12 +650,16 @@ class Parser {
             return;
           case "break":
             this.breakStatement(stmtStart, kwEnd);
+            unreachable = true;
+            // tf ends a /break's statement as any other's, so a ) right after it ends the $(...).
+            if (this.isCmdsubEnd(this.i)) return;
             continue;
           case "test":
           case "return":
           case "result":
             this.expressionStatement(subs, word);
             this.unit(stmtStart, word);
+            if (word !== "test") unreachable = true;
             break;
           default:
             this.i = stmtStart;
@@ -650,10 +672,10 @@ class Parser {
           this.condition(keyword);
           this.skipSpace();
           this.conditionEnd = { at: this.i, keyword };
-          if (this.isStatEnd(this.i)) this.blankLine(`${keyword} (...)`, this.i);
           this.block = this.block === "while" ? "do" : "then";
           this.bodyStarts();
           this.newList("body");
+          this.emptyAfter = { label: `${keyword} (...)`, warns: true };
           continue;
         }
         this.statement(subs);
@@ -665,8 +687,10 @@ class Parser {
 
       if (this.isCmdsubEnd(this.i)) return;
       if (this.isStatEnd(this.i)) {
+        const sep = { at: this.i, char: this.s[this.i + 1] as string };
         this.i += 2;
         this.skipSpace();
+        this.lastSep = sep;
       } else if (this.i < this.s.length) {
         const after = special === "if" ? "/endif" : special === "while" ? "/done" : "";
         let end = this.i + 1;
@@ -837,19 +861,69 @@ class Parser {
     this.blockError(start, end, problem, fix);
   }
 
-  private blankLine(after: string, at: number): void {
-    const sep = this.s.slice(at, at + 2);
+  /**
+   * A statement that starts at a `%;` or `%\`, or at the `)` that ends a `$(...)`, is empty, and
+   * `statement()` compiles it as an OP_SEND of nothing: tf sends a blank line to the world each time
+   * it runs (the 2026-10-14 step-5 probes, "Not connected." for every shape). tf itself warns only
+   * after `/if (...)`, `/elseif (...)` or `/while (...)` (expand.c:1426) and after `/else` (:1587),
+   * and, in a condition list, about a statement that isn't a command (:1433). After a `%|` the
+   * empty statement is an error instead ("Piping input to a server command"), and a `%|` that ends
+   * one is too ("Piping output of a server command"), so neither is reported here. A `%;` at the
+   * very end sends nothing: the loop ends there.
+   */
+  private emptyStatement(first: boolean): void {
+    const p = this.i;
+    const sep = this.isStatEnd(p) && this.s[p + 1] !== "|";
+    const close = !sep && this.isCmdsubEnd(p);
+    if ((!sep && !close) || this.lastSep?.char === "|") return;
+    // In a condition list tf warns about any statement that isn't a command (expand.c:1433).
+    const inCondition = this.block === "if" || this.block === "elseif" || this.block === "while";
+    const prior = this.lastSep;
+    const sepChar = sep ? this.s[p + 1] : undefined;
+    const text = this.emptyAfter
+      ? `after ${this.emptyAfter.label}`
+      : prior
+        ? `right after ${prior.char === (sepChar ?? "") ? "another" : "a"} ${this.s.slice(prior.at, prior.at + 2)}`
+        : inCondition
+          ? `after /${this.block}`
+          : this.cmdsub > 0 && first
+            ? "at the start of the $(...)"
+            : "before the first command";
+    const where = { text, warns: inCondition || (this.emptyAfter?.warns ?? false) };
+    const warned = where.warns ? "tf warns about and sends" : "tf sends";
+    const what = sep ? this.s.slice(p, p + 2) : ")";
+    const explanation =
+      `A statement that is empty, like this one, still runs: tf sends it to the world as a blank line, ` +
+      (where.warns ? "with a warning when it compiles the text. " : "and doesn't warn. ") +
+      `A ${code("%;")} at the very end sends nothing.`;
+    if (sep) {
+      this.issues.push({
+        kind: "empty-statement",
+        start: p,
+        end: p + 2,
+        message: `This ${what} ${where.text} ends an empty statement, which ${warned} to the world as a blank line: remove it.`,
+        label: "ends an empty statement",
+        explanation,
+        // A blank in its place keeps /else from running into the next command (/else/echo is one word).
+        fix: {
+          title: `Remove the ${what}`,
+          edits: [{ start: p, end: p + 2, newText: p + 2 >= this.s.length || isTfSpace(this.s[p + 2]) || isTfSpace(this.s[p - 1]) || p === 0 ? "" : " " }],
+        },
+      });
+      return;
+    }
+    // The ) of a $(...) whose last statement is empty: drop the separator before it, if there is one.
+    const before = prior;
     this.issues.push({
-      kind: "blank-line",
-      start: at,
-      end: at + 2,
-      message: `This ${sep} sends a blank line to the world.`,
+      kind: "empty-statement",
+      start: p,
+      end: p + 1,
+      message: before
+        ? `This $(...) ends with an empty statement after its last ${this.s.slice(before.at, before.at + 2)}, which ${warned} to the world as a blank line: remove that ${this.s.slice(before.at, before.at + 2)}.`
+        : `This $(...) runs an empty statement, which ${warned} to the world as a blank line: put a command in it, or remove it.`,
       label: "ends an empty statement",
-      explanation:
-        `${code(after)} takes the next statement as its body. A ${code(sep)} straight after it ends an empty statement ` +
-        "there, and tf sends an empty statement to the world as a blank line. Drop it.",
-      // A blank in its place keeps /else from running into the next command (/else/echo is one word).
-      fix: { title: `Remove the ${sep}`, edits: [{ start: at, end: at + 2, newText: isTfSpace(this.s[at + 2]) || at + 2 >= this.s.length ? "" : " " }] },
+      explanation,
+      ...(before ? { fix: { title: `Remove the ${this.s.slice(before.at, before.at + 2)}`, edits: [{ start: before.at, end: before.at + 2, newText: "" }] } } : {}),
     });
   }
 
@@ -857,10 +931,7 @@ class Parser {
     if (this.i >= this.s.length || this.isStatEnd(this.i) || this.isCmdsubEnd(this.i)) {
       this.breakOutOfCmdsub(start, end, 1);
       this.unit(start, "break");
-      if (this.isStatEnd(this.i)) {
-        this.i += 2;
-        this.skipSpace();
-      }
+      this.breakSeparator();
       return;
     }
     const digits = this.i;
@@ -870,10 +941,16 @@ class Parser {
     }
     this.breakOutOfCmdsub(start, this.i, Number(this.s.slice(digits, this.i)));
     this.unit(start, "break");
-    if (this.isStatEnd(this.i)) {
-      this.i += 2;
-      this.skipSpace();
-    }
+    this.breakSeparator();
+  }
+
+  /** The separator after a /break, read as the statement loop reads one. */
+  private breakSeparator(): void {
+    if (!this.isStatEnd(this.i)) return;
+    const sep = { at: this.i, char: this.s[this.i + 1] as string };
+    this.i += 2;
+    this.skipSpace();
+    this.lastSep = sep;
   }
 
   /**

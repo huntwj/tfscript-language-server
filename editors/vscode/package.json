@@ -119,6 +119,20 @@
           "default": "",
           "scope": "resource",
           "markdownDescription": "What `~` means in load paths (tf's `HOME`). Useful when tf runs somewhere else, such as WSL or a container. When empty: your home directory."
+        },
+        "tfscript.pathMappings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tf": { "type": "string", "markdownDescription": "An absolute path as tf sees it, such as `/wotmud`." },
+              "local": { "type": "string", "markdownDescription": "The folder here that it is, absolute or relative to the workspace folder." }
+            },
+            "required": ["tf", "local"]
+          },
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "Where tf's paths are on this machine, when tf runs somewhere else (a container, WSL, another host): `[{ \"tf\": \"/wotmud\", \"local\": \"C:/Users/me/wotmud\" }]`. Absolute paths in `/load` and `/require`, and in the `TFPATH` and `HOME` a script sets, go through it, as do the other path settings when written as tf's paths."
         }
       }
     }

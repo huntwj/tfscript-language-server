@@ -65,8 +65,8 @@ describe("findVariables", () => {
     expect(show(text)).toEqual(["read:L1x@0:71"]);
   });
 
-  it("counts %%{name} as a read one level down, but not a bare %%name", () => {
-    expect(show("/def -i a = /def -i b = /echo %%{w} %%v\n")).toEqual(["read:w@0:33"]);
+  it("reads a /def inside a body as the inner macro will see it, %%name and %%{name} included", () => {
+    expect(show("/def -i a = /def -i b = /echo %%{w} %%v\n")).toEqual(["read:w@0:33", "read:v@0:38"]);
   });
 
   it("finds variables in expressions, but not function names, strings or numbers", () => {
@@ -138,5 +138,81 @@ describe("scopes", () => {
     const [a, b] = findVariables("/def -i a = /let x=1%; /echo %x\n/def -i b = /let x=2%; /echo %x\n").filter((v) => v.access === "read");
     expect(a?.scope).not.toBe(b?.scope);
     expect(a?.scope).toMatch(/^local:/);
+  });
+
+  it("reads a /let's own value as the global: the local only exists once the /let has run", () => {
+    // Real tf: with x=6, /let x=%{x}-L made the local "6-L".
+    const text = "/def -i a = /let x=%{x}-L%; /echo %x%; /let y=$[y + 1]\n";
+    expect(findVariables(text).map((v) => `${v.access}:${v.name}${v.scope === "global" ? "" : " local"}`)).toEqual([
+      "let:x local",
+      "read:x",
+      "read:x local",
+      "let:y local",
+      "read:y",
+    ]);
+  });
+});
+
+const names = (text: string): string[] => findVariables(text).map((v) => `${v.access}:${v.name}`);
+
+describe("what tf substitutes", () => {
+  it("leaves %x alone in a plain top-level command, or one in a top-level /if", () => {
+    // Real tf: a top-level /echo %x prints %x; so does /set log_time_format=%s.%.
+    expect(names("/echo %x\n/set log_time_format=%s.%.\n/if (1) /echo %y%; /endif\n")).toEqual(["set:log_time_format"]);
+  });
+
+  it("reads %x in an expression even at the top level, but never inside its strings", () => {
+    // Real tf: /if (%x > 5) read x at the top level; $["%Y"] and /if ("%Y" =~ ...) saw %Y.
+    expect(names('/if (%x > 5 & "%Y" =~ "") /echo%; /endif\n')).toEqual(["read:x"]);
+    expect(names('/def -i a = /echo $[ftime("%Y%m%d-%H%M%S")] $[strlen("%v") + %w]\n')).toEqual(["read:w"]);
+  });
+
+  it("reads the strings of a /test, /return or /result in a body, which tf substitutes first", () => {
+    // Real tf: /test v := "%Y" in a body gave yy.
+    expect(names('/def -i a = /test v := "%Y"%; /result "%{Z}"\n/test w := "%T"\n')).toEqual(["assign:v", "read:Y", "read:Z", "assign:w"]);
+  });
+
+  it("reads /eval text as a macro body, at the top level too", () => {
+    expect(names("/eval /set d=%{e}%; /echo %d\n/eval -s0 /echo %f\n")).toEqual(["set:d", "read:e", "read:d"]);
+  });
+});
+
+describe("commands only at the start of a statement", () => {
+  it("doesn't read /set, /unset or /if in echo text, help text or a trigger pattern", () => {
+    expect(names("/def showhelp = /echo -e %% help: type /set gx=VALUE then /unset gx\n")).toEqual([]);
+    expect(names('/def -mregexp -t"(\\d+)%gx" trigx = /echo matched\n')).toEqual([]);
+    expect(names("/def -i a = /echo use /if (xx) to test\n")).toEqual([]);
+  });
+
+  it("reads /@set, /@let and /@test as the commands they call", () => {
+    expect(names("/def -i a = /@let x=1%; /@test y := x%; /@set z=1\n")).toEqual(["let:x", "assign:y", "read:x", "set:z"]);
+  });
+
+  it("reads a /def -E condition's names, which tf evaluates when the trigger matches", () => {
+    // Real tf: -E"lim > 3" fired with lim=5 and not with lim=1.
+    expect(names('/def -i -E"lim > 3" -t"hello*" -q trE = /echo fired\n')).toEqual(["read:lim"]);
+  });
+
+  it("reads x /y as division by the variable y, and x /echo as a missing %;", () => {
+    // Real tf: $[x /y] with x=6, y=2 gave 3.
+    expect(names("/def -i a = /echo $[x /y] $[x /echo]\n")).toEqual(["read:x", "read:y", "read:x"]);
+  });
+
+  it("doesn't read the start of a name built at run time", () => {
+    // From kbstack.tf: the inner macro reads _kb_stack_0_top, or whatever n is.
+    expect(names("/def -i a = /def -i b = /echo %%{_kb_stack_%{n}_top}\n")).toEqual(["read:n"]);
+  });
+});
+
+describe("cost", () => {
+  const timed = (text: string): number => {
+    const t0 = performance.now();
+    findVariables(text);
+    return performance.now() - t0;
+  };
+  it("stays linear on long statements", () => {
+    expect(timed(`/def -i a = ${"/test x ".repeat(20000)}\n`)).toBeLessThan(1000);
+    expect(timed(`/def -i a = /if (${"x ".repeat(50000)}\n`)).toBeLessThan(1000);
+    expect(timed(`/def -i a = ${"/set a=1 ".repeat(20000)}\n`)).toBeLessThan(1000);
   });
 });

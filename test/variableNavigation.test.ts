@@ -61,13 +61,13 @@ describe("variable definition and references", () => {
   it("follows a global into the other files on the load path, tf's library included for definitions", () => {
     const ctx: NavContext = {
       uri: "file:///main.tf",
-      files: [{ uri: "file:///other.tf", text: "/set width=80\n/echo %width\n" }],
+      files: [{ uri: "file:///other.tf", text: "/set width=80\n/def -i b = /echo %width\n" }],
       libraryFiles: [{ uri: "file:///lib/stdlib.tf", text: "/set width=72\n" }],
       macros: [],
     };
     const t = "/def -i a = /echo %{width}\n";
     expect(starts(getDefinition(t, pos(0, 22), ctx))).toEqual(["file:///other.tf:0:5", "file:///lib/stdlib.tf:0:5"]);
-    expect(starts(getReferences(t, pos(0, 22), true, ctx))).toEqual(["file:///main.tf:0:20", "file:///other.tf:0:5", "file:///other.tf:1:7"]);
+    expect(starts(getReferences(t, pos(0, 22), true, ctx))).toEqual(["file:///main.tf:0:20", "file:///other.tf:0:5", "file:///other.tf:1:19"]);
   });
 
   it("jumps from an opt_ variable to its getopts() letter, even between two letters", () => {
@@ -109,11 +109,11 @@ describe("variable rename", () => {
   });
 
   it("renames across the files on the load path", () => {
-    const ctx: NavContext = { uri: "file:///main.tf", files: [{ uri: "file:///other.tf", text: "/echo %{w}\n" }], macros: [] };
+    const ctx: NavContext = { uri: "file:///main.tf", files: [{ uri: "file:///other.tf", text: "/def -i b = /echo %{w}\n" }], macros: [] };
     const edits = getRenameEdits("/set w=1\n", pos(0, 5), "width", ctx);
     expect(edits).toEqual([
       { uri: "file:///main.tf", range: { start: pos(0, 5), end: pos(0, 6) }, newText: "width" },
-      { uri: "file:///other.tf", range: { start: pos(0, 8), end: pos(0, 9) }, newText: "width" },
+      { uri: "file:///other.tf", range: { start: pos(0, 20), end: pos(0, 21) }, newText: "width" },
     ]);
   });
 
@@ -124,7 +124,7 @@ describe("variable rename", () => {
   it("refuses tf's special variables and variables tf's library sets", () => {
     expect(prepareRename("/set wrapspace=4\n", pos(0, 6))).toEqual({ error: "wrapspace is one of tf's special variables, so it can't be renamed." });
     const ctx: NavContext = { uri: "file:///a.tf", files: [], libraryFiles: [{ uri: "file:///lib/x.tf", text: "/set libvar=1\n" }], macros: [] };
-    expect(prepareRename("/echo %libvar\n", pos(0, 8), ctx)).toEqual({ error: "libvar is set in tf's library, which isn't yours to rename." });
+    expect(prepareRename("/def -i a = /echo %libvar\n", pos(0, 20), ctx)).toEqual({ error: "libvar is set in tf's library, which isn't yours to rename." });
   });
 
   it("refuses a getopts() variable, whose name comes from its option letter", () => {

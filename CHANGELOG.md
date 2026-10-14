@@ -14,6 +14,8 @@
 - `body-continues-without-backslash` (information): a macro body whose last line ends in `%;`
   but not `\`, with a command on the next line, which runs once as the file loads instead of
   being part of the body.
+- The `/if` and `/while` hovers state the general rule: in a file, every command ends at the
+  end of its line unless the line ends in `\`, so a block has to be complete within one command.
 - `load-no-expansion` is now `not-substituted-here`, built on one table of which text tf reads at
   which substitution level (`src/substitution.ts`). It no longer flags what tf does substitute: a
   `%{x}` in a top-level condition or `/test` (an expression reads it as a variable), in a `/repeat`'s

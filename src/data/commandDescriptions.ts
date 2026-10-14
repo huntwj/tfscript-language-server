@@ -16,7 +16,7 @@ export const COMMAND_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "elseif": "Another condition in an `/if`, tried when the ones before it were false: `/elseif (y) ...`. It only counts at the start of a statement, after a `%;`.",
   "endif": "Ends an `/if`. It only counts at the start of a statement, so it needs a `%;` before it, and anything after it needs another `%;`.",
   "exit": "Stops loading the current file, or the *n* innermost nested `/load`s with `/exit n`, and abandons the rest of the command it is in. Outside a `/load` it does nothing. (A reserved word, but tf runs it as an ordinary built-in command.)",
-  "if": "Runs commands when a condition is true: `/if (x) ...%; /elseif (y) ...%; /else ...%; /endif`. The whole `/if` has to be in one command: in a file, one line, or lines joined with a trailing `\\`.",
+  "if": "Runs commands when a condition is true: `/if (x) ...%; /elseif (y) ...%; /else ...%; /endif`. Like any block, the whole `/if` has to be one command, and in a file a command ends at the end of its line unless the line ends in `\\`.",
   "let": "Sets a variable local to the running macro: `/let name=value`. The value runs to the next `%;`.",
   "result": "Ends the macro with the value of an expression, like `/return`, and also prints the value when the macro was run as a command rather than called from an expression. Not allowed inside `$(...)`.",
   "return": "Ends the macro with the value of an expression: `/return x + 1`. Not allowed inside `$(...)`.",
@@ -24,7 +24,7 @@ export const COMMAND_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "setenv": "Sets a global variable and exports it to the environment, so programs tf starts see it too: `/setenv name=value`. The value runs to the next `%;`.",
   "test": "Evaluates an expression and makes its value the result, without ending the macro: `/test i += 1`. The expression runs to the next `%;`.",
   "then": "Ends an `/if` or `/elseif` condition list and starts its commands: `/if /test x%; /then ...`. Only after a condition list: after a `(condition)` tf rejects it.",
-  "while": "Repeats commands while a condition is true: `/while (i < 3) ...%; /done`, or with a condition list, `/while /test x%; /do ...%; /done`.",
+  "while": "Repeats commands while a condition is true: `/while (i < 3) ...%; /done`, or with a condition list, `/while /test x%; /do ...%; /done`. Like any block, the whole `/while` has to be one command, and in a file a command ends at the end of its line unless the line ends in `\\`.",
   // built-in commands (tinyfugue/src/cmdlist.h)
   "beep": "",
   "bind": "",

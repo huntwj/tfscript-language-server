@@ -40,7 +40,7 @@ function variableHover(v: TfVariable, help: ReadonlyMap<string, HelpEntry> | und
   const facts = [`tf ${v.type} variable`];
   if (v.values) facts.push(`values: ${v.values.map((x) => `\`${x}\``).join(", ")}`);
   if (v.requires) facts.push(`only with ${v.requires}`);
-  parts.push(`${facts.join(" — ")} — \`/help %${v.name}\``);
+  parts.push(`*${facts.join(" — ")}*`);
   return parts.join("\n\n");
 }
 
@@ -88,7 +88,7 @@ export function getExpressionHover(
     const parts = [code(entry?.usage.length ? entry.usage : functionSynopses(f))];
     if (entry?.summary) parts.push(escapeMarkdown(entry.summary));
     const counts = f.max === null ? `${f.min} or more arguments` : f.min === f.max ? `${f.min} argument${f.min === 1 ? "" : "s"}` : `${f.min} to ${f.max} arguments`;
-    parts.push(`tf function, ${counts}${f.requires ? `, only with ${f.requires}` : ""} — \`/help ${f.name}()\``);
+    parts.push(`*tf function, ${counts}${f.requires ? `, only with ${f.requires}` : ""}*`);
     return { markdown: parts.join("\n\n"), range };
   }
   const v = SPECIAL_VARIABLES.find((s) => s.name === word);

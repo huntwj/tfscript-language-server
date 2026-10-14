@@ -126,8 +126,9 @@ describe("getHover", () => {
   });
 
   it("adds nothing between synopsis and label while a COMMAND_DESCRIPTIONS entry is empty", () => {
-    const hover = getHover("/let x 1\n", pos(0, 2))?.markdown ?? "";
-    expect(hover).toMatch(/```\n\ntf control-flow keyword/);
+    const hover = getHover("/beep 3\n", pos(0, 2))?.markdown ?? "";
+    expect(hover).toMatch(/```\n\n\*tf built-in command\*$/);
+    expect(hover).not.toContain("/help");
   });
 
   it("returns nothing for unknown names or plain text", () => {

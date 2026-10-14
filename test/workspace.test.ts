@@ -75,14 +75,14 @@ describe("cross-file navigation through the workspace index", () => {
       "",
       "  Help text for alias.",
       "",
-      "&/let",
+      "&/beep",
       "",
       "  Usage: ",
       "",
-      "  /LET <name>=<value>",
+      "  /BEEP [<number>|on|off]",
       "  ________________________________",
       "",
-      "  Help text for let.",
+      "  Help text for beep.",
       "",
     ].join("\n"),
     [p("ws", "tfrc")]: "/require alias.tf\n/load helpers.tf\n/load main.tf\n",
@@ -135,10 +135,10 @@ describe("cross-file navigation through the workspace index", () => {
 
   it("describes commands from the installed tf-help", () => {
     const { ctx } = doc(p("ws", "main.tf"));
-    const md = getHover("/let x 1\n", pos(0, 2), ctx)?.markdown ?? "";
-    expect(md).toContain("/let <name>=<value>");
-    expect(md).toContain("Help text for let.");
-    expect(md).toContain("control-flow keyword");
+    const md = getHover("/beep 3\n", pos(0, 2), ctx)?.markdown ?? "";
+    expect(md).toContain("/beep [<number>|on|off]");
+    expect(md).toContain("Help text for beep.");
+    expect(md).toContain("built-in command");
   });
 
   it("adds tf-help to a loaded library macro, and to the not-loaded hint", () => {

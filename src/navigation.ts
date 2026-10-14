@@ -181,8 +181,8 @@ function commandHover(name: string, help?: ReadonlyMap<string, HelpEntry>): stri
   const usages = entry && entry.usage.length > 0 ? entry.usage : COMMAND_USAGES[key];
   const synopsis = usages ? "```tf\n" + usages.join("\n") + "\n```\n\n" : "";
   const description = COMMAND_DESCRIPTIONS[key] || (entry?.summary && escapeMarkdown(entry.summary));
-  const label = source ? `${SOURCE_LABEL[source]} — ` : "";
-  return `${synopsis}${description ? `${description}\n\n` : ""}${label}\`/help ${key}\``;
+  const parts = [synopsis.trimEnd(), description ?? "", source ? `*${SOURCE_LABEL[source]}*` : ""].filter(Boolean);
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
 
 /**

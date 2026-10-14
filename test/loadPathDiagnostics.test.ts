@@ -28,8 +28,9 @@ describe("unresolved-load", () => {
       severity: "warning",
       range: { start: { line: 1, character: 9 }, end: { line: 1, character: 19 } },
     });
-    expect(d?.message).toContain(p("cwd", "missing.tf"));
-    expect(d?.message).toContain("not from this file's folder");
+    expect(d?.message).toBe('tf won\'t find "missing.tf": fix the path, or set tfscript.workingDirectory to the folder tf runs in.');
+    expect(d?.explanation).toContain(p("cwd", "missing.tf"));
+    expect(d?.explanation).toContain("not from this file's folder");
   });
 
   it("points at the load the warning is about when an /eval line names the same file twice", () => {
@@ -53,21 +54,19 @@ describe("unresolved-load", () => {
   it("notes, without warning, a ~user path it can't find, since user's home directory can't be checked", () => {
     const [d] = check({ [p("tfrc")]: "/load ~bob/x.tf\n" }, p("tfrc"));
     expect(d).toMatchObject({ code: "unresolved-load", severity: "information", range: { start: { line: 0, character: 6 } } });
-    expect(d?.message).toBe(
-      "Can't follow this load: tf takes ~bob from user bob's home directory, or, if there is no such user, " +
-        "as a folder named ~bob in its current directory. Write the full path to have it checked.",
+    expect(d?.message).toBe("This load can't be followed here, since ~bob depends on whether user bob exists: write the full path to have it checked.");
+    expect(d?.explanation).toBe(
+      "tf takes `~bob` from user `bob`'s home directory, or, if there is no such user, as a folder named `~bob` in its " +
+        "current directory. If `bob` is misspelt, or there is no such user, tf doesn't warn: it reads `./~bob/x.tf` from its current directory instead.",
     );
-    expect(d?.explanation).toBe("If `bob` is misspelt, or there is no such user, tf doesn't warn: it reads `./~bob/x.tf` from its current directory instead.");
   });
 
   it("says when a path's variable is unknown because a /set inside an /if or /while may change it", () => {
     const text = "/set d=/x\n/if (d =~ \"\") /set d=/y%; /endif\n/eval /load %{d}/a.tf\n/while (0) /set TFPATH=/z%; /done\n/load b.tf\n";
     const [d, tfpath] = check({ [p("tfrc")]: text }, p("tfrc"));
     expect(d).toMatchObject({ severity: "information", range: { start: { line: 2 } } });
-    expect(d?.message).toBe(
-      "Can't follow this load: %{d} is set inside an /if or /while on the load path, " +
-        "and this check can't tell whether that /set runs.",
-    );
+    expect(d?.message).toBe("This load can't be followed here: %{d} is set inside an /if or /while on the load path.");
+    expect(d?.explanation).toBe("This check can't tell whether that `/set` runs, so it can't tell which file tf would load.");
     expect(tfpath?.message).toContain("%{TFPATH} is set inside an /if or /while on the load path");
   });
 

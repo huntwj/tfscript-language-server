@@ -1,6 +1,7 @@
 import { ALL_COMMANDS } from "../data/commands";
 import type { TfDiagnostic } from "../diagnostics";
 import { splitLogicalEntries, splitRawLines, type LogicalEntry } from "../logicalEntries";
+import { code } from "../structure";
 import { findUsages } from "../navigation";
 import { fileKey, type LoadGraph, type UnresolvedLoad } from "./loadGraph";
 
@@ -72,34 +73,43 @@ function rangeOf(lines: string[], entries: LogicalEntry[], u: UnresolvedLoad) {
   return { start: { line: u.line, character: start }, end: { line: u.line, character: text.trimEnd().length } };
 }
 
-function unresolvedMessage(u: UnresolvedLoad): string {
+function unresolvedDetail(u: UnresolvedLoad): Pick<TfDiagnostic, "message" | "label" | "explanation"> {
   if (u.kind === "unknown-variable") {
-    return (
-      `Can't follow this load: ${u.reason}. tf works the path out when it runs; this check only ` +
-      `follows paths built from literal /set values.`
-    );
+    return {
+      message: `This load can't be followed here: ${u.reason}.`,
+      label: "can't follow",
+      explanation:
+        `tf works the path out when it runs. This check only follows paths built from literal ${code("/set")} ` +
+        "values, so it can't tell whether tf will find the file.",
+    };
   }
   if (u.kind === "guarded-variable") {
     // No advice: the usual reason is the default-value idiom, /if (x =~ "") /set x=...%; /endif,
     // which exists so users can override x, and the /set may be in an earlier file.
-    return (
-      `Can't follow this load: %{${u.variable}} is set inside an /if or /while on the load path, ` +
-      `and this check can't tell whether that /set runs.`
-    );
+    return {
+      message: `This load can't be followed here: %{${u.variable}} is set inside an /if or /while on the load path.`,
+      label: "can't follow",
+      explanation: `This check can't tell whether that ${code("/set")} runs, so it can't tell which file tf would load.`,
+    };
   }
   if (u.kind === "user-home") {
     const user = /^~([^/]+)/.exec(u.file)?.[1] ?? "";
-    return (
-      `Can't follow this load: tf takes ~${user} from user ${user}'s home directory, or, if there is no such user, ` +
-      `as a folder named ~${user} in its current directory. Write the full path to have it checked.`
-    );
+    return {
+      message: `This load can't be followed here, since ~${user} depends on whether user ${user} exists: write the full path to have it checked.`,
+      label: "can't follow",
+      explanation:
+        `tf takes ${code(`~${user}`)} from user ${code(user)}'s home directory, or, if there is no such user, as a ` +
+        `folder named ${code(`~${user}`)} in its current directory. ${userHomeExplanation(u)}`,
+    };
   }
   const shown = u.file === u.raw ? `"${u.raw}"` : `"${u.raw}" (${u.file})`;
-  return (
-    `tf won't find ${shown}. It would try, in order: ${u.searched.join(", ")}. A relative path is ` +
-    `looked up from tf's current directory (tfscript.workingDirectory), then TFPATH — not from ` +
-    `this file's folder.`
-  );
+  return {
+    message: `tf won't find ${shown}: fix the path, or set tfscript.workingDirectory to the folder tf runs in.`,
+    label: "not found",
+    explanation:
+      `tf would try, in order: ${u.searched.map((s) => code(s)).join(", ")}. A relative path is looked up from tf's ` +
+      `current directory (${code("tfscript.workingDirectory")}), then ${code("TFPATH")}, not from this file's folder.`,
+  };
 }
 
 /** The hover text for a ~user load: a misspelt name is a silent fallback, not an error. */
@@ -135,10 +145,9 @@ export function loadPathDiagnostics(
       if (fileKey(u.from) !== self || u.kind === "not-substituted") continue;
       out.push({
         range: rangeOf(lines, entries, u),
-        message: unresolvedMessage(u),
+        ...unresolvedDetail(u),
         code: "unresolved-load",
         severity: u.kind === "not-found" ? "warning" : "information",
-        ...(u.kind === "user-home" ? { explanation: userHomeExplanation(u) } : {}),
       });
     }
   }
@@ -155,9 +164,11 @@ export function loadPathDiagnostics(
       if (guardedByIsmacro(lines, usage.range.start.line, name)) continue;
       out.push({
         range: usage.range,
-        message:
-          `/${usage.name} isn't defined anywhere on this file's load path, and isn't a tf command. ` +
-          `It may still exist at runtime — from /eval /def, a hook, or a file loaded some other way — which this check can't see.`,
+        message: `/${usage.name} isn't defined anywhere on this file's load path, and isn't a tf command: check the name.`,
+        label: "not defined on the load path",
+        explanation:
+          `It may still exist when this runs: defined by ${code("/eval /def")}, by a hook, or in a file loaded some ` +
+          "other way, none of which this check can see.",
         code: "undefined-macro",
         severity: "information",
       });

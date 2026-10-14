@@ -1,12 +1,10 @@
 import { leadingWhitespaceLength, type LogicalEntry } from "../logicalEntries";
+import { code } from "../structure";
+import type { LineMatch } from "./types";
 
-export interface AbortMatch {
+export interface AbortMatch extends LineMatch {
   /** Index into the entries array; everything from here on is never read by tf. */
   entryIndex: number;
-  line: number;
-  startChar: number;
-  endChar: number;
-  message: string;
 }
 
 /**
@@ -23,6 +21,10 @@ export interface AbortMatch {
  * line to form the real command, and that command's first character can only be found by
  * scanning the joined text — checking just `parts[0]` would wrongly treat such an entry as
  * blank and miss the abort.
+ *
+ * The fix comments out every physical line of the command: a comment line is skipped even in
+ * the middle of a continuation, so a `;` on only the first line would leave the rest to run as
+ * commands of their own (load_file() checks for a comment before it looks for a trailing `\`).
  */
 export function findAbortEntry(entries: LogicalEntry[]): AbortMatch | null {
   for (let idx = 0; idx < entries.length; idx += 1) {
@@ -47,15 +49,26 @@ export function findAbortEntry(entries: LogicalEntry[]): AbortMatch | null {
     }
     const lastChar = entry.offsetMap[end - 1] ?? start;
 
+    // The first character of each physical line of the command, where a `; ` comments it out.
+    const firsts = new Map<number, number>();
+    for (const at of entry.offsetMap) if (!firsts.has(at.line)) firsts.set(at.line, at.character);
+
     return {
       entryIndex: idx,
       line: start.line,
       startChar: start.character,
       endChar: lastChar.character + 1,
-      message:
-        "this line is not blank, a comment (; or #), or a command (starting with /) — tf " +
-        'aborts the rest of this file\'s load here ("Invalid command. Aborting."). Nothing ' +
-        "after this line in the file is read.",
+      message: "This line isn't a command, so tf stops loading the file here.",
+      label: "not a command",
+      explanation:
+        `Every line of a file tf loads has to be a command (starting with ${code("/")}), a comment (starting with ` +
+        `${code(";")} or ${code("#")}), or blank. At any other line tf reports ${code("Invalid command. Aborting.")} ` +
+        `and reads nothing after it. If the line belongs to the command above it, end that command's line with ` +
+        `${code("\\")}; if it is a note, make it a comment.`,
+      fix: {
+        title: firsts.size > 1 ? "Comment out these lines" : "Comment out the line",
+        edits: [...firsts].map(([line, character]) => ({ line, startChar: character, endChar: character, newText: "; " })),
+      },
     };
   }
   return null;

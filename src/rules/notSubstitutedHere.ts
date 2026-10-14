@@ -88,7 +88,17 @@ function percentBraces(text: string, limitOf: (at: number) => number): { index: 
       covered = span.end;
     }
     if (!read.stopped) {
-      pos = Math.max(pos, limit);
+      // The parser gave up on nesting past its depth (review rev-s2c deep.tf): the %{ it was in
+      // ends where tf ends it, and reading goes on after that, rather than at the statement's end.
+      const deep = read.issues.find((i) => i.kind === "too-deep");
+      const opener = deep ? text.indexOf("%{", at + covered) : -1;
+      if (opener < 0 || opener >= at + deep!.start) {
+        pos = Math.max(pos, limit);
+        continue;
+      }
+      const end = substitutionEnd(text, opener, limit);
+      if (text[end - 1] === "}") found.push({ index: opener, text: text.slice(opener, end) });
+      pos = Math.max(pos, end);
       continue;
     }
     // The %{ the parser couldn't read (nothing in it is a substitution of its own either, such as

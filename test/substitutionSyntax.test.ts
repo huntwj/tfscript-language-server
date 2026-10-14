@@ -190,6 +190,16 @@ describe("not-substituted-here and nested or malformed %{", () => {
     expect(Date.now() - start).toBeLessThan(2000);
   });
 
+  // Proven live (review rev-s2c deep.tf): under /eval tf reads a default nested 2000 deep to its
+  // own }, then the %{y} after it.
+  it("reads on after a %{ nested deeper than the parser follows", () => {
+    const deep = `%{q-${"%{q-".repeat(1999)}a${"}".repeat(2000)}`;
+    const named = getDiagnostics(`/echo Z:%{x} ${deep} %{y}\n`)
+      .filter((d) => d.code === "not-substituted-here")
+      .map((d) => d.range.end.character - d.range.start.character);
+    expect(named).toEqual([4, deep.length, 4]);
+  });
+
   // Review rev-s2c: skipping one it can't read recursed once per %{ nested in it, which overflowed
   // the stack on this line and took every diagnostic of the file with it.
   it("skips thousands of unclosed %{ without overflowing the stack", () => {

@@ -41,7 +41,9 @@ interface Join {
   to: number;
 }
 
-const MAX_LINES = 20;
+/** The most lines past a command's own a join brings into it. */
+export const JOIN_MAX_LINES = 20;
+const MAX_LINES = JOIN_MAX_LINES;
 const MAX_TRIES = 80;
 const MAX_SLICE = 20_000;
 const MAX_TOTAL_TRIES = 1500;
@@ -239,6 +241,7 @@ function lineEdits(before: string[], after: string[], base: number): TfTextEdit[
  * a settled slice's diagnostics no longer have the problem being fixed (lines relative to the slice).
  * Past `minLast` (and from the start when `closerOnly`, for an unclosed block) it only tries
  * stopping at a line with an `/endif` or `/done` on it, the only lines that can close a block.
+ * It goes no further than a blank line, or a line in `stopAt`.
  */
 function joinFix(
   lines: string[],
@@ -248,13 +251,14 @@ function joinFix(
   gone: (diagnostics: TfDiagnostic[]) => boolean,
   diagnose: Diagnose,
   closerOnly: boolean,
+  stopAt: Set<number> = new Set(),
 ): Join | undefined {
   const separate = separates(entry);
   const base = entry.startLine;
   let fallback: Join | undefined;
   for (let last = minLast; last < lines.length && last <= first + MAX_LINES; last += 1) {
     const line = lines[last] ?? "";
-    if (isBlankLine(line)) break;
+    if (isBlankLine(line) || stopAt.has(last)) break;
     if (isCommentLine(line) || continuesToNextLine(line)) continue;
     // Joining further only helps if it brings in a block's /endif or /done.
     if ((closerOnly || last > minLast) && !CLOSER_RE.test(line)) continue;
@@ -351,6 +355,8 @@ function addJoins(text: string, diagnostics: TfDiagnostic[], diagnoseSlice: Diag
   if (!diagnostics.some((d) => d.code === "missing-continuation" || d.code === "indented-line-after-command" || d.code === "block-structure")) return;
   const lines = splitRawLines(text);
   const entries = splitLogicalEntries(text);
+  // A block's join stops at a macro definition: its body isn't part of the block.
+  const definitions = new Set(entries.filter((e) => e.isDefBody || e.isOtherMacroBody).map((e) => e.startLine));
   const joins: NonNullable<TfDiagnostic["fix"]>[] = [];
   /** The joins that leave no error, with the lines they make one command. */
   const clean: { fix: NonNullable<TfDiagnostic["fix"]>; from: number; to: number }[] = [];
@@ -365,14 +371,18 @@ function addJoins(text: string, diagnostics: TfDiagnostic[], diagnoseSlice: Diag
     // An "Add %; /endif ..." fix gives way to joining in a closer below.
     if (d.fix && !d.fix.title.startsWith("Add %; /")) continue;
     const entry = entryAt(entries, d.range.start.line);
-    const opener = entry && !entry.isDefBody && !entry.isOtherMacroBody ? TOP_BLOCK_RE.exec(entry.text) : null;
     const first = entry?.offsetMap[0];
-    if (!entry || !opener || !first || first.line !== d.range.start.line || first.character !== d.range.start.character) continue;
+    // The command has to start with /if or /while, for %; to separate its statements. A
+    // missing-continuation's block may be a later one in it (`/if (1) ...%; /endif%; /if (2) ...`).
+    const starts = !!first && first.line === d.range.start.line && first.character === d.range.start.character;
+    const own = TOP_BLOCK_RE.exec((lines[d.range.start.line] ?? "").slice(d.range.start.character));
+    const opener = entry && !entry.isDefBody && !entry.isOtherMacroBody && TOP_BLOCK_RE.test(entry.text) ? own : null;
+    if (!entry || !opener || (!starts && d.code !== "missing-continuation")) continue;
     const at = d.range.start.line - entry.startLine;
     const anyMessage = d.code === "missing-continuation";
     const join = attempt(diagnoseSlice, (diagnose) =>
       // missing-continuation's message names lines, which differ in the slice: the code and line are enough.
-      joinFix(lines, entry, entry.endLine, entry.endLine + 1, (ds) => !ds.some((x) => x.code === d.code && (anyMessage || x.message === d.message) && x.range.start.line === at), diagnose, true),
+      joinFix(lines, entry, entry.endLine, entry.endLine + 1, (ds) => !ds.some((x) => x.code === d.code && (anyMessage || x.message === d.message) && x.range.start.line === at), diagnose, true, definitions),
     );
     // A block-structure error at the opener could be anything wrong with the block, so only a join that fixes it all.
     if (join && (join.clean || d.code === "missing-continuation")) add(d, `Join the ${opener[0].toLowerCase()}'s lines with \\`, join);

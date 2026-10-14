@@ -1,6 +1,7 @@
 import type { EntryRule, EntryMatch } from "./types";
 import type { TfDiagnostic } from "../diagnostics";
-import { splitRawLines, type LogicalEntry } from "../logicalEntries";
+import { isBlankLine, splitRawLines, type LogicalEntry } from "../logicalEntries";
+import { JOIN_MAX_LINES } from "../joinFix";
 import { entryStructure } from "../structure";
 
 /**
@@ -39,13 +40,38 @@ interface Opener {
   word: "if" | "while";
   /** The last line of its command. */
   endLine: number;
+  /** The last line of the commands a join could bring into it (spanOf). */
+  spanEnd: number;
   strays: { d: TfDiagnostic; word: string }[];
 }
 
 type Related = NonNullable<TfDiagnostic["related"]>[number];
 
-/** The entry holding `line` (entries are in line order). */
-function entryAt(entries: LogicalEntry[], line: number): LogicalEntry | undefined {
+const byPosition = (a: { range: TfDiagnostic["range"] }, b: { range: TfDiagnostic["range"] }): number =>
+  a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character;
+
+/**
+ * The last line of the top-level commands after `entries[index]` that a line join could bring
+ * into it: up to a blank line (which ends any join), a macro definition (a body is not part of an
+ * /if), or JOIN_MAX_LINES lines past it. Comment lines in between don't matter, as tf skips them
+ * even inside a continuation.
+ */
+function spanOf(entries: LogicalEntry[], index: number, lines: string[]): number {
+  const entry = entries[index] as LogicalEntry;
+  let end = entry.endLine;
+  for (let k = index + 1; k < entries.length; k += 1) {
+    const e = entries[k] as LogicalEntry;
+    if (e.isDefBody || e.isOtherMacroBody || e.endLine > entry.endLine + JOIN_MAX_LINES) break;
+    let blank = false;
+    for (let line = end + 1; line < e.startLine && !blank; line += 1) blank = isBlankLine(lines[line] ?? "");
+    if (blank) break;
+    end = e.endLine;
+  }
+  return end;
+}
+
+/** The index of the entry holding `line` (entries are in line order), or -1. */
+function entryIndexAt(entries: LogicalEntry[], line: number): number {
   let lo = 0;
   let hi = entries.length - 1;
   while (lo <= hi) {
@@ -53,28 +79,31 @@ function entryAt(entries: LogicalEntry[], line: number): LogicalEntry | undefine
     const e = entries[mid] as LogicalEntry;
     if (line < e.startLine) hi = mid - 1;
     else if (line > e.endLine) lo = mid + 1;
-    else return e;
+    else return mid;
   }
-  return undefined;
+  return -1;
 }
 
-const byPosition = (a: { range: TfDiagnostic["range"] }, b: { range: TfDiagnostic["range"] }): number =>
-  a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character;
+/** How the opener's last line fails to continue: no `\`, or a `\` that whitespace (a CRLF's `\r` among it) follows. */
+function cutOff(line: string): "none" | "whitespace" | "crlf" {
+  if (!/\\[ \t\f\v\r]+$/.test(line)) return "none";
+  return /\\\r$/.test(line) ? "crlf" : "whitespace";
+}
 
 /**
  * Pairs each missing-continuation opener with the later top-level lines that were meant to be
- * part of it: the stray keywords of its block (the nearest open opener of the right kind takes
- * each one, and an `/endif` or `/done` closes it), and the indented lines up to the last of those,
- * or, with none, the indented lines straight after it. Their own diagnostics are dropped, they
- * become the opener's related locations, and its message names the line that was cut off.
+ * part of it, as far as a line join could reach (spanOf): the stray keywords of its block that
+ * start a command (the nearest open opener of the right kind takes each one, and an `/endif` or
+ * `/done` closes it), and the indented lines up to the last of those, or, with none, the indented
+ * lines straight after it. Their own diagnostics are dropped, they become the opener's related
+ * locations, and its message names the line that was cut off. A stray in the middle of a command,
+ * or past a blank line or a macro definition, is block-structure's, as tf reports it: it belongs
+ * to something else. The opener's fix is left to joinFix.ts, which replaces it with a join where
+ * one works.
  */
 export function consolidateContinuations(text: string, entries: LogicalEntry[], diagnostics: TfDiagnostic[]): TfDiagnostic[] {
   if (!diagnostics.some((d) => d.code === "missing-continuation")) return diagnostics;
   const lines = splitRawLines(text);
-  const topLevel = (d: TfDiagnostic): LogicalEntry | undefined => {
-    const e = entryAt(entries, d.range.start.line);
-    return e && !e.isDefBody && !e.isOtherMacroBody ? e : undefined;
-  };
   const candidates = diagnostics
     .filter((d) => d.code === "missing-continuation" || (d.code === "block-structure" && STRAY_RE.test(d.message)))
     .sort(byPosition);
@@ -83,19 +112,25 @@ export function consolidateContinuations(text: string, entries: LogicalEntry[], 
   const dropped = new Set<TfDiagnostic>();
 
   for (const d of candidates) {
-    const entry = topLevel(d);
-    if (!entry) continue;
+    const index = entryIndexAt(entries, d.range.start.line);
+    const entry = entries[index];
+    if (!entry || entry.isDefBody || entry.isOtherMacroBody) continue;
     if (d.code === "missing-continuation") {
       const at = d.range.start;
       const word = OPENER_RE.exec((lines[at.line] ?? "").slice(at.character))?.[1]?.toLowerCase();
       if (word !== "if" && word !== "while") continue;
-      const opener: Opener = { d, word, endLine: entry.endLine, strays: [] };
+      const opener: Opener = { d, word, endLine: entry.endLine, spanEnd: spanOf(entries, index, lines), strays: [] };
       openers.push(opener);
       open.push(opener);
       continue;
     }
+    // Only a keyword that starts a command: one later in a command belongs to that command's own blocks.
+    const first = entry.offsetMap[0];
+    if (!first || first.line !== d.range.start.line || first.character !== d.range.start.character) continue;
     const word = (STRAY_RE.exec(d.message) as RegExpExecArray)[1] as string;
     const block = word === "do" || word === "done" ? "while" : "if";
+    // Openers whose reach ends before this line can't take it, or anything after it.
+    for (let k = open.length - 1; k >= 0; k -= 1) if ((open[k] as Opener).spanEnd < d.range.start.line) open.splice(k, 1);
     let k = open.length - 1;
     while (k >= 0 && (open[k] as Opener).word !== block) k -= 1;
     const opener = open[k];
@@ -113,9 +148,9 @@ export function consolidateContinuations(text: string, entries: LogicalEntry[], 
     let next = opener.endLine + 1;
     for (const d of indented) {
       const line = d.range.start.line;
-      if (line <= opener.endLine || dropped.has(d)) continue;
+      if (line <= opener.endLine || line > opener.spanEnd || dropped.has(d)) continue;
       if (lastStray !== undefined ? line > lastStray : line !== next) continue;
-      next = (entryAt(entries, line)?.endLine ?? line) + 1;
+      next = (entries[entryIndexAt(entries, line)]?.endLine ?? line) + 1;
       dropped.add(d);
       // An indented stray keyword is noted once, as the keyword.
       if (opener.strays.some((s) => s.d.range.start.line === line)) continue;
@@ -132,10 +167,17 @@ export function consolidateContinuations(text: string, entries: LogicalEntry[], 
     const what = closer
       ? `the /${closer.word} on line ${closer.d.range.start.line + 1} is a separate command`
       : `line ${(related[0] as Related).range.start.line + 1} starts a separate command`;
-    opener.d.message = `This /${opener.word} ends at the end of line ${opener.endLine + 1}, which has no \\, so ${what}: end every line but the last with \\.`;
-    opener.d.label = `its command ends on line ${opener.endLine + 1}`;
-    // Adding the closer to this line would leave the real one behind as a stray.
-    if (opener.d.fix?.title.startsWith("Add %; /")) delete opener.d.fix;
+    const n = opener.endLine + 1;
+    const how = cutOff(lines[opener.endLine] ?? "");
+    opener.d.message =
+      how === "crlf"
+        ? `This /${opener.word} ends at the end of line ${n}, where the file's Windows (CRLF) line ending puts a carriage return after the \\, so ${what}: save the file with LF line endings.`
+        : how === "whitespace"
+          ? `This /${opener.word} ends at the end of line ${n}, where whitespace follows the \\, so ${what}: remove the whitespace.`
+          : `This /${opener.word} ends at the end of line ${n}, which has no \\, so ${what}: end every line but the last with \\.`;
+    opener.d.label = `its command ends on line ${n}`;
+    // The \ is there: backslash-not-last's fix (or LF line endings) is what's needed, not a closer here.
+    if (how !== "none" && opener.d.fix?.title.startsWith("Add %; /")) delete opener.d.fix;
   }
 
   return diagnostics.filter((d) => !dropped.has(d));

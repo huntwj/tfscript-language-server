@@ -68,3 +68,82 @@ describe("missing-continuation", () => {
     }
   });
 });
+
+// Proven in tf dev, 2026-10-14 (the review's probes): tf reports each of these lines on its own,
+// and a join couldn't reach them.
+describe("missing-continuation: lines that belong to something else", () => {
+  it("doesn't take in a stray or indented line past a blank line or a /def", () => {
+    const p4 = ["/if (1) /echo forgot-endif", "", "/def a = /echo a1", "    /echo a2", "", "/def b = /echo b1", "", "/if (1) /echo one%; /endif%; /endif"];
+    expect(found(p4)).toEqual(["missing-continuation@0", "indented-line-after-command@3", "block-structure@7"]);
+    const p5 = ["/while (0) /echo forgot-done", "", "/def a = /echo a1", "    /echo a2", "", "/done"];
+    expect(found(p5)).toEqual(["missing-continuation@0", "indented-line-after-command@3", "block-structure@5"]);
+    const p2 = ["/if (1) /echo a%;", "/echo unrelated1", "/def foo = /echo foo", "    /echo indented-under-def", "/echo unrelated2", "/endif"];
+    expect(found(p2)).toEqual(["missing-continuation@0", "indented-line-after-command@3", "block-structure@5"]);
+  });
+
+  it("doesn't take in a stray in the middle of a complete command", () => {
+    expect(found(["/if (1) /echo a%;", "/if (2) /echo b%; /endif%; /endif"])).toEqual(["missing-continuation@0", "block-structure@1"]);
+  });
+
+  it("keeps the opener's fixes when the lines aren't taken in", () => {
+    const [d] = getDiagnostics("/if (1) /echo forgot-endif\n\n/endif\n");
+    expect(d?.fix?.title).toBe("Add %; /endif at the end of the line");
+  });
+
+  it("reaches a later block on the opener's line", () => {
+    const d = only(["/if (1) /echo a%; /endif%; /if (2) /echo b", "/echo x", "/else", "/endif"]);
+    expect(d.range.start).toEqual({ line: 0, character: 27 });
+    expect(relatedLines(d)).toEqual([2, 3]);
+    expect(d.fix?.title).toBe("Join the /if's lines with \\");
+  });
+});
+
+describe("missing-continuation fixes", () => {
+  it("keeps the add-a-closer fix when there are related lines but no join works", () => {
+    // Joined, the /elseif after /else is still an error, so neither join is offered.
+    const d = only(["/if (0) /echo a%;", "/else /echo b", "/elseif (1) /echo c"]);
+    expect(relatedLines(d)).toEqual([1, 2]);
+    expect(d.fix?.title).toBe("Add %; /endif at the end of the line");
+  });
+
+  it("leaves a \\ cut off by whitespace or a CRLF to backslash-not-last, with no closer fix", () => {
+    const d = getDiagnostics("/if (1) /echo % a%; \\\r\n/endif\r\n").find((x) => x.code === "missing-continuation");
+    expect(relatedLines(d!)).toEqual([1]);
+    expect(d?.fix).toBeUndefined();
+    // With whitespace the join works: it deletes the whitespace.
+    const ws = getDiagnostics("/if (1) /echo % a%; \\ \n/endif\n").find((x) => x.code === "missing-continuation");
+    expect(ws?.fix?.title).toBe("Join the /if's lines with \\");
+  });
+
+  it("offers nothing on a related line when the opener has no fix", () => {
+    const text = "/if (1)\r\n/endif\r\n";
+    const d = getDiagnostics(text).find((x) => x.code === "missing-continuation");
+    expect(relatedLines(d!)).toEqual([1]);
+    expect(d?.fix).toBeUndefined();
+    expect(getCodeActions(text, { start: { line: 1, character: 1 }, end: { line: 1, character: 1 } })).toEqual([]);
+  });
+});
+
+describe("missing-continuation messages", () => {
+  it("says when the \\ is there but whitespace or a CRLF line ending follows it", () => {
+    // backslash-not-last reports the \ itself, with the fix.
+    const ws = getDiagnostics("/if (1) /echo % a%; \\ \n/endif\n");
+    expect(ws.map((x) => x.code)).toEqual(["missing-continuation", "backslash-not-last"]);
+    expect(ws[0]?.message).toBe(
+      "This /if ends at the end of line 1, where whitespace follows the \\, so the /endif on line 2 is a separate command: remove the whitespace.",
+    );
+    const crlf = getDiagnostics("/if (1) /echo % a%; \\\r\n/endif\r\n").find((x) => x.code === "missing-continuation");
+    expect(crlf?.message).toBe(
+      "This /if ends at the end of line 1, where the file's Windows (CRLF) line ending puts a carriage return after the \\, so the /endif on line 2 is a separate command: save the file with LF line endings.",
+    );
+  });
+});
+
+function applyEdits(text: string, edits: { range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }[]): string {
+  const lines = text.split("\n");
+  for (const e of [...edits].sort((a, b) => b.range.start.line - a.range.start.line || b.range.start.character - a.range.start.character)) {
+    const line = lines[e.range.start.line] ?? "";
+    lines[e.range.start.line] = line.slice(0, e.range.start.character) + e.newText + line.slice(e.range.end.character);
+  }
+  return lines.join("\n");
+}

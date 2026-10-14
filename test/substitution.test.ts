@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { splitLogicalEntries } from "../src/logicalEntries";
-import { entrySubstitution, evalArguments, repeatArguments, type SubContext } from "../src/substitution";
+import { atCommand, entrySubstitution, evalArguments, quoteCommand, repeatArguments, type SubContext } from "../src/substitution";
 
 /** The context of the first character of `marker` in the one-line entry `line`. */
 function contextOf(line: string, marker: string, from = 0): SubContext | undefined {
@@ -72,6 +72,32 @@ describe("evalArguments", () => {
     expect(evalArguments(args, 0, args.length)).toEqual({ text: args.indexOf("/echo"), mode: "top", options: [{ start: 0, end: 5 }] });
     expect(evalArguments("-q x", 0, 4)).toBeUndefined();
     expect(evalArguments("", 0, 0)).toEqual({ text: 0, mode: "body", options: [] });
+  });
+});
+
+describe("quoteCommand and atCommand", () => {
+  const quoted = (args: string) => {
+    const q = quoteCommand(args, 0, args.length);
+    return q && { command: args.slice(q.start, q.end), mode: q.mode };
+  };
+
+  it("finds the tf command after /quote's backquote", () => {
+    expect(quoted("-S -decho `/echo x")).toEqual({ command: "/echo x", mode: "body" });
+    expect(quoted('-S pre`"/echo x"suf')).toEqual({ command: "/echo x", mode: "body" });
+    expect(quoted("-soff `/echo x")).toEqual({ command: "/echo x", mode: "top" });
+    expect(quoted("-S !echo x")).toBeUndefined();
+    expect(quoted("-S 'file")).toBeUndefined();
+  });
+
+  it("finds /at's command after its options, date and time", () => {
+    const at = (args: string) => {
+      const c = atCommand(args, 0, args.length);
+      return c === undefined ? undefined : args.slice(c);
+    };
+    expect(at("12:00 /echo x")).toBe("/echo x");
+    expect(at("-v 2030-01-02 12:00:30 /echo x")).toBe("/echo x");
+    expect(at("01/02 12:00 /echo x")).toBe("/echo x");
+    expect(at("12:00")).toBeUndefined();
   });
 });
 

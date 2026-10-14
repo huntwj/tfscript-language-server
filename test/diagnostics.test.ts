@@ -127,16 +127,6 @@ describe("not-substituted-here (rule 4)", () => {
     expect(d?.fix?.edits.map((e) => [e.range.start.character, e.range.end.character, e.newText])).toEqual([[6, 12, ""]]);
   });
 
-  // Review probe p2 (B3): -soff text doesn't split on %;.
-  it("advises -son for a %; in /eval -soff text", () => {
-    const [d] = getDiagnostics("/eval -soff /echo a%; /echo b\n");
-    expect(d?.message).toBe(
-      "%; doesn't end a command in /eval -soff text, so it and the rest of the line are part of /echo: give the /eval -son, or leave out the -s option.",
-    );
-    expect(d?.fix?.title).toBe("Give the /eval -son");
-    expect(d?.fix?.edits.map((e) => [e.range.start.character, e.range.end.character, e.newText])).toEqual([[6, 11, "-son"]]);
-  });
-
   // Review probe p1 (A6-A9): tf prints %{x} for each, in a /def body too, but substitutes the /test's string in a body.
   it("flags a %{...} in a string, where nothing substitutes it", () => {
     const message = (line: string) => getDiagnostics(`${line}\n`).filter((x) => x.code === "not-substituted-here").map((x) => x.message);
@@ -147,6 +137,17 @@ describe("not-substituted-here (rule 4)", () => {
     expect(message('/test echo("%{x}")')).toEqual([
       "%{x} stays as it is in a command at the top level of a file: put /eval in front of the command to substitute it.",
     ]);
+  });
+
+  // Review probes p1 (A4) and p2 (B1): the command after /quote's backquote is run as a macro body.
+  it("reads /quote's backquoted command, and /at's command, as a macro body", () => {
+    expect(codes("/quote -S -decho `/echo %{x}\n")).toEqual([]);
+    expect(codes("/quote -S -decho `/echo a%; /echo b\n")).toEqual([]);
+    expect(codes('/quote -S `"/echo %{x}"\n')).toEqual([]);
+    expect(codes("/quote -S -soff `/echo %{x}\n")).toContain("not-substituted-here");
+    expect(codes("/at 12:00 /echo %{x}\n")).toEqual([]);
+    expect(codes("/at -v 2030-01-02 12:00 /echo %{x}\n")).toEqual([]);
+    expect(codes("/quote -S !echo %{x}\n")).toContain("not-substituted-here");
   });
 
   it("leaves %name alone outside a load path, and a % in a run", () => {
@@ -174,6 +175,16 @@ describe("not-substituted-here (rule 4)", () => {
     );
     expect(d?.fix).toBeUndefined();
     expect(getDiagnostics("/eval -soff /let v=a%; b\n")[0]?.fix).toBeUndefined();
+  });
+
+  // Review probe p2 (B3): -soff text doesn't split on %;.
+  it("advises -son for a %; in /eval -soff text", () => {
+    const [d] = getDiagnostics("/eval -soff /echo a%; /echo b\n");
+    expect(d?.message).toBe(
+      "%; doesn't end a command in /eval -soff text, so it and the rest of the line are part of /echo: give the /eval -son, or leave out the -s option.",
+    );
+    expect(d?.fix?.title).toBe("Give the /eval -son");
+    expect(d?.fix?.edits.map((e) => [e.range.start.character, e.range.end.character, e.newText])).toEqual([[6, 11, "-son"]]);
   });
 
   // Review probes p3 (C5) and p4 (D1, D2): these %;s separate.

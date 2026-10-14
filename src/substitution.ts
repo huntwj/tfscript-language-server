@@ -15,8 +15,10 @@ import { macroBodyStart, parseRegions, type ExpressionRegion, type StructureMode
  *    so `/if (1) /echo %{x}%; /endif` prints `%{x}`.
  *  - A macro body is substituted when it runs (`SUB_MACRO`): `/def`, `/bind`, `/hook` (and their
  *    `/@` forms), `/trig*` and stdlib's `/alias`. So is the command of a `/repeat` (process.c
- *    compiles it as a macro body, whatever its options), all of a `/for`'s words (stdlib's `/for`
- *    runs them through `/@eval`), and `/eval` text at its `-s` level: the default and `-sfull`
+ *    compiles it as a macro body, whatever its options) and of stdlib's `/at` (which hands it to
+ *    `/repeat`), all of a `/for`'s words (stdlib's `/for` runs them through `/@eval`), the command
+ *    after a `/quote`'s backquote (process.c runs it with `macro_run()` at its `-s` level, by
+ *    default `SUB_MACRO`), and `/eval` text at its `-s` level: the default and `-sfull`
  *    substitute, `-son` reads it as an `/if` line is read and `-soff` as a plain line.
  *  - An expression is evaluated at any level: an `/if` or `/while` condition, the text of a
  *    `/test`, `/return` or `/result`, and `$[...]` where it is substituted. There `%x` and `%{x}`
@@ -143,6 +145,60 @@ export function evalArguments(
   return { text: word ? word.start : to, mode, options };
 }
 
+/**
+ * `/quote [-options] [PREFIX]` + backquote + `COMMAND`, its arguments `s[from, to)`: where COMMAND
+ * starts and ends, and how it is read. procopt("-@PSw:d:s:"): `-w`, `-d` and `-s` take the rest of
+ * their word; a digit or `:` is the time. The first `'`, `!`, `#` or backquote not escaped by `\`
+ * picks the kind; only a backquote runs a tf command, `"COMMAND"SUFFIX` or the rest of the text.
+ * Undefined for any other kind, or an error.
+ */
+export function quoteCommand(s: string, from: number, to: number): { start: number; end: number; mode: StructureMode } | undefined {
+  let mode: StructureMode = "body";
+  let i = from;
+  let word = nextWord(s, i, to);
+  while (word && s[word.start] === "-") {
+    const opt = s.slice(word.start, word.end);
+    i = word.end;
+    word = nextWord(s, word.end, to);
+    if (opt === "-" || opt === "--") break;
+    for (let k = 1; k < opt.length; k += 1) {
+      const flag = opt[k] as string;
+      if ((flag >= "0" && flag <= "9") || flag === ":" || flag === "w" || flag === "d") break;
+      if (flag === "s") {
+        const picked = evalMode(opt.slice(k + 1));
+        if (!picked) return undefined;
+        mode = picked;
+        break;
+      }
+      if (flag !== "@" && flag !== "P" && flag !== "S") return undefined;
+    }
+  }
+  if (word) i = word.start;
+  while (i < to && s[i] !== "'" && s[i] !== "!" && s[i] !== "#" && s[i] !== "`") i += s[i] === "\\" ? 2 : 1;
+  if (i >= to || s[i] !== "`") return undefined;
+  i += 1;
+  if (s[i] !== '"') return { start: i, end: to, mode };
+  let end = i + 1;
+  while (end < to && s[end] !== '"') end += s[end] === "\\" ? 2 : 1;
+  return { start: i + 1, end: Math.min(end, to), mode };
+}
+
+/**
+ * stdlib's `/at [-v] [DATE] TIME COMMAND`, its arguments `s[from, to)`: where COMMAND starts. It
+ * goes to `/repeat` as `%*`, which compiles it as a macro body (lib/tf/at.tf).
+ */
+export function atCommand(s: string, from: number, to: number): number | undefined {
+  let word = nextWord(s, from, to);
+  while (word && /^-(?:v*|-)$/.test(s.slice(word.start, word.end))) {
+    const end = s.slice(word.start, word.end) === "--";
+    word = nextWord(s, word.end, to);
+    if (end) break;
+  }
+  if (word && /^(?:\d{2}(?:\d{2})?-)?\d{1,2}[-/]\d{1,2}$/.test(s.slice(word.start, word.end))) word = nextWord(s, word.end, to);
+  const command = word && nextWord(s, word.end, to);
+  return command?.start;
+}
+
 /** The strings in `s[from, to)`, read as an expression reads them (tf's `is_quote()`, `\` escaping). */
 function stringsIn(s: string, from: number, to: number): { start: number; end: number }[] {
   const out: { start: number; end: number }[] = [];
@@ -231,6 +287,14 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
         const h = handed(argStart);
         const r = repeatArguments(h.text, 0, h.text.length);
         if (r) read(sub(h, r.command), "body", depth + 1, undefined);
+      } else if (word === "at") {
+        const h = handed(argStart);
+        const command = atCommand(h.text, 0, h.text.length);
+        if (command !== undefined) read(sub(h, command), "body", depth + 1, undefined);
+      } else if (word === "quote") {
+        const h = handed(argStart);
+        const q = quoteCommand(h.text, 0, h.text.length);
+        if (q) read(sub(h, q.start, q.end), q.mode, depth + 1, undefined);
       } else if (word === "eval") {
         const h = handed(argStart);
         const e = evalArguments(h.text, 0, h.text.length);

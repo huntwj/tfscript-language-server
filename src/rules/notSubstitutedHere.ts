@@ -11,8 +11,8 @@ import type { EntryRule, EntryMatch } from "./types";
  * the proofs). So:
  *
  *  - `%{name}` there stays as it is: `/load %{d}/a.tf` looks for a file called `%{d}/a.tf`.
- *    Not in a macro body, an `/eval`, a `/repeat`'s command or a `/for`, which are substituted,
- *    nor as an operand in an expression, which reads it as a variable.
+ *    Not in a macro body, an `/eval`, a `/repeat`'s, `/at`'s or `/quote`'s command, or a `/for`,
+ *    which are substituted, nor as an operand in an expression, which reads it as a variable.
  *  - Nor in a string in a condition or `$[...]`, even in a macro body: nothing substitutes it.
  *  - `%name` is only flagged in a `/load` or `/require` path, where it can only be meant as a
  *    variable: elsewhere a top-level `%name` is usually meant as text (`/set

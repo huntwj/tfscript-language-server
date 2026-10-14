@@ -1,4 +1,4 @@
-import { entryLoads } from "./loadCommands";
+import { entryLoads, literalText } from "./loadCommands";
 import { splitLogicalEntries } from "./logicalEntries";
 import type { Range } from "./symbols";
 
@@ -7,7 +7,9 @@ import type { Range } from "./symbols";
  * them), for document links. A filename with `%`, `$` or `\` in it is skipped: in a macro body or
  * under `/eval` it is substituted when it runs, and at the top level such a name is almost always
  * a mistake the load-no-expansion rule reports. That leaves a Windows path like `C:\x\a.tf`
- * unlinked too. So is a filename split across lines.
+ * unlinked too. The exception is text at the `newline` level (inside a top-level `/if`, or under
+ * `/eval -son`), where tf only shortens each run of `%` by one, so the name is known: it links
+ * to that name. A filename split across lines gets no link.
  */
 
 export interface LoadPath {
@@ -30,13 +32,15 @@ export function findLoadPaths(text: string): LoadPath[] {
     if (entry.incomplete) continue;
     for (const load of entryLoads(entry)) {
       const written = entry.text.slice(load.start, load.end);
-      if (/[%$\\]/.test(written)) continue;
+      if (/\\/.test(written) || (load.level !== "newline" && /[%$]/.test(written))) continue;
+      const file = literalText(load.file, load.level);
+      if (file === undefined) continue;
       const from = entry.offsetMap[load.start];
       const last = entry.offsetMap[load.end - 1];
       if (!from || !last || from.line !== last.line || last.character - from.character !== written.length - 1) continue;
       out.push({
         kind: load.kind,
-        file: load.file,
+        file,
         range: { start: { line: from.line, character: from.character }, end: { line: last.line, character: last.character + 1 } },
         line: entry.startLine,
         offset: load.start,

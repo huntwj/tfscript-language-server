@@ -92,6 +92,16 @@ describe("findLoadPaths", () => {
     expect(files("/def -i go = /load a\\\nb.tf\n")).toEqual([]);
   });
 
+  it("links the literal name at the newline level, with each %% run one shorter", () => {
+    // Real tf: /eval -son /load a%%b.tf loaded a%b.tf, and -son /load %{x}.tf the file %{x}.tf.
+    expect(files("/eval -son /load a%%b.tf\n/eval -son /load %{x}.tf\n/if (1) /load u%%v.tf%; /endif\n/eval -s002 /load c.tf\n")).toEqual([
+      "a%b.tf",
+      "%{x}.tf",
+      "u%v.tf",
+      "c.tf",
+    ]);
+  });
+
   it("gives /loaded, whose argument is a token, no link", () => {
     expect(files("/loaded __mine__\n")).toEqual([]);
   });

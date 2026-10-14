@@ -1,5 +1,6 @@
 import * as path from "node:path";
-import { entryCommands, type LoadCommand } from "../loadCommands";
+import { entryCommands, shortenPercents, type LoadCommand } from "../loadCommands";
+import type { SubLevel } from "../structure";
 import { splitLogicalEntries, type LogicalEntry } from "../logicalEntries";
 import { findAbortEntry } from "../rules/bareLineAfterCommand";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
@@ -123,9 +124,10 @@ type Expanded = { ok: true; value: string } | { ok: false; reason: string };
 export function expandVariables(text: string, vars: Map<string, string>): Expanded {
   let missing: string | undefined;
   const value = text.replace(
-    /%%|%\{([^}-]+)(?:-([^}]*))?\}|%([A-Za-z_][A-Za-z0-9_]*)/g,
-    (whole, braced?: string, fallback?: string, bare?: string) => {
-      if (whole === "%%") return "%";
+    /%(%+)|%\{([^}-]+)(?:-([^}]*))?\}|%([A-Za-z_][A-Za-z0-9_]*)/g,
+    (_whole, percents?: string, braced?: string, fallback?: string, bare?: string) => {
+      // expand.c percentsub(): a run of `%`s loses one, and nothing after it is substituted.
+      if (percents !== undefined) return percents;
       const name = (braced ?? bare) as string;
       const v = vars.get(name);
       if (v !== undefined && v !== "") return v;
@@ -182,6 +184,8 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     ["TFPATH", (options.tfPath ?? []).join(" ")],
     ["HOME", options.home ?? ""],
   ]);
+  /** Search variables (TFPATH, TFLIBDIR, HOME) whose value isn't known here; any other variable is just left out of `vars`. */
+  const unknown = new Set<string>();
   const files = new Map<string, LoadedFile>();
   const tokens = new Set<string>();
   const unresolved: UnresolvedLoad[] = [];
@@ -189,14 +193,27 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   let seq = 0;
   let inStdlib = false;
 
-  function resolve(file: string): { found?: string; searched: string[] } {
-    return resolveLoadPath(file, {
+  function resolve(file: string): { found?: string; searched: string[]; unknownVar?: string } {
+    const tfPath = (vars.get("TFPATH") ?? "").split(/\s+/).filter(Boolean);
+    const result = resolveLoadPath(file, {
       home: vars.get("HOME") ?? "",
-      tfPath: (vars.get("TFPATH") ?? "").split(/\s+/).filter(Boolean),
+      tfPath,
       libraryDir: vars.get("TFLIBDIR") || undefined,
       workingDir: options.workingDir,
       readFile: options.readFile,
     });
+    // Only the current directory is tried without a search variable; past it, an unknown one
+    // makes the answer unknown too.
+    if (result.found !== undefined && result.found === result.searched[0] && !/^~(?:\/|$)/.test(file)) return result;
+    const needs = /^~(?:\/|$)/.test(file) ? ["HOME"] : file.startsWith("~") || path.isAbsolute(file) ? [] : ["TFPATH", ...(tfPath.length > 0 ? [] : ["TFLIBDIR"])];
+    const unknownVar = needs.find((v) => unknown.has(v));
+    return unknownVar ? { searched: result.searched, unknownVar } : result;
+  }
+
+  /** What `text` becomes at `level`, with the variables known so far. */
+  function valueAt(text: string, level: SubLevel): { ok: true; value: string } | { ok: false; reason: string } {
+    if (level === "full") return expandVariables(text, vars);
+    return { ok: true, value: level === "newline" ? shortenPercents(text) : text };
   }
 
   function handleLoad(entry: LogicalEntry, load: LoadCommand, from: string): void {
@@ -206,18 +223,21 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     const fail = (k: UnresolvedKind, reason: string, searched: string[] = []): void => {
       unresolved.push({ from, line, start: load.start, end: load.end, kind: k, raw, file, reason, searched });
     };
-    if (load.substituted) {
-      const expanded = expandVariables(file, vars);
-      if (!expanded.ok) return fail("unknown-variable", expanded.reason);
-      file = expanded.value;
-    } else if (/%\{|%[A-Za-z_]/.test(raw)) {
+    const namesVariable = /%\{|%[A-Za-z_]/.test(raw);
+    if (load.level === "keyword" && namesVariable) {
       return fail("not-substituted", "a top-level path is not substituted; prefix the line with /eval");
     }
+    const value = valueAt(file, load.level);
+    if (!value.ok) return fail("unknown-variable", value.reason);
+    file = value.value;
     // stdlib.tf's /require passes its words on to /load with single blanks; /load trims.
     file = load.kind === "require" ? file.trim().split(/[ \t\r\f\v]+/).join(" ") : file.trim();
     if (!file) return;
-    const { found, searched } = resolve(file);
+    const { found, searched, unknownVar } = resolve(file);
+    if (unknownVar) return fail("unknown-variable", `%{${unknownVar}} has no known value at this point`, searched);
     if (!found) {
+      // At the newline level %{x} is literal text: a name tf really looks for, but most likely a mistake.
+      if (namesVariable && load.level === "newline") return fail("not-substituted", "this path is not substituted here; prefix the command with /eval", searched);
       const user = /^~([^/]+)/.exec(file)?.[1];
       if (user) return fail("user-home", `~${user} is user ${user}'s home directory, unless there is no such user`, searched);
       return fail("not-found", "file not found", searched);
@@ -264,9 +284,16 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
           handleLoad(entry, command, loaded.path);
           continue;
         }
-        const value = command.substituted ? expandVariables(command.value, vars) : { ok: true as const, value: command.value };
-        if (value.ok) vars.set(command.name, value.value);
-        else vars.delete(command.name);
+        const value = valueAt(command.value, command.level);
+        if (value.ok && !command.conditional) {
+          vars.set(command.name, value.value);
+          unknown.delete(command.name);
+        } else if (!value.ok || vars.get(command.name) !== value.value) {
+          // A /set inside an /if or /while may or may not run: unless it sets the value the
+          // variable already has, its value is no longer known.
+          vars.delete(command.name);
+          unknown.add(command.name);
+        }
       }
     }
 

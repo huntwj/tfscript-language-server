@@ -100,9 +100,17 @@ export function shiftIssue<T extends StructureIssue>(issue: T, by: number): T {
 export interface Statement {
   start: number;
   end: number;
-  /** Read in a macro body, where `%{...}`, `$[...]` and `\` are processed (`SUB_FULL`). */
-  substituted: boolean;
+  /**
+   * How tf processes the statement's text: "full" in a macro body (`%{...}`, `$[...]`, `\`, and
+   * a run of `%`s loses one), "newline" inside a top-level `/if` or `/while` and under
+   * `/eval -son` (only the `%` runs), "keyword" for a plain top-level command (nothing).
+   */
+  level: SubLevel;
+  /** Inside an `/if` or `/while` (its conditions included), so it may not run, or may run often. */
+  conditional: boolean;
 }
+
+export type SubLevel = "keyword" | "newline" | "full";
 
 const KEYWORDS = new Set([
   "break", "do", "done", "else", "elseif", "endif", "exit", "if",
@@ -612,7 +620,10 @@ class Parser {
   private statement(subs: number, keyword = ""): void {
     const start = this.i;
     this.statementText(subs, keyword);
-    if (!keyword) this.statements.push({ start, end: this.i, substituted: subs >= FULL });
+    if (!keyword) {
+      const level = subs >= FULL ? "full" : subs >= NEWLINE ? "newline" : "keyword";
+      this.statements.push({ start, end: this.i, level, conditional: this.open.length > 0 });
+    }
   }
 
   private statementText(subs: number, keyword: string): void {

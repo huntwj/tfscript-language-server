@@ -147,6 +147,62 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
     expect(defNames(g)).toEqual([]);
   });
 
+  it("stops trusting a variable a /set inside an /if or /while may change (wotmud.tf's shape)", () => {
+    // ~/ai/wotmud/tf/wotmud.tf: /if (wotmud_repo_dir =~ "") /set wotmud_repo_dir=/wotmud%; /endif.
+    // Real tf: with d already set, the /set didn't run and %{d}/p.tf loaded from the first value.
+    const g = graph({
+      [p("tfrc")]: `/set d=${p("real")}\n/load x.tf\n`,
+      [p("cwd", "x.tf")]: `/if (d =~ "") /set d=${p("wrong")}%; /endif\n/eval /load %{d}/a.tf\n`,
+      [p("real", "a.tf")]: "/def a = 1\n",
+    });
+    expect(g.unresolved).toMatchObject([{ kind: "unknown-variable", raw: "%{d}/a.tf" }]);
+    expect(g.unresolved[0]?.file).not.toContain("wrong");
+  });
+
+  it("keeps a variable a conditional /set would only set to the value it has", () => {
+    const g = graph({
+      [p("tfrc")]: `/set d=${p("real")}\n/if (1) /set d=${p("real")}%; /endif\n/eval /load %{d}/a.tf\n`,
+      [p("real", "a.tf")]: "/def a = 1\n",
+    });
+    expect(defNames(g)).toEqual(["a"]);
+  });
+
+  it("stops trusting TFPATH a /while body may set, past the current directory", () => {
+    const files = { [p("d1", "x.tf")]: "/def x = 1\n", [p("cwd", "here.tf")]: "/def here = 1\n" };
+    const g = graph({ ...files, [p("tfrc")]: `/while (0) /set TFPATH=${p("d2")}%; /done\n/load x.tf\n/load here.tf\n` }, { tfPath: [p("d1")] });
+    expect(defNames(g)).toEqual(["here"]);
+    expect(g.unresolved).toMatchObject([{ kind: "unknown-variable", reason: "%{TFPATH} has no known value at this point" }]);
+  });
+
+  it("only shortens %% runs at -son and in a top-level /if, where %{x} is a literal name", () => {
+    // Real tf: /eval -son /load a%%b.tf loaded a%b.tf, -son /load %{x}.tf loaded the file named
+    // %{x}.tf, /if (1) /load u%%v.tf%; /endif loaded u%v.tf, and -son /set v=50%% set v to 50%.
+    const g = graph({
+      [p("tfrc")]: "/eval -son /load a%%b.tf\n/eval -son /load %{x}.tf\n/if (1) /load u%%v.tf%; /endif\n/eval -son /set v=n%%\n/eval /load %{v}.tf\n",
+      [p("cwd", "a%b.tf")]: "/def ab = 1\n",
+      [p("cwd", "%{x}.tf")]: "/def brace = 1\n",
+      [p("cwd", "u%v.tf")]: "/def uv = 1\n",
+      [p("cwd", "n%.tf")]: "/def n = 1\n",
+    });
+    expect(defNames(g)).toEqual(["ab", "brace", "uv", "n"]);
+  });
+
+  it("reads -s as tf does: any all-digit number up to 2, and a quoted value", () => {
+    // Real tf: -s00 and -s002 ran, and -s"on" split on %; as -son does.
+    const files = { [p("cwd", "a.tf")]: "/def a = 1\n", [p("cwd", "b.tf")]: "/def b = 1\n", [p("cwd", "c.tf")]: "/def c = 1\n" };
+    const g = graph({ ...files, [p("tfrc")]: '/eval -s00 /load a.tf\n/eval -s002 /load b.tf\n/eval -s"on" /load c.tf%; /load a.tf\n' });
+    expect(defNames(g)).toEqual(["a", "b", "c"]);
+  });
+
+  it("starts a /set value right after = or the blanks, as setdelim() does, and tracks /setenv but not /let", () => {
+    // Real tf: /set x =1 set x to "=1" (with a warning), and /setenv se=/script let %{se} load.
+    const files = { [p("s", "a.tf")]: "/def a = 1\n" };
+    const spaced = graph({ ...files, [p("tfrc")]: `/set d =${p("s")}\n/eval /load %{d}/a.tf\n` });
+    expect(spaced.unresolved).toMatchObject([{ kind: "not-found", file: `=${p("s")}/a.tf` }]);
+    expect(defNames(graph({ ...files, [p("tfrc")]: `/setenv d=${p("s")}\n/eval /load %{d}/a.tf\n` }))).toEqual(["a"]);
+    expect(graph({ ...files, [p("tfrc")]: `/let d=${p("s")}\n/eval /load %{d}/a.tf\n` }).unresolved).toMatchObject([{ kind: "unknown-variable" }]);
+  });
+
   it("follows nothing from a top-level line tf can't compile", () => {
     // Real tf: /if (1) /load /script/e.tf%; /echo ... with no /endif loaded nothing.
     const g = graph({ [p("tfrc")]: "/if (1) /load a.tf%; /echo x\n", [p("cwd", "a.tf")]: "/def a = 1\n" });
@@ -187,6 +243,8 @@ describe("substitution", () => {
       value: "/a/x %y z /lib",
     });
     expect(expandVariables("%{nope}/x", new Map())).toMatchObject({ ok: false });
+    // A run of %s loses one and stops there: %%%{d} is the text %%{d}.
+    expect(expandVariables("%%%{d}", new Map([["d", "/a"]]))).toEqual({ ok: true, value: "%%{d}" });
   });
 
   it("follows /eval /load with tracked variables, and reports an unexpanded top-level path", () => {

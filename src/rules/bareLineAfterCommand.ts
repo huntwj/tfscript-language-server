@@ -53,18 +53,37 @@ export function findAbortEntry(entries: LogicalEntry[]): AbortMatch | null {
     const firsts = new Map<number, number>();
     for (const at of entry.offsetMap) if (!firsts.has(at.line)) firsts.set(at.line, at.character);
 
+    // A UTF-8 byte order mark is no blank to tf: proven live, a line that starts with one aborts
+    // the load, even when a / follows it. Deleting it is the fix, not commenting the line out.
+    if (firstChar === "﻿") {
+      return {
+        entryIndex: idx,
+        line: start.line,
+        startChar: start.character,
+        endChar: start.character + 1,
+        message: "This line starts with a byte order mark (U+FEFF), which tf reads as text, so it stops loading the file here: delete the mark.",
+        label: "byte order mark",
+        explanation:
+          `Some editors save UTF-8 files with an invisible byte order mark at the start. tf doesn't skip it, so ` +
+          `the line doesn't start with ${code("/")}, ${code(";")} or ${code("#")}: tf reports ` +
+          `${code("Invalid command. Aborting.")} and reads nothing after it. Save the file as UTF-8 without a BOM.`,
+        fix: { title: "Delete the byte order mark", edits: [{ line: start.line, startChar: start.character, endChar: start.character + 1, newText: "" }] },
+      };
+    }
+
     return {
       entryIndex: idx,
       line: start.line,
       startChar: start.character,
       endChar: lastChar.character + 1,
-      message: "This line isn't a command, so tf stops loading the file here.",
+      message: "This line isn't a command, so tf stops loading the file here: comment it out, or start it with /.",
       label: "not a command",
       explanation:
-        `Every line of a file tf loads has to be a command (starting with ${code("/")}), a comment (starting with ` +
-        `${code(";")} or ${code("#")}), or blank. At any other line tf reports ${code("Invalid command. Aborting.")} ` +
-        `and reads nothing after it. If the line belongs to the command above it, end that command's line with ` +
-        `${code("\\")}; if it is a note, make it a comment.`,
+        `tf joins the lines of a file that end in ${code("\\")} onto the line after, and runs each resulting ` +
+        `command. Apart from blank lines and comments (starting with ${code(";")} or ${code("#")}), each command has to ` +
+        `start with ${code("/")}; at any other command tf reports ${code("Invalid command. Aborting.")} and reads nothing ` +
+        `after it. If the line belongs to the command above it, end that command's last line with ${code("\\")}; if ` +
+        `it is a note, make it a comment.`,
       fix: {
         title: firsts.size > 1 ? "Comment out these lines" : "Comment out the line",
         edits: [...firsts].map(([line, character]) => ({ line, startChar: character, endChar: character, newText: "; " })),

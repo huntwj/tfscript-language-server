@@ -164,6 +164,8 @@ describe("rule fixes", () => {
     ["let-swallows-endif", ["/if (1) /let x=1 /endif"], ["/if (1) /let x=1%; /endif"]],
     ["bare-line-after-command", ["hello world", "/echo x"], ["; hello world", "/echo x"]],
     ["bare-line-after-command", ["hello \\", "  world", "/echo x"], ["; hello \\", "  ; world", "/echo x"]],
+    // Proven live: tf aborts at a line starting with a byte order mark, even before a /.
+    ["bare-line-after-command", ["/echo x", "﻿/echo hi", "/echo y"], ["/echo x", "/echo hi", "/echo y"]],
     ["if-multiline-top-level", ["/if (1)", "  /echo yes", "/endif"], ["/if (1) \\", "  /echo yes%; \\", "/endif"]],
     [
       "if-multiline-top-level",

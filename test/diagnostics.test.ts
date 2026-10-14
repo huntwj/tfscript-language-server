@@ -226,7 +226,12 @@ describe("messages", () => {
     ],
     ["bad-substitution-selector", "/def f = /echo %{foo%{bar}}\n", "%{foo needs a } or a - after the name: another substitution can't follow it directly."],
     ["reserved-macro-name", "/def if = /echo\n", '"if" is a reserved word, so tf refuses this /def and defines nothing: pick another name.'],
-    ["bare-line-after-command", "hello\n", "This line isn't a command, so tf stops loading the file here."],
+    ["bare-line-after-command", "hello\n", "This line isn't a command, so tf stops loading the file here: comment it out, or start it with /."],
+    [
+      "bare-line-after-command",
+      "﻿/echo hi\n",
+      "This line starts with a byte order mark (U+FEFF), which tf reads as text, so it stops loading the file here: delete the mark.",
+    ],
   ];
   for (const [code, text, message] of cases) {
     it(`${code}: ${JSON.stringify(text)}`, () => {

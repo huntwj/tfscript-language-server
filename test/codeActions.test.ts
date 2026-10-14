@@ -239,6 +239,15 @@ describe("rule fixes", () => {
     });
   }
 
+  it("counts a block ending in /endif%; or /done%; as closed too, and joins nothing onto it", () => {
+    // v01, v03, v04, v05 (tf dev, 2026-10-14): joined on, the lines run after the block whatever it decides.
+    for (const first of ["/if (0) /echo % a%; /endif%;", "/while (0) /echo % a%; /done%;", "/if (0) /echo % a%; /endif %;"]) {
+      const text = `${first}\n    /echo % b\n/echo % after\n`;
+      const d = getDiagnostics(text).find((x) => x.code === "indented-line-after-command");
+      expect(d?.fix?.title).toBe("Remove the indentation");
+    }
+  });
+
   it("offers nothing for an indented line of text after a top-level block that ends with /endif", () => {
     // r51, r35 (tf dev, 2026-10-14): joined, the text is sent to the world whatever the /if decides;
     // unindented, it aborts the load.

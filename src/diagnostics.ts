@@ -2,6 +2,7 @@ import { splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logical
 import { RULES, type Severity } from "./rules";
 import type { EntryMatch, LineMatch, LineSpan } from "./rules/types";
 import { findAbortEntry } from "./rules/bareLineAfterCommand";
+import { addJoinFixes } from "./joinFix";
 
 export interface Position {
   line: number;
@@ -84,7 +85,11 @@ function lineDiagnostic(match: LineMatch, code: string, severity: Severity): TfD
   return d;
 }
 
-export function getDiagnostics(text: string): TfDiagnostic[] {
+/**
+ * Every diagnostic for `text`. `joinFixes: false` leaves out the line-joining fixes (joinFix.ts),
+ * which try out candidate fixes with this function and so must not recurse into themselves.
+ */
+export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?: boolean } = {}): TfDiagnostic[] {
   const entries = splitLogicalEntries(text);
   const diagnostics: TfDiagnostic[] = [];
 
@@ -118,6 +123,7 @@ export function getDiagnostics(text: string): TfDiagnostic[] {
   }
 
   if (abort) diagnostics.push(lineDiagnostic(abort, "bare-line-after-command", "error"));
+  if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false }));
 
   return diagnostics;
 }

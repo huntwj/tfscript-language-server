@@ -147,8 +147,8 @@ nothing is known about a file nothing loads, so those resolve with the settings 
 for:
 
 - a filename tf wouldn't find;
-- `~user/...`, which tf takes from user's home directory, unless there is a `~user` folder in
-  tf's current directory: that is what tf opens when there is no such user, so it is linked;
+- `~user/...`, which tf takes from user's home directory, unless a `~user` folder in tf's
+  current directory has the file: tf opens that one when there is no such user, so it is linked;
 - one with a `%`, `$` or `\` in it, which is substituted when it runs — so a Windows path like
   `/load C:\x\a.tf` gets none either;
 - a load in a `/def` nested inside another macro's body, which is only text until the outer

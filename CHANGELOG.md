@@ -17,6 +17,21 @@
   `/endif` that is only text (`/if (1) /echo /endif`) as closing the `/if`.
 - `/load` and `/require` filenames are links (Ctrl+click) to the file tf would open, found the
   way tf searches: the current directory, then `TFPATH` or `TFLIBDIR`, with `~` as `HOME`.
+- The load path, and so `unresolved-load` and cross-file navigation, reads load commands the way
+  tf runs them (each proven in real tf):
+  - a plain top-level line is one command to its end, so `/load a.tf%; /load b.tf` looks for a
+    file named `a.tf%; /load b.tf` and is now a not-found warning;
+  - `/eval` text is split on `%;` and run statement by statement, so `/eval /load a.tf%; /load
+    b.tf` follows both, and `/eval /set d=...%; /load %{d}/x.tf` uses the new `d`; `-s` levels
+    are honoured (`-s0` reads the text as one command, `-son` splits without substituting);
+  - a load only counts at the start of a statement: `/echo hi /load x.tf` and `/test` text are
+    no longer followed, nor is anything on a line tf can't compile;
+  - `/load` with an option other than `-q` loads nothing, and `-` ends the options;
+  - `/require a  b.tf` loads `a b.tf`, its words joined by single blanks;
+  - a `~` path is never looked for in `TFPATH`; `~user/...` is looked for as a `~user` folder in
+    the current directory (what tf opens when there is no such user), and otherwise gets an
+    information note rather than a not-found warning;
+  - an `unresolved-load` warning points at its own filename when a line names the same file twice.
 
 ## 0.2.0
 

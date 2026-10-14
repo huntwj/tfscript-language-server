@@ -359,6 +359,10 @@ describe("rule fixes", () => {
       // f09, f13, f14, f15: an inner /def's or /repeat's %; would end the outer body's statement,
       // and the inner body would lose its second command.
       ["/def f = /echo % f09a", "    /def g = /echo % g1%; /echo % g2", "/g"],
+      // p01-p03: /edit, /gag and /hilite store their = body as a macro body too.
+      ["/def g = /echo % p01old", "/def f = /echo % p01a", "    /edit g = /echo % p01g1%; /echo % p01g2", "/f"],
+      ["/def f = /echo % p02a", "    /gag p02zz = /echo % p02g1%; /echo % p02g2", "/f"],
+      ["/def f = /echo % p03a", "    /hilite p03zz = /echo % p03h1%; /echo % p03h2", "/f"],
       ["/def f = /echo % f13a", "    /repeat -0 1 /echo % f13r1%; /echo % f13r2", "/f"],
       ["/def f = /echo % f14a", "    /def -i g = /echo % f14g1%; /echo % f14g2", "/g"],
       ["/def f = \\", "    /echo % f15a", "        /def g = /echo % f15g1%; /echo % f15g2", "/g"],

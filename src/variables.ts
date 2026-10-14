@@ -460,7 +460,7 @@ function expression(w: Walk, from: number, to: number): void {
 }
 
 const COMMAND_RE = /^\/@?([A-Za-z_]+)/;
-const MACRO_DEFINER = /^(?:def|bind|hook|trig|trigc|trigp|trigpc|alias)$/;
+const MACRO_DEFINER = /^(?:def|edit|bind|hook|gag|hilite|trig|trigc|trigp|trigpc|alias)$/;
 
 /** A `/set`, `/setenv`, `/let`, `/unset` or `/export` statement's variable. */
 function command(w: Walk, word: string, st: Statement, argStart: number): void {

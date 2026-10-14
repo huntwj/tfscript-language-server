@@ -25,6 +25,18 @@ describe("entrySubstitution", () => {
     expect(contextOf("/repeat -0 %{n} /echo x", "%{n}")).toBe("keyword");
     expect(contextOf("/for i %{lo} 3 /echo %{i}", "%{lo}")).toBe("full");
     expect(contextOf("/eval /echo %{x}", "%{x}")).toBe("full");
+    // /edit, /gag and /hilite store their = body as a macro body (p15, tf dev 2026-10-14).
+    expect(contextOf("/edit g = /echo %{x}", "%{x}")).toBe("full");
+    expect(contextOf("/gag zz = /echo %{x}", "%{x}")).toBe("full");
+    expect(contextOf("/hilite zz = /echo %{x}", "%{x}")).toBe("full");
+    expect(contextOf("/gag zz%{p} = /echo x", "%{p}")).toBe("keyword");
+  });
+
+  it("raises no not-substituted-here warning for a top-level /gag or /edit body's %;", async () => {
+    const { getDiagnostics } = await import("../src/diagnostics");
+    // p15: tf stores the whole body and runs both commands.
+    const p15 = "/gag p15zz = /echo % p15g1%; /echo % p15g2\n/def g = /echo % p15old\n/edit g = /echo % p15e1%; /echo % p15e2\n";
+    expect(getDiagnostics(p15)).toEqual([]);
   });
 
   it("follows /eval's -s level", () => {

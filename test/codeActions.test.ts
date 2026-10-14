@@ -184,6 +184,12 @@ describe("rule fixes", () => {
     ["if-multiline-top-level", ["/if (1)", "  /set x=", "  /echo y", "/endif"], ["/if (1) \\", "  /set x=%; \\", "  /echo y%; \\", "/endif"]],
     ["indented-line-after-command", ["/def -i a = /echo 100%%;", "    /echo two"], ["/def -i a = /echo 100%%;%; \\", "    /echo two"]],
     ["indented-line-after-command", ["/def -i a = /echo a\\%;", "    /echo two"], ["/def -i a = /echo a\\%;%; \\", "    /echo two"]],
+    // A run of indented lines continues the /def above them as a whole, not just the first.
+    [
+      "indented-line-after-command",
+      ["/def -i a = /echo one", "    /echo two", "    /echo three"],
+      ["/def -i a = /echo one%; \\", "    /echo two%; \\", "    /echo three"],
+    ],
     // A top-level line does no \ processing, so there \%; does separate.
     ["if-multiline-top-level", ["/if (1)", "  /echo a\\%;", "  /echo b", "/endif"], ["/if (1) \\", "  /echo a\\%; \\", "  /echo b%; \\", "/endif"]],
   ];
@@ -210,6 +216,19 @@ describe("rule fixes", () => {
   it("drops the add-an-/endif fix when joining the lines brings in the real one", () => {
     const text = ["/def -i a = /if (1)", "    /echo yes", "/endif", ""].join("\n");
     expect(getCodeActions(text, WHOLE_FILE).map((a) => a.title)).toEqual(["Join these lines with \\"]);
+  });
+
+  it("gives every line of an indented run the same fix", () => {
+    const text = ["/def -i a = /echo one", "    /echo two", "    /echo three", "    /echo four", ""].join("\n");
+    for (const line of [1, 2, 3]) expect(getCodeActions(text, at(line, 2)).map((a) => a.title)).toEqual(["Join these lines with \\"]);
+  });
+
+  it("keeps the cost of trying joins local to each diagnostic", () => {
+    // Nothing here ever closes, so none of these /ifs can be joined; the good one at the end still is.
+    const lines = Array.from({ length: 300 }, (_, i) => ["/if (x)", "    /echo one", "    /echo two"][i % 3] as string);
+    const text = [...lines, "/if (1)", "  /echo ok", "/endif", ""].join("\n");
+    const good = getDiagnostics(text).find((d) => d.code === "if-multiline-top-level" && d.range.start.line === 300);
+    expect(good?.fix?.title).toBe("Join the /if's lines with \\");
   });
 
   it("continues a line of text without a %;", () => {

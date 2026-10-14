@@ -189,4 +189,17 @@ describe("not-substituted-here and nested or malformed %{", () => {
       "%{x-} stays as it is in a command at the top level of a file, and /eval would reject this command as written: fix $[1+ first.",
     );
   });
+
+  // Proven live (s2/r/x.tf): inside a top-level /if line /eval gets each run of %s one shorter, so
+  // %%{y reaches it as %{y ("unmatched { or bad substitution"), and %%%{y as %%{y, which is text.
+  it("reads the command as an /if line hands it to /eval", () => {
+    const fixOf = (text: string) => getDiagnostics(text).find((d) => d.code === "not-substituted-here");
+    const ifLine = fixOf("/if (1) /echo %%%% X1:%{x} %%{y%; /endif\n");
+    expect(ifLine?.message).toBe(
+      "%{x} stays as it is in a top-level /if or /while line, and /eval would reject this command as written: fix %%{y first.",
+    );
+    expect(ifLine?.fix).toBeUndefined();
+    expect(fixOf("/if (1) /eval -s0 /echo %% X2:%{x} %%{y%; /endif\n")?.fix).toBeUndefined();
+    expect(fixOf("/if (1) /echo %%%% X3:%{x} %%%{y%; /endif\n")?.fix?.title).toBe("Put /eval in front of the command");
+  });
 });

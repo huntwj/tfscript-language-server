@@ -1,4 +1,4 @@
-import { entryLoads } from "../loadCommands";
+import { entryLoads, shortened } from "../loadCommands";
 import { isTfSpace } from "../logicalEntries";
 import { code, parseRegions, type IssueEdit } from "../structure";
 import { entrySubstitution, type ContextStatement, type EvalLevel, type LevelOption } from "../substitution";
@@ -110,15 +110,21 @@ export const notSubstitutedHere: EntryRule = {
      */
     const unreadable = (st: ContextStatement | undefined): string | undefined => {
       if (!st) return undefined;
-      const s = text.slice(st.start, st.end);
+      // Inside a top-level /if or /while line, tf hands /eval the text with each run of %s one
+      // shorter (proven: `/if (1) /eval /echo %%{y%; /endif` is "unmatched {").
+      const written = text.slice(st.start, st.end);
+      const inIfLine = statements.some((o) => o.level === "newline" && o.start <= st.start && st.end <= o.end);
+      const identity = { text: written, map: Array.from({ length: written.length + 1 }, (_, k) => k) };
+      const { text: s, map } = inIfLine ? shortened(identity, 0, written.length) : identity;
       const issue = parseRegions(s, "body").issues.find((i) => i.kind === "substitution" || i.kind === "expression");
       if (!issue) return undefined;
-      // From its opener (a related location, for a selector with something glued on) to the end of the word.
+      // From its opener (a related location, for a selector with something glued on) to the end of
+      // the word, named as written in the file.
       let from = Math.min(issue.start, ...(issue.related ?? []).map((n) => n.start));
       let to = issue.end;
       while (to < s.length && !isTfSpace(s[to])) to += 1;
       while (from > 0 && !isTfSpace(s[from - 1]) && s[from] !== "%" && s[from] !== "$") from -= 1;
-      return s.slice(from, to);
+      return written.slice(map[from], to > from ? (map[to - 1] as number) + 1 : map[from]);
     };
     const rejected = (bad: string): string =>
       `It also holds ${code(bad)}, which tf can't read as a substitution or an expression. Substituting the ` +

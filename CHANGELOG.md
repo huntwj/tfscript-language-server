@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `load-no-expansion` is now `not-substituted-here`, built on one table of which text tf reads at
+  which substitution level (`src/substitution.ts`). It no longer flags what tf does substitute: a
+  `%{x}` in a top-level condition or `/test` (an expression reads it as a variable), in a `/repeat`'s
+  command, or in an `/eval` inside a top-level `/if`. It now flags a `%{x}` under `/eval -soff` or
+  `-son`, and a `%var` in a top-level `/load` or `/require` path, and notes (as information) a `%;`
+  with more after it on a plain top-level line, where it doesn't separate. Information no longer
+  counts as a problem in the ground-truth test.
 - "Inline /foo" (`refactor.inline`): replaces a `/foo` call in a macro body with foo's body, and
   "Inline all calls to /foo and remove it" does that for every call in the file and deletes the
   `/def`. It is shown disabled, with the reason, when the body wouldn't run the same in the caller:

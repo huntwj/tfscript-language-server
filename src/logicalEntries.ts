@@ -49,9 +49,8 @@ export interface LogicalEntry {
    * named "no such command" errors — nosuchcmd_0, nosuchcmd_1, nosuchcmd_2 — not one). So a
    * `/for` body is exempt from the same rule a `/def` body is, just for a different reason:
    * a `/def` body is deferred (rule 1), a `/for` body is substituted eagerly but per
-   * iteration, not by load_file()'s single top-level pass. `/while` and `/repeat` are not
-   * exempted because they haven't been pinned down the same way; a false positive on a real
-   * script is the signal to do so.
+   * iteration, not by load_file()'s single top-level pass. (Which text tf substitutes, `/for`
+   * and `/repeat` included, is substitution.ts's table; this flag is the load graph's.)
    */
   isForLoop: boolean;
   /**

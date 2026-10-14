@@ -413,7 +413,7 @@ function undefinedMacros(
 /**
  * Diagnostics that need the whole load path. Unresolved loads only for a file the path reaches
  * (a file it doesn't reach has no known context); `/load` paths that only fail because a
- * top-level line isn't substituted are left to the load-no-expansion rule, which already flags
+ * top-level line isn't substituted are left to the not-substituted-here rule, which already flags
  * them. Undefined macros for any file: a name defined nowhere at all is a warning either way, but
  * "defined in a file this one doesn't load" needs the load path.
  */

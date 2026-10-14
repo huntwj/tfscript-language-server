@@ -51,7 +51,7 @@ view of the file gets truncated, since tf never reads past the line it aborts on
 | Rule | id | What it catches |
 | --- | --- | --- |
 | 2 | `if-multiline-top-level` | `/if` with no matching `/endif` in the same top-level command |
-| 4 | `load-no-expansion` | `%{var}` in a top-level command (not expanded; needs `/eval`, or being inside a `/def`/`/for`/`/bind`/`/hook`/`/trig`-family body) |
+| 4 | `not-substituted-here` | text tf reads without substituting, where it was surely meant to be: a `%{var}` in a plain top-level line or a top-level `/if` or `/while` line, or in `/eval -soff`/`-son` text, and a `%var` in a `/load` or `/require` path there (the fix puts `/eval` in front). Not in a macro body, an `/eval`, a `/repeat`'s command, a `/for`, or an expression (a condition, `/test`), which tf substitutes; never a `%name` elsewhere, as `/set std_clock_format=%H:%M` is meant as text. (information) A `%;` with more after it on a plain top-level line, which doesn't separate there: `/set a=1%; /set b=2` sets a to `1%; /set b=2`. One table, `src/substitution.ts`, says which text is read at which level |
 | 5 | `let-swallows-endif` | `/let`/`/set` swallowing a following `/if` or `/endif` into its value |
 | 6 | `dollar-bracket-in-if` | redundant `$[...]` inside an `/if`/`/elseif`/`/while` condition |
 | — | `indented-line-after-command` | an indented line starting a new command right after one that didn't end in `\` — tf's own "possibly missing trailing \\" warning |
@@ -176,7 +176,7 @@ for:
   link goes to that folder's file if it exists, since the user's home can't be checked;
 - one that is substituted when it runs (in a macro body, or under `/eval` at its default level)
   and has a `%`, `$` or `\` to substitute;
-- one with a `%{...}` outside `/eval`, which load-no-expansion warns about;
+- one with a `%{...}` tf doesn't substitute, which not-substituted-here warns about;
 - one with a `\`, so a Windows path like `/load C:\x\a.tf` gets none;
 - a load in a `/def` nested inside another macro's body, which is only text until the outer
   macro runs.

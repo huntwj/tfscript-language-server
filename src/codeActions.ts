@@ -9,7 +9,7 @@ import { getInlineActions } from "./inlineMacro";
  * carries what the client chose to echo. getDiagnostics() is linear in the file, apart from the
  * line-joining fixes, which try candidates but within a fixed budget per diagnostic (joinFix.ts).
  *
- * Two diagnostics can share one fix (load-no-expansion's `/eval` prefix covers every `%{...}` in
+ * Two diagnostics can share one fix (not-substituted-here's `/eval` prefix covers every `%{...}` in
  * its command, and joining a top-level /if's lines fixes the indented lines inside it too); it is
  * offered once.
  */

@@ -247,7 +247,7 @@ describe("messages", () => {
     ["bare-line-after-command", "hello\n", "This line isn't a command, so tf stops loading the file here: comment it out, or start it with /."],
     [
       "bare-line-after-command",
-      "﻿/echo hi\n",
+      "\uFEFF/echo hi\n",
       "This line starts with a byte order mark (U+FEFF), which tf reads as text, so it stops loading the file here: delete the mark.",
     ],
   ];

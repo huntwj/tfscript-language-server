@@ -54,8 +54,12 @@ export function findAbortEntry(entries: LogicalEntry[]): AbortMatch | null {
     for (const at of entry.offsetMap) if (!firsts.has(at.line)) firsts.set(at.line, at.character);
 
     // A UTF-8 byte order mark is no blank to tf: proven live, a line that starts with one aborts
-    // the load, even when a / follows it. Deleting it is the fix, not commenting the line out.
-    if (firstChar === "﻿") {
+    // the load, even when a / follows it. Deleting it is the fix, not commenting the line out, but
+    // only when the rest is a command or a comment: otherwise the line still wouldn't be one, and
+    // commenting it out (below) is the fix.
+    const after = entry.text.slice(leadingLen + 1);
+    const rest = after[leadingWhitespaceLength(after)];
+    if (firstChar === "\uFEFF" && (rest === "/" || rest === ";" || rest === "#")) {
       return {
         entryIndex: idx,
         line: start.line,

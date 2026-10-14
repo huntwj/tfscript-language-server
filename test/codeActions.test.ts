@@ -165,7 +165,10 @@ describe("rule fixes", () => {
     ["bare-line-after-command", ["hello world", "/echo x"], ["; hello world", "/echo x"]],
     ["bare-line-after-command", ["hello \\", "  world", "/echo x"], ["; hello \\", "  ; world", "/echo x"]],
     // Proven live: tf aborts at a line starting with a byte order mark, even before a /.
-    ["bare-line-after-command", ["/echo x", "﻿/echo hi", "/echo y"], ["/echo x", "/echo hi", "/echo y"]],
+    ["bare-line-after-command", ["/echo x", "\uFEFF/echo hi", "/echo y"], ["/echo x", "/echo hi", "/echo y"]],
+    ["bare-line-after-command", ["/echo x", "\uFEFF; a note", "/echo y"], ["/echo x", "; a note", "/echo y"]],
+    // Without the mark the line still wouldn't be a command, so it is commented out, mark and all.
+    ["bare-line-after-command", ["/echo x", "\uFEFFhello", "/echo y"], ["/echo x", "; \uFEFFhello", "/echo y"]],
     ["if-multiline-top-level", ["/if (1)", "  /echo yes", "/endif"], ["/if (1) \\", "  /echo yes%; \\", "/endif"]],
     [
       "if-multiline-top-level",

@@ -1,6 +1,6 @@
 import { entryLoads, shortened } from "../loadCommands";
 import { isTfSpace } from "../logicalEntries";
-import { code, parseRegions, type IssueEdit } from "../structure";
+import { code, parseRegions, type IssueEdit, type StructureMode } from "../structure";
 import { entrySubstitution, type ContextStatement, type EvalLevel, type LevelOption } from "../substitution";
 import type { EntryRule, EntryMatch } from "./types";
 
@@ -373,7 +373,12 @@ export const notSubstitutedHere: EntryRule = {
       // (keyword-mid-statement's case; second review's probe k1: -son made "unexpected /ELSE").
       const nextWord = /^\/([A-Za-z]*)/.exec(text.slice(next))?.[1]?.toLowerCase();
       const command = nextWord !== undefined && !BLOCK_KEYWORDS.has(nextWord);
-      if (command && !value) {
+      // Nor where the commands it would split off open a block they don't close (review rev-s2c
+      // h.tf: `/echo a%; /if (1) /echo b` on lines of their own is an /if with no /endif).
+      const blockError = (s: string, mode: StructureMode): boolean =>
+        parseRegions(s, mode).issues.some((i) => i.kind === "block" || i.kind === "continuation");
+      const splits = st.viaEval ? !blockError(text.slice(st.start, st.end), "newline") : !blockError(text.slice(next, st.end), "top");
+      if (command && !value && splits) {
         if (st.viaEval) {
           const last = st.viaEval.options.at(-1)!;
           match.fix = {

@@ -203,6 +203,18 @@ describe("not-substituted-here (rule 4)", () => {
     expect(d?.fix?.edits[0]?.newText).toBe("\n");
   });
 
+  // Proven live (s2/r/sp.tf): an /if split onto a line of its own with no /endif there is
+  // "expected /endif, found end"; with its /endif, it runs.
+  it("offers no split, or -son, that leaves a block open", () => {
+    const fixes = (text: string) =>
+      getDiagnostics(`${text}\n`)
+        .filter((d) => d.message.startsWith("%; "))
+        .map((d) => d.fix?.title ?? "none");
+    expect(fixes("/echo H3:%{x}%; /if (1) /echo H3b")).toEqual(["none"]);
+    expect(fixes("/eval -soff /echo a%; /if (1) /echo b")).toEqual(["none"]);
+    expect(fixes("/echo a%; /if (1) /echo b%; /endif")).toEqual(["Put the next command on a line of its own", "none"]);
+  });
+
   // Review probe p2 (B5): a value holding %; can be meant, for a later /eval.
   it("says a /set, /let or /setenv value includes the %;, and offers no fix", () => {
     const [d, ...rest] = getDiagnostics("/set cmd=/echo a%; /echo b\n");

@@ -1403,6 +1403,7 @@ export function parseRegions(
   cmdsubs: { start: number; end: number }[];
   spans: Span[];
   blocks: BlockRegion[];
+  issues: StructureIssue[];
 } {
   const parser = new Parser(text, mode);
   parser.run();
@@ -1412,6 +1413,7 @@ export function parseRegions(
     cmdsubs: parser.cmdsubs,
     spans: parser.spans,
     blocks: parser.blocks,
+    issues: parser.issues,
   };
 }
 

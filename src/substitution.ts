@@ -1,6 +1,6 @@
 import { isTfSpace, type LogicalEntry } from "./logicalEntries";
 import { evalMode, shortened, type Source } from "./loadCommands";
-import { macroBodyStart, parseRegions, type ExpressionRegion, type StructureMode, type SubLevel } from "./structure";
+import { macroBodyStart, parseRegions, type ExpressionRegion, type StructureIssue, type StructureMode, type SubLevel } from "./structure";
 
 /**
  * Which text of a top-level entry tf substitutes, and how: one table the rules ask, rather than
@@ -81,7 +81,15 @@ export interface SubstitutionModel {
   inExpression: boolean[];
   /** The statements read without substitution, outermost first. */
   statements: ContextStatement[];
+  /**
+   * The substitution and expression problems in every text tf reads (`substitution` and `expression`
+   * issues), as offsets into `entry.text`: so they are found wherever tf reads them,
+   * a `/repeat` or `/eval` text included, and nowhere it doesn't, such as a plain top-level line.
+   */
+  issues: StructureIssue[];
 }
+
+const SYNTAX_KINDS = new Set(["substitution", "expression"]);
 
 /**
  * The commands that take a `= body` tf stores as a macro body (without `/` or `@`): /def and /edit
@@ -273,7 +281,34 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
   const contexts: SubContext[] = new Array<SubContext>(entry.text.length).fill("keyword");
   const inExpression: boolean[] = new Array<boolean>(entry.text.length).fill(false);
   const statements: ContextStatement[] = [];
-  model = { contexts, inExpression, statements };
+  const issues: StructureIssue[] = [];
+  model = { contexts, inExpression, statements, issues };
+  const seen = new Set<string>();
+
+  /**
+   * `found`'s syntax issues, read in `src`, as offsets into `entry.text`. A fix is kept only where
+   * `src` is the entry's own text unchanged: in a text an `/if` line handed on with its `%` runs
+   * shortened, an edit wouldn't mean what it does there.
+   */
+  const collect = (src: Source, found: StructureIssue[]): void => {
+    const base = src.map[0] as number;
+    const plain = src.map.every((v, k) => v === base + k);
+    const at = (start: number, end: number): { start: number; end: number } => {
+      const from = src.map[start] as number;
+      return { start: from, end: end > start ? (src.map[end - 1] as number) + 1 : from };
+    };
+    for (const issue of found) {
+      if (!SYNTAX_KINDS.has(issue.kind)) continue;
+      const { fix, related, ...rest } = issue;
+      const out: StructureIssue = { ...rest, ...at(issue.start, issue.end) };
+      if (related) out.related = related.map((n) => ({ ...n, ...at(n.start, n.end) }));
+      if (fix && plain) out.fix = { ...fix, edits: fix.edits.map((e) => ({ ...e, start: e.start + base, end: e.end + base })) };
+      const key = `${out.start}:${out.end}:${out.message}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      issues.push(out);
+    }
+  };
 
   const mark = (src: Source, from: number, to: number, context: SubContext, expression = false): void => {
     for (let k = from; k < to; k += 1) {
@@ -308,6 +343,7 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
   const read = (src: Source, mode: StructureMode, depth: number, viaEval: EvalLevel | undefined): void => {
     const s = src.text;
     const regions = parseRegions(s, mode);
+    collect(src, regions.issues);
     if (mode === "body") {
       mark(src, 0, s.length, "full");
       expressions(src, regions.expressions, regions.cmdsubs);

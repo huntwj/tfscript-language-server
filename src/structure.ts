@@ -1351,16 +1351,17 @@ export function checkStructure(text: string, mode: StructureMode): StructureIssu
   return parser.issues;
 }
 
-// `/@def`, `/@bind` and `/@hook` are the builtins themselves; the /trig family is stdlib's.
-const DEF_RE = /^\s*\/@?def\b/i;
-const SPLIT_ARGS_RE = /^\s*\/(?:@?(?:bind|hook)|trigpc|trigc|trigp|trig)\b/i;
+// `/@def`, `/@bind` and so on are the builtins themselves; the /trig family is stdlib's. /edit reads
+// its options as /def does (macro_spec()); /gag and /hilite split their arguments as /bind does.
+const DEF_RE = /^\s*\/@?(?:def|edit)\b/i;
+const SPLIT_ARGS_RE = /^\s*\/(?:@?(?:bind|hook|gag|hilite)|trigpc|trigc|trigp|trig)\b/i;
 const ALIAS_RE = /^(\s*\/alias\s+\S+\s+)\S/i;
 
 /**
  * Where the body of a macro-defining entry starts, or -1. `/def` reads its options first, so an
  * option argument may hold an `=` (`-t*hp=*`, `-t"a=b"`), then takes the first `=` after them
- * (`macro_spec()`). `/bind`, `/hook` and `/trig*` take the first `=` of all, quotes or not
- * (`split_args()` in command.c). `/alias NAME` takes the rest of the line (lib/tf/alias.tf).
+ * (`macro_spec()`), and so does `/edit`. `/bind`, `/hook`, `/gag`, `/hilite` and `/trig*` take the
+ * first `=` of all, quotes or not (`split_args()` in command.c). `/alias NAME` takes the rest of the line (lib/tf/alias.tf).
  */
 export function macroBodyStart(text: string): number {
   const alias = ALIAS_RE.exec(text);

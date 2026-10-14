@@ -273,6 +273,12 @@ describe("macroBodyStart", () => {
     expect("/trig a\"=b\" = /echo x".slice(macroBodyStart("/trig a\"=b\" = /echo x"))).toBe("b\" = /echo x");
     expect(macroBodyStart("/def foo")).toBe(-1);
     expect(macroBodyStart("/echo a = b")).toBe(-1);
+    // /edit reads options as /def does; /gag and /hilite take the first = of all (macro.c, command.c).
+    const edit = '/edit -t"a=b" g = /echo x';
+    expect(edit.slice(macroBodyStart(edit))).toBe(" /echo x");
+    expect("/gag zz = /echo x".slice(macroBodyStart("/gag zz = /echo x"))).toBe(" /echo x");
+    expect("/@hilite zz = /echo x".slice(macroBodyStart("/@hilite zz = /echo x"))).toBe(" /echo x");
+    expect(macroBodyStart("/gag zz")).toBe(-1);
   });
 });
 

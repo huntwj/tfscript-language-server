@@ -42,6 +42,8 @@ export interface MacroContext {
   requirePath?: (file: string) => string | undefined;
   /** The macros a file on the path defines (cached by the caller); macroNames() by default. */
   namesOf?: (file: string, text: string) => MacroNames;
+  /** The workspace folder has more tf files than this, and only this many were read. */
+  readOnly?: number;
 }
 
 export interface MacroNames {
@@ -310,7 +312,7 @@ function undefinedMacros(
   lines: string[],
   graph: LoadGraph,
   onPath: boolean,
-  { elsewhere = [], unfollowed = [], requirePath = () => undefined, namesOf = (_f, t) => macroNames(t) }: MacroContext,
+  { elsewhere = [], unfollowed = [], requirePath = () => undefined, namesOf = (_f, t) => macroNames(t), readOnly }: MacroContext,
   ignore: string[],
 ): TfDiagnostic[] {
   const visible = onPathNames(graph, file, text, namesOf);
@@ -364,16 +366,28 @@ function undefinedMacros(
           code: "undefined-macro",
           severity: "information",
         }
-      : {
-          range: call.range,
-          message: nearest
-            ? `There's no macro or command /${call.name}: did you mean /${nearest}?`
-            : `There's no macro or command /${call.name} anywhere tf can see: check the name.`,
-          label: "not defined",
-          explanation: UNDEFINED_EXPLANATION,
-          code: "undefined-macro",
-          severity: "warning",
-        };
+      : readOnly !== undefined
+        ? {
+            // The folder wasn't read to the end: a file past the limit may define it.
+            range: call.range,
+            message:
+              `/${call.name} isn't defined on this file's load path, in tf's library, or in the first ${readOnly} tf files of ` +
+              `this folder, the most this check reads: ${nearest ? `did you mean /${nearest}?` : "check the name."}`,
+            label: "not found",
+            explanation: `${UNDEFINED_EXPLANATION} The workspace folder has more tf files than that, which may define it.`,
+            code: "undefined-macro",
+            severity: "information",
+          }
+        : {
+            range: call.range,
+            message: nearest
+              ? `There's no macro or command /${call.name}: did you mean /${nearest}?`
+              : `There's no macro or command /${call.name} anywhere tf can see: check the name.`,
+            label: "not defined",
+            explanation: UNDEFINED_EXPLANATION,
+            code: "undefined-macro",
+            severity: "warning",
+          };
     if (nearest) d.fix = { title: `Change to /${nearest}`, edits: [{ range: call.range, newText: nearest }] };
     out.push(d);
   }

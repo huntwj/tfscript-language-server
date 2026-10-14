@@ -23,8 +23,13 @@ export interface FileSystem {
   readFile(file: string): string | undefined;
   /** `.tf` files directly inside `dir` (absolute paths), or none if it can't be read. */
   listTfFiles(dir: string): string[];
-  /** Every tf script under `dir`, recursively: `.tf` files plus `tfrc`/`.tfrc`. */
-  walkTfFiles(dir: string): string[];
+  /** Every tf script under `dir`, recursively: `.tf` files plus `tfrc`/`.tfrc`; at most `limit` of them, stopping there. */
+  walkTfFiles(dir: string, limit?: number): string[];
+  /**
+   * When `file` last changed, or undefined if it can't be told. Cached text of a file no watcher
+   * covers is only trusted while this stays the same.
+   */
+  mtime?(file: string): number | undefined;
 }
 
 export interface ContextInfo {
@@ -43,7 +48,11 @@ interface LibraryFile {
 }
 
 /** At most this many files of a workspace folder are read for the undefined-macro check. */
-const MAX_WALKED_FILES = 5000;
+export const MAX_WALKED_FILES = 5000;
+/** How long a listing of a folder no watcher covers is trusted, in milliseconds. */
+const UNWATCHED_WALK_MS = 10_000;
+/** The listing of a folder that isn't a workspace folder, which is never walked. */
+const NOT_WALKED = { files: [] as string[], truncated: false };
 
 function isInside(file: string, dir: string): boolean {
   const rel = path.relative(keyOf(dir), keyOf(file));
@@ -62,7 +71,7 @@ export class WorkspaceIndex {
   private resolved = new Map<string, ResolvedSettings>();
   /** Keyed by folder and context name. */
   private graphs = new Map<string, { settings: ResolvedSettings; graph: LoadGraph }>();
-  private libraries = new Map<string, LibraryFile[]>();
+  private libraries = new Map<string, string[]>();
   private helps = new Map<string, ReadonlyMap<string, HelpEntry> | undefined>();
 
   constructor(
@@ -83,10 +92,31 @@ export class WorkspaceIndex {
     this.helps.clear();
   }
 
+  /**
+   * An open document's text (undefined once it is closed). Its disk text is read again after
+   * it closes, and whether loads resolve is worked out again: the file may be one they find.
+   */
   setOverlay(file: string, text: string | undefined): void {
     if (text === undefined) this.overlay.delete(keyOf(file));
     else this.overlay.set(keyOf(file), text);
+    this.disk.delete(keyOf(file));
+    this.resolvable.clear();
     this.invalidate();
+  }
+
+  /**
+   * The folders a file watcher reports changes in (workspace folders, and whatever else the
+   * client agreed to watch). Text read from disk under them is kept until filesChanged(); text
+   * read anywhere else is checked against the file's modification time first.
+   */
+  setWatchedRoots(roots: string[]): void {
+    this.watchedRoots = roots.map((r) => path.resolve(r));
+  }
+
+  private watchedRoots: string[] = [];
+
+  private isWatched(file: string): boolean {
+    return this.watchedRoots.some((r) => keyOf(r) === keyOf(file) || isInside(file, r));
   }
 
   invalidate(): void {
@@ -95,16 +125,38 @@ export class WorkspaceIndex {
     this.resolved.clear();
   }
 
-  /** Files read from disk, until a watched file changes (filesChanged()). */
-  private disk = new Map<string, string | undefined>();
+  /** Files read from disk, until a watched file changes (filesChanged()) or, unwatched, until their modification time does. */
+  private disk = new Map<string, { file: string; text: string | undefined; mtime: number | undefined }>();
 
   private read = (file: string): string | undefined => {
     const key = keyOf(file);
     const open = this.overlay.get(key);
     if (open !== undefined) return open;
-    if (!this.disk.has(key)) this.disk.set(key, this.fs.readFile(file));
-    return this.disk.get(key);
+    const cached = this.disk.get(key);
+    if (cached) return cached.text;
+    const mtime = this.fs.mtime?.(file);
+    const text = this.fs.readFile(file);
+    this.disk.set(key, { file, text, mtime });
+    return text;
   };
+
+  /**
+   * Forgets the disk text of every file no watcher covers whose modification time has changed
+   * (or that appeared or went away), and the graphs built from it. Run before a graph is used.
+   */
+  private refreshUnwatched(): void {
+    if (!this.fs.mtime) return;
+    let changed = false;
+    for (const [key, entry] of this.disk) {
+      if (this.isWatched(entry.file) || this.fs.mtime(entry.file) === entry.mtime) continue;
+      this.disk.delete(key);
+      changed = true;
+    }
+    if (changed) {
+      this.resolvable.clear();
+      this.invalidate();
+    }
+  }
 
   /** The workspace folder holding `file` (the innermost one), or the file's own directory. */
   /**
@@ -172,19 +224,31 @@ export class WorkspaceIndex {
     return built;
   }
 
+  /**
+   * tf's library files: listed once (until a watched file changes), read like any other file, so
+   * an open library file's unsaved text counts and a changed one is read again.
+   */
   private library(dir: string): LibraryFile[] {
     const key = keyOf(dir);
     let files = this.libraries.get(key);
     if (!files) {
-      files = this.fs.listTfFiles(dir).flatMap((file) => {
-        const text = this.fs.readFile(file);
-        return text === undefined
-          ? []
-          : [{ path: path.resolve(file), text, defs: getDocumentSymbols(text).filter((s) => s.kind === "def") }];
-      });
+      files = this.fs.listTfFiles(dir).map((f) => path.resolve(f));
       this.libraries.set(key, files);
     }
-    return files;
+    return files.flatMap((file) => {
+      const text = this.read(file);
+      return text === undefined ? [] : [{ path: file, text, defs: this.librarySymbols(file, text) }];
+    });
+  }
+
+  private librarySymbolCache = new Map<string, { text: string; defs: TfSymbol[] }>();
+
+  private librarySymbols(file: string, text: string): TfSymbol[] {
+    const cached = this.librarySymbolCache.get(keyOf(file));
+    if (cached && cached.text === text) return cached.defs;
+    const defs = getDocumentSymbols(text).filter((s) => s.kind === "def");
+    this.librarySymbolCache.set(keyOf(file), { text, defs });
+    return defs;
   }
 
   /**
@@ -192,6 +256,7 @@ export class WorkspaceIndex {
    * first context that does (tf can only have read the file that way), else the active one.
    */
   contextFor(file: string): { folder: string; name: string; graph: LoadGraph; settings: ResolvedSettings } {
+    this.refreshUnwatched();
     const folder = this.folderFor(file);
     const settings = this.settingsFor(folder);
     const self = keyOf(file);
@@ -253,17 +318,22 @@ export class WorkspaceIndex {
    * home directory can't take forever. A folder that isn't a workspace folder (a loose file's own
    * directory) is never walked.
    */
-  private walks = new Map<string, string[]>();
+  private walks = new Map<string, { files: string[]; truncated: boolean; at: number }>();
   /** Per file, by its text: the macros it defines and the loads it makes. */
   private analyses = new Map<string, { text: string; defs: MacroNames; loads: { raw: string; literal?: string; line: number }[] }>();
   /** Whether a load path resolves, per search environment (cleared when files or settings change). */
   private resolvable = new Map<string, boolean>();
-  private macroContexts = new WeakMap<LoadGraph, { elsewhere: DefinedElsewhere[]; unfollowed: UnfollowedLoad[]; files: string[] }>();
+  /** Per graph, and the folder listing it was built from (which a refresh replaces). */
+  private macroContexts = new WeakMap<LoadGraph, { walked: object; elsewhere: DefinedElsewhere[]; unfollowed: UnfollowedLoad[]; files: string[]; truncated: boolean }>();
 
-  /** A watched file was created, changed or deleted: forget what was read from disk. */
+  /**
+   * A watched file or folder was created, changed or deleted (or renamed): forget what was read
+   * from disk, the folder listings and the library's, since a folder's files may have gone with it.
+   */
   filesChanged(): void {
     this.disk.clear();
     this.walks.clear();
+    this.libraries.clear();
     this.resolvable.clear();
     this.invalidate();
   }
@@ -272,15 +342,19 @@ export class WorkspaceIndex {
     return this.folders.some((f) => keyOf(f) === keyOf(folder));
   }
 
-  private walk(folder: string): string[] {
-    if (!this.isWorkspaceFolder(folder)) return [];
+  /**
+   * The tf files of a workspace folder, at most MAX_WALKED_FILES (the walk stops there), kept until
+   * a watched file changes, or for a few seconds when no watcher covers the folder.
+   */
+  private walk(folder: string): { files: string[]; truncated: boolean } {
+    if (!this.isWorkspaceFolder(folder)) return NOT_WALKED;
     const key = keyOf(folder);
-    let files = this.walks.get(key);
-    if (!files) {
-      files = this.fs.walkTfFiles(folder).slice(0, MAX_WALKED_FILES);
-      this.walks.set(key, files);
-    }
-    return files;
+    const cached = this.walks.get(key);
+    if (cached && (this.isWatched(folder) || Date.now() - cached.at < UNWATCHED_WALK_MS)) return cached;
+    const found = this.fs.walkTfFiles(folder, MAX_WALKED_FILES + 1);
+    const walked = { files: found.slice(0, MAX_WALKED_FILES), truncated: found.length > MAX_WALKED_FILES, at: Date.now() };
+    this.walks.set(key, walked);
+    return walked;
   }
 
   private analysis(file: string, text: string): { defs: MacroNames; loads: { raw: string; literal?: string; line: number }[] } {
@@ -321,9 +395,10 @@ export class WorkspaceIndex {
    */
   private macroContext(file: string, folder: string, graph: LoadGraph, settings: ResolvedSettings): MacroContext {
     const lib = settings.libraryDir;
+    const walked = this.walk(folder);
     let shared = this.macroContexts.get(graph);
-    if (!shared) {
-      const files = this.walk(folder);
+    if (!shared || shared.walked !== walked) {
+      const { files, truncated } = walked;
       const reached = new Set(graph.files.map((f) => keyOf(f.path)));
       const elsewhere: DefinedElsewhere[] = [];
       const add = (f: string, text: string, library: boolean): void => {
@@ -338,7 +413,7 @@ export class WorkspaceIndex {
       if (lib) for (const f of this.library(lib)) add(f.path, f.text, true);
       // On the path, the graph knows which loads it couldn't follow.
       const unfollowed = unfollowedOnPath(graph, (f) => this.label(f, folder, lib));
-      shared = { elsewhere, unfollowed, files };
+      shared = { walked, elsewhere, unfollowed, files, truncated };
       this.macroContexts.set(graph, shared);
     }
     const self = keyOf(file);
@@ -350,6 +425,7 @@ export class WorkspaceIndex {
       unfollowed: onPath ? shared.unfollowed : this.offPathUnfollowed(file, shared.files, folder, settings),
       requirePath: (target) => this.requirePath(target, env, settings),
       namesOf: this.macroNamesOf,
+      ...(shared.truncated ? { readOnly: MAX_WALKED_FILES } : {}),
     };
   }
 

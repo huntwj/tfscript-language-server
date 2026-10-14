@@ -1,8 +1,8 @@
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getDefinition, getHover, getReferences, getRenameEdits, prepareRename } from "../src/navigation";
 import { resolveSettings, toLocalPath, type Environment } from "../src/workspace/settings";
-import { WorkspaceIndex } from "../src/workspace/workspaceIndex";
+import { MAX_WALKED_FILES, WorkspaceIndex } from "../src/workspace/workspaceIndex";
 
 const ROOT = path.resolve("/fake");
 const p = (...parts: string[]) => path.join(ROOT, ...parts);
@@ -447,5 +447,119 @@ describe("tfscript.variables", () => {
   it("keeps names tf allows with string values, and drops the rest", () => {
     const raw = { variables: { wotmud_repo_dir: "/wotmud", "bad name": "x", n: 3 } } as unknown as Parameters<typeof resolveSettings>[0];
     expect(resolveSettings(raw, p("ws"), env(memoryFs({}))).variables).toEqual({ wotmud_repo_dir: "/wotmud" });
+  });
+});
+
+describe("undefined macros, when files change", () => {
+  /** A file system whose files can change under the index, with modification times and a record of walk limits. */
+  function liveFs(initial: Record<string, string>) {
+    const files = new Map(Object.entries(initial).map(([k, v]) => [key(k), { name: k, text: v, mtime: 1 }]));
+    const limits: (number | undefined)[] = [];
+    return {
+      limits,
+      write(f: string, text: string) {
+        const old = files.get(key(f));
+        files.set(key(f), { name: f, text, mtime: (old?.mtime ?? 0) + 1 });
+      },
+      remove(f: string) {
+        files.delete(key(f));
+      },
+      fs: {
+        readFile: (f: string) => files.get(key(f))?.text,
+        mtime: (f: string) => files.get(key(f))?.mtime,
+        listTfFiles: (dir: string) => [...files.values()].map((e) => e.name).filter((f) => key(path.dirname(f)) === key(dir) && f.endsWith(".tf")),
+        walkTfFiles: (dir: string, limit?: number) => {
+          limits.push(limit);
+          const found = [...files.values()].map((e) => e.name).filter((f) => key(f).startsWith(key(dir) + path.sep) && /(\.tf|[/\\]\.?tfrc)$/.test(f));
+          return found.slice(0, limit ?? found.length);
+        },
+      },
+      exists: (f: string) => files.has(key(f)),
+    };
+  }
+  const indexOf = (live: ReturnType<typeof liveFs>) => {
+    const index = new WorkspaceIndex(live.fs, { env: {}, homedir: p("home"), exists: live.exists });
+    index.setFolders([p("ws")]);
+    index.setSettings(p("ws"), { libraryPath: p("lib"), entryFiles: ["tfrc"] });
+    return index;
+  };
+  const severities = (index: WorkspaceIndex, file: string, text: string) =>
+    index.loadPathDiagnostics(file, text).filter((d) => d.code === "undefined-macro").map((d) => d.severity);
+  const tfrc = "/def a = /helper\n";
+
+  it("reads a closed file from disk again, not what it read before it was opened", () => {
+    const live = liveFs({ [p("lib", "stdlib.tf")]: "", [p("ws", "tfrc")]: tfrc, [p("ws", "helpers.tf")]: "" });
+    const index = indexOf(live);
+    index.setWatchedRoots([p("ws")]);
+    expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["warning"]);
+    index.setOverlay(p("ws", "helpers.tf"), "");
+    live.write(p("ws", "helpers.tf"), "/def -i helper = /echo\n");
+    index.setOverlay(p("ws", "helpers.tf"), undefined);
+    expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["information"]);
+  });
+
+  it("works out again whether loads resolve when a file is opened", () => {
+    const loose = "/require dep.tf\n/def a = /helper\n";
+    const live = liveFs({ [p("lib", "stdlib.tf")]: "", [p("ws", "tfrc")]: "", [p("ws", "loose.tf")]: loose });
+    const index = indexOf(live);
+    // dep.tf doesn't exist, so it may define /helper: only a note.
+    expect(severities(index, p("ws", "loose.tf"), loose)).toEqual(["information"]);
+    index.setOverlay(p("ws", "dep.tf"), "/def -i other = /echo\n");
+    expect(severities(index, p("ws", "loose.tf"), loose)).toEqual(["warning"]);
+  });
+
+  it("checks the modification time of a file no watcher covers, such as a library file", () => {
+    const live = liveFs({ [p("lib", "stdlib.tf")]: "", [p("lib", "textutil.tf")]: "/def -i helper = /echo\n", [p("ws", "tfrc")]: tfrc });
+    const index = indexOf(live);
+    index.setWatchedRoots([p("ws")]);
+    expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["information"]);
+    live.write(p("lib", "textutil.tf"), "");
+    expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["warning"]);
+  });
+
+  it("uses an open library file's unsaved text", () => {
+    const live = liveFs({ [p("lib", "stdlib.tf")]: "", [p("lib", "textutil.tf")]: "", [p("ws", "tfrc")]: tfrc });
+    const index = indexOf(live);
+    expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["warning"]);
+    index.setOverlay(p("lib", "textutil.tf"), "/def -i helper = /echo\n");
+    expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["information"]);
+  });
+
+  it("trusts what it read under a watched folder until a change is reported, folders deleted included", () => {
+    const live = liveFs({ [p("lib", "stdlib.tf")]: "", [p("ws", "tfrc")]: tfrc, [p("ws", "sub", "helpers.tf")]: "/def -i helper = /echo\n" });
+    const index = indexOf(live);
+    index.setWatchedRoots([p("ws")]);
+    expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["information"]);
+    live.remove(p("ws", "sub", "helpers.tf")); // the sub folder deleted
+    expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["information"]);
+    index.filesChanged(); // the client's delete event for the folder
+    expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["warning"]);
+  });
+
+  it("lists a folder no watcher covers again after a few seconds", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const live = liveFs({ [p("lib", "stdlib.tf")]: "", [p("ws", "tfrc")]: tfrc });
+      const index = indexOf(live);
+      expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["warning"]);
+      live.write(p("ws", "new.tf"), "/def -i helper = /echo\n");
+      expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["warning"]);
+      vi.setSystemTime(11_000);
+      expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["information"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops the walk at the limit, and then only notes a name it didn't find, naming the limit", () => {
+    const files: Record<string, string> = { [p("lib", "stdlib.tf")]: "", [p("ws", "tfrc")]: tfrc };
+    for (let i = 0; i <= MAX_WALKED_FILES; i += 1) files[p("ws", "many", `f${i}.tf`)] = "";
+    const live = liveFs(files);
+    const index = indexOf(live);
+    const [d] = index.loadPathDiagnostics(p("ws", "tfrc"), tfrc);
+    expect(live.limits).toEqual([MAX_WALKED_FILES + 1]);
+    expect(d).toMatchObject({ code: "undefined-macro", severity: "information" });
+    expect(d?.message).toContain(`the first ${MAX_WALKED_FILES} tf files of this folder`);
   });
 });

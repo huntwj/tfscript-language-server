@@ -208,6 +208,8 @@ async function loadSettingsNow(): Promise<void> {
 
 let canWatch = false;
 let canWatchOutside = false;
+/** The client can show a code action greyed out, with why it can't run (`disabled`). */
+let canShowDisabled = false;
 const watching = new Watching(
   (watchers) => connection.client.register(DidChangeWatchedFilesNotification.type, { watchers }),
   (roots) => index.setWatchedRoots(roots),
@@ -233,6 +235,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
   showReferencesCommand = typeof command === "string" && command.length > 0 ? command : undefined;
   canWatch = Boolean(params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration);
   canWatchOutside = canWatch && Boolean(params.capabilities.workspace?.didChangeWatchedFiles?.relativePatternSupport);
+  canShowDisabled = Boolean(params.capabilities.textDocument?.codeAction?.disabledSupport);
   return {
     capabilities: {
       workspace: { workspaceFolders: { supported: true, changeNotifications: true } },
@@ -242,7 +245,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       documentLinkProvider: { resolveProvider: false },
       foldingRangeProvider: true,
       selectionRangeProvider: true,
-      codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix, CodeActionKind.RefactorRewrite] },
+      codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix, CodeActionKind.RefactorRewrite, CodeActionKind.RefactorExtract] },
       hoverProvider: true,
       definitionProvider: true,
       referencesProvider: true,
@@ -377,14 +380,18 @@ connection.onSelectionRanges((params: SelectionRangeParams): SelectionRange[] =>
 connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  const request: CodeActionRequest = { range: params.range, diagnostics: diagnosticsFor(document) };
+  const request: CodeActionRequest = { range: params.range, diagnostics: diagnosticsFor(document), disabledSupport: canShowDisabled };
   if (params.context.only) request.only = params.context.only;
   if (params.context.triggerKind !== undefined) request.triggerKind = params.context.triggerKind;
+  const file = toPath(document.uri);
+  // Only worked out when an extracted macro needs a name.
+  let taken: ((name: string) => boolean) | undefined;
+  if (file) request.isTaken = (name) => (taken ??= index.macroNameTaken(file, document.getText()))(name);
   return routeCodeActions(document.getText(), request).map((action) => ({
     title: action.title,
     kind: action.kind,
     ...(action.diagnostic ? { diagnostics: [toLspDiagnostic(action.diagnostic, document.uri)] } : {}),
-    edit: { changes: { [document.uri]: action.edits } },
+    ...(action.disabled === undefined ? { edit: { changes: { [document.uri]: action.edits } } } : { disabled: { reason: action.disabled } }),
   }));
 });
 

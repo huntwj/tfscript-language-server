@@ -161,7 +161,10 @@ function plannedLines(entry: LogicalEntry): string[] | undefined {
   starts.forEach((st, k) => {
     let at = st;
     while (/\s/.test(text[at] ?? "")) at += 1;
-    if (k > 0) (inCondition ? joinedSeps : breaks).add(st);
+    // A `%;` that ends the body starts no statement: breaking after it would leave the body's
+    // last line ending `%;\` and continuing onto whatever follows, or, at the end of the file,
+    // onto nothing, which tf drops as incomplete.
+    if (k > 0 && st < text.length) (inCondition ? joinedSeps : breaks).add(st);
     for (;;) {
       const m = /^\/@?(if|elseif|while|else|then|do)\b/i.exec(text.slice(at));
       if (!m) break;
@@ -194,7 +197,7 @@ function plannedLines(entry: LogicalEntry): string[] | undefined {
       at = next;
     }
   });
-  if (seps.length === 0 && blocks === 0) return undefined;
+  if (!seps.some((s) => s + 2 < text.length) && blocks === 0) return undefined;
 
   // The body itself starts on its own line, after the `=` and any space that follows it.
   let first = body;

@@ -39,8 +39,8 @@ describe("findLoadPaths", () => {
     expect(files("/load -x a.tf\n/load -qq a.tf\n/load -- -a.tf\n/load - -b.tf\n")).toEqual(["a.tf", "-a.tf", "-b.tf"]);
   });
 
-  it("reads a top-level line to its end, %; included, so that filename gets no link", () => {
-    expect(files("/load a.tf%; /load b.tf\n")).toEqual([]);
+  it("reads a top-level line to its end, %; included, so that is the filename", () => {
+    expect(files("/load a.tf%; /load b.tf\n")).toEqual(["a.tf%; /load b.tf"]);
   });
 
   it("splits a macro body on %; and finds loads after /eval, /@load and in an /if", () => {
@@ -83,7 +83,7 @@ describe("findLoadPaths", () => {
       "/if (1) /load i.tf%; /echo x",
       "",
     ].join("\n");
-    expect(files(text)).toEqual(["c.tf", "d.tf", "e.tf", "f.tf"]);
+    expect(files(text)).toEqual(["a.tf%; /load b.tf", "c.tf", "d.tf", "e.tf", "f.tf"]);
   });
 
   it("maps a filename on a continuation line, but not one split across lines", () => {
@@ -100,6 +100,14 @@ describe("findLoadPaths", () => {
       "u%v.tf",
       "c.tf",
     ]);
+  });
+
+  it("gives no link for a %{...} the load-no-expansion rule warns about, outside /eval", () => {
+    expect(files("/load %{d}/a.tf\n/if (1) /load %{d}/b.tf%; /endif\n/eval -son /load %{d}/c.tf\n")).toEqual(["%{d}/c.tf"]);
+  });
+
+  it("links the name after each level's pass, outer first", () => {
+    expect(files("/if (1) /eval -son /load a%%%%b.tf%; /endif\n/if (1) /eval /load %%{d}/x.tf%; /endif\n")).toEqual(["a%%b.tf"]);
   });
 
   it("gives /loaded, whose argument is a token, no link", () => {

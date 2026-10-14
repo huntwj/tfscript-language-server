@@ -4,12 +4,11 @@ import type { Range } from "./symbols";
 
 /**
  * The filenames of the `/load` and `/require` commands in a document (loadCommands.ts parses
- * them), for document links. A filename with `%`, `$` or `\` in it is skipped: in a macro body or
- * under `/eval` it is substituted when it runs, and at the top level such a name is almost always
- * a mistake the load-no-expansion rule reports. That leaves a Windows path like `C:\x\a.tf`
- * unlinked too. The exception is text at the `newline` level (inside a top-level `/if`, or under
- * `/eval -son`), where tf only shortens each run of `%` by one, so the name is known: it links
- * to that name. A filename split across lines gets no link.
+ * them), for document links, linking the name tf ends up with. No link for a filename that is
+ * substituted when it runs and has something to substitute (in a macro body, or under `/eval`
+ * at its default level), one with a `%{...}` the load-no-expansion rule warns about (outside
+ * `/eval`), one with a `\` (so a Windows path like `C:\x\a.tf` gets none), or one split across
+ * lines.
  */
 
 export interface LoadPath {
@@ -32,8 +31,9 @@ export function findLoadPaths(text: string): LoadPath[] {
     if (entry.incomplete) continue;
     for (const load of entryLoads(entry)) {
       const written = entry.text.slice(load.start, load.end);
-      if (/\\/.test(written) || (load.level !== "newline" && /[%$]/.test(written))) continue;
-      const file = literalText(load.file, load.level);
+      // load-no-expansion warns about a %{...} outside /eval: no link to the literal name.
+      if (/\\/.test(written) || (!load.viaEval && /%\{[^}]*\}/.test(written))) continue;
+      const file = literalText(load.file, load.pending);
       if (file === undefined) continue;
       const from = entry.offsetMap[load.start];
       const last = entry.offsetMap[load.end - 1];

@@ -59,7 +59,13 @@ export interface LoadedFile {
   stdlib: boolean;
 }
 
-export type UnresolvedKind = "not-found" | "unknown-variable" | "not-substituted" | "user-home";
+/**
+ * Why a load can't be followed: tf won't find the file; a variable in its path (or TFPATH, HOME,
+ * TFLIBDIR) has no known value; the same, because a /set inside an /if or /while above may have
+ * changed it ("guarded-variable"); a top-level path isn't substituted; or ~user, whose home
+ * directory can't be checked.
+ */
+export type UnresolvedKind = "not-found" | "unknown-variable" | "guarded-variable" | "not-substituted" | "user-home";
 
 export interface UnresolvedLoad {
   from: string;
@@ -76,6 +82,8 @@ export interface UnresolvedLoad {
   reason: string;
   /** For "not-found": every place tf would have tried, in order. */
   searched: string[];
+  /** For "unknown-variable" and "guarded-variable": the variable. */
+  variable?: string;
 }
 
 /** A top-level `/load` or `/require` the walk followed, and the file tf would read for it. */
@@ -118,7 +126,7 @@ export function fileKey(file: string): string {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
-type Expanded = { ok: true; value: string } | { ok: false; reason: string };
+type Expanded = { ok: true; value: string } | { ok: false; reason: string; variable: string };
 
 /** One substitution pass over `text`, as `/eval` does for the forms a load path uses. */
 export function expandVariables(text: string, vars: Map<string, string>): Expanded {
@@ -136,7 +144,9 @@ export function expandVariables(text: string, vars: Map<string, string>): Expand
       return "";
     },
   );
-  return missing ? { ok: false, reason: `%{${missing}} is not set to literal text on this load path` } : { ok: true, value };
+  return missing
+    ? { ok: false, reason: `%{${missing}} is not set to literal text on this load path`, variable: missing }
+    : { ok: true, value };
 }
 
 export interface LoadPathEnvironment {
@@ -158,6 +168,9 @@ export function resolveLoadPath(file: string, env: LoadPathEnvironment): { found
   // this can't read; when there is no such user, expand_filename() leaves the name as it is and
   // it opens relative to the current directory (proven: after /cd /script, /load
   // ~nosuchuser/n.tf read /script/~nosuchuser/n.tf). Only that second case can be checked.
+  // This follows tf's own expand_filename() (tfio.c), which does what POSIX shells and bash do
+  // with an unknown user (the tilde-prefix stays literal; zsh reports an error instead). Recheck
+  // it if tf's ~ handling changes.
   if (file.startsWith("~")) {
     const named = file === "~" || file.startsWith("~/") ? env.home + file.slice(1) : file;
     const target = path.resolve(env.workingDir, named);
@@ -186,6 +199,8 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   ]);
   /** Search variables (TFPATH, TFLIBDIR, HOME) whose value isn't known here; any other variable is just left out of `vars`. */
   const unknown = new Set<string>();
+  /** Variables whose value is unknown because a /set inside an /if or /while may have changed it. */
+  const guarded = new Set<string>();
   const files = new Map<string, LoadedFile>();
   const tokens = new Set<string>();
   const unresolved: UnresolvedLoad[] = [];
@@ -210,34 +225,55 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     return unknownVar ? { searched: result.searched, unknownVar } : result;
   }
 
-  /** What `text` becomes at `level`, with the variables known so far. */
-  function valueAt(text: string, level: SubLevel): { ok: true; value: string } | { ok: false; reason: string } {
-    if (level === "full") return expandVariables(text, vars);
-    return { ok: true, value: level === "newline" ? shortenPercents(text) : text };
+  /** What `text` becomes after the `pending` passes, with the variables known so far. */
+  function valueAfter(text: string, pending: SubLevel[]): Expanded {
+    let value = text;
+    for (const level of pending) {
+      if (level === "newline") value = shortenPercents(value);
+      if (level !== "full") continue;
+      const expanded = expandVariables(value, vars);
+      if (!expanded.ok) return expanded;
+      value = expanded.value;
+    }
+    return { ok: true, value };
+  }
+
+  /** The unresolved kind and reason for a variable with no known value. */
+  function unknownValue(variable: string, reason: string): { kind: UnresolvedKind; reason: string } {
+    return guarded.has(variable)
+      ? { kind: "guarded-variable", reason: `%{${variable}} is set inside an /if or /while above` }
+      : { kind: "unknown-variable", reason };
   }
 
   function handleLoad(entry: LogicalEntry, load: LoadCommand, from: string): void {
     const line = entry.startLine;
     const raw = entry.text.slice(load.start, load.end);
     let file = load.file;
-    const fail = (k: UnresolvedKind, reason: string, searched: string[] = []): void => {
-      unresolved.push({ from, line, start: load.start, end: load.end, kind: k, raw, file, reason, searched });
+    const fail = (k: UnresolvedKind, reason: string, searched: string[] = [], variable?: string): void => {
+      unresolved.push({ from, line, start: load.start, end: load.end, kind: k, raw, file, reason, searched, ...(variable ? { variable } : {}) });
     };
-    const namesVariable = /%\{|%[A-Za-z_]/.test(raw);
-    if (load.level === "keyword" && namesVariable) {
+    // A `%` in a run of them is text, not the start of a substitution.
+    const namesVariable = /%\{|%[A-Za-z_]/.test(raw.replace(/%%+/g, ""));
+    if (load.plain && namesVariable) {
       return fail("not-substituted", "a top-level path is not substituted; prefix the line with /eval");
     }
-    const value = valueAt(file, load.level);
-    if (!value.ok) return fail("unknown-variable", value.reason);
+    const value = valueAfter(file, load.pending);
+    if (!value.ok) {
+      const why = unknownValue(value.variable, value.reason);
+      return fail(why.kind, why.reason, [], value.variable);
+    }
     file = value.value;
     // stdlib.tf's /require passes its words on to /load with single blanks; /load trims.
     file = load.kind === "require" ? file.trim().split(/[ \t\r\f\v]+/).join(" ") : file.trim();
     if (!file) return;
     const { found, searched, unknownVar } = resolve(file);
-    if (unknownVar) return fail("unknown-variable", `%{${unknownVar}} has no known value at this point`, searched);
+    if (unknownVar) {
+      const why = unknownValue(unknownVar, `%{${unknownVar}} is not set to literal text on this load path`);
+      return fail(why.kind, why.reason, searched, unknownVar);
+    }
     if (!found) {
-      // At the newline level %{x} is literal text: a name tf really looks for, but most likely a mistake.
-      if (namesVariable && load.level === "newline") return fail("not-substituted", "this path is not substituted here; prefix the command with /eval", searched);
+      // Without a substitution pass %{x} is literal text: a name tf really looks for, but most likely a mistake.
+      if (namesVariable && !load.pending.includes("full")) return fail("not-substituted", "this path is not substituted here; prefix the command with /eval", searched);
       const user = /^~([^/]+)/.exec(file)?.[1];
       if (user) return fail("user-home", `~${user} is user ${user}'s home directory, unless there is no such user`, searched);
       return fail("not-found", "file not found", searched);
@@ -284,15 +320,18 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
           handleLoad(entry, command, loaded.path);
           continue;
         }
-        const value = valueAt(command.value, command.level);
+        const value = valueAfter(command.value, command.pending);
         if (value.ok && !command.conditional) {
           vars.set(command.name, value.value);
           unknown.delete(command.name);
+          guarded.delete(command.name);
         } else if (!value.ok || vars.get(command.name) !== value.value) {
           // A /set inside an /if or /while may or may not run: unless it sets the value the
           // variable already has, its value is no longer known.
           vars.delete(command.name);
           unknown.add(command.name);
+          if (command.conditional) guarded.add(command.name);
+          else guarded.delete(command.name);
         }
       }
     }

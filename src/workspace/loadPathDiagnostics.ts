@@ -79,6 +79,12 @@ function unresolvedMessage(u: UnresolvedLoad): string {
       `follows paths built from literal /set values.`
     );
   }
+  if (u.kind === "guarded-variable") {
+    return (
+      `Can't follow this load: %{${u.variable}} is set inside an /if or /while above, so its value here isn't known. ` +
+      `Set it outside the /if or /while to have this load checked.`
+    );
+  }
   if (u.kind === "user-home") {
     const user = /^~([^/]+)/.exec(u.file)?.[1] ?? "";
     return (
@@ -91,6 +97,16 @@ function unresolvedMessage(u: UnresolvedLoad): string {
     `tf won't find ${shown}. It would try, in order: ${u.searched.join(", ")}. A relative path is ` +
     `looked up from tf's current directory (tfscript.workingDirectory), then TFPATH — not from ` +
     `this file's folder.`
+  );
+}
+
+/** The hover text for a ~user load: a misspelt name is a silent fallback, not an error. */
+function userHomeExplanation(u: UnresolvedLoad): string {
+  const user = /^~([^/]+)/.exec(u.file)?.[1] ?? "";
+  const rest = u.file.slice(user.length + 1);
+  return (
+    `If \`${user}\` is misspelt, or there is no such user, tf doesn't warn: it reads ` +
+    `\`./~${user}${rest}\` from its current directory instead.`
   );
 }
 
@@ -120,6 +136,7 @@ export function loadPathDiagnostics(
         message: unresolvedMessage(u),
         code: "unresolved-load",
         severity: u.kind === "not-found" ? "warning" : "information",
+        ...(u.kind === "user-home" ? { explanation: userHomeExplanation(u) } : {}),
       });
     }
   }

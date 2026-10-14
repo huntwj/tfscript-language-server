@@ -57,6 +57,23 @@ describe("unresolved-load", () => {
       "Can't follow this load: tf takes ~bob from user bob's home directory, or, if there is no such user, " +
         "as a folder named ~bob in its current directory. Write the full path to have it checked.",
     );
+    expect(d?.explanation).toBe("If `bob` is misspelt, or there is no such user, tf doesn't warn: it reads `./~bob/x.tf` from its current directory instead.");
+  });
+
+  it("says when a path's variable is unknown because a /set inside an /if or /while may change it", () => {
+    const text = "/set d=/x\n/if (d =~ \"\") /set d=/y%; /endif\n/eval /load %{d}/a.tf\n/while (0) /set TFPATH=/z%; /done\n/load b.tf\n";
+    const [d, tfpath] = check({ [p("tfrc")]: text }, p("tfrc"));
+    expect(d).toMatchObject({ severity: "information", range: { start: { line: 2 } } });
+    expect(d?.message).toBe(
+      "Can't follow this load: %{d} is set inside an /if or /while above, so its value here isn't known. " +
+        "Set it outside the /if or /while to have this load checked.",
+    );
+    expect(tfpath?.message).toContain("%{TFPATH} is set inside an /if or /while above");
+  });
+
+  it("warns about a missing file in a top-level /if whose name has a %% run", () => {
+    const [d] = check({ [p("tfrc")]: "/if (1) /load x%%y.tf%; /endif\n" }, p("tfrc"));
+    expect(d).toMatchObject({ severity: "warning", range: { start: { line: 0, character: 14 } } });
   });
 
   it("leaves an unexpanded top-level path to the load-no-expansion rule", () => {

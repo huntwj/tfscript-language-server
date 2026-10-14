@@ -155,7 +155,7 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
       [p("cwd", "x.tf")]: `/if (d =~ "") /set d=${p("wrong")}%; /endif\n/eval /load %{d}/a.tf\n`,
       [p("real", "a.tf")]: "/def a = 1\n",
     });
-    expect(g.unresolved).toMatchObject([{ kind: "unknown-variable", raw: "%{d}/a.tf" }]);
+    expect(g.unresolved).toMatchObject([{ kind: "guarded-variable", raw: "%{d}/a.tf", variable: "d" }]);
     expect(g.unresolved[0]?.file).not.toContain("wrong");
   });
 
@@ -171,7 +171,7 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
     const files = { [p("d1", "x.tf")]: "/def x = 1\n", [p("cwd", "here.tf")]: "/def here = 1\n" };
     const g = graph({ ...files, [p("tfrc")]: `/while (0) /set TFPATH=${p("d2")}%; /done\n/load x.tf\n/load here.tf\n` }, { tfPath: [p("d1")] });
     expect(defNames(g)).toEqual(["here"]);
-    expect(g.unresolved).toMatchObject([{ kind: "unknown-variable", reason: "%{TFPATH} has no known value at this point" }]);
+    expect(g.unresolved).toMatchObject([{ kind: "guarded-variable", variable: "TFPATH" }]);
   });
 
   it("only shortens %% runs at -son and in a top-level /if, where %{x} is a literal name", () => {
@@ -187,11 +187,30 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
     expect(defNames(g)).toEqual(["ab", "brace", "uv", "n"]);
   });
 
+  it("makes each level's pass over the text the outer one produced", () => {
+    // Real tf: with d=/script, /if (1) /eval /load %%{d}/w1.tf%; /endif loaded /script/w1.tf, and
+    // /if (1) /eval -son /load a%%%%b.tf%; /endif loaded a%%b.tf.
+    const g = graph({
+      [p("tfrc")]: `/set d=${p("s")}\n/if (1) /eval /load %%{d}/w1.tf%; /endif\n/if (1) /eval -son /load a%%%%b.tf%; /endif\n`,
+      [p("s", "w1.tf")]: "/def w1 = 1\n",
+      [p("cwd", "a%%b.tf")]: "/def ab = 1\n",
+    });
+    expect(defNames(g)).toEqual(["w1", "ab"]);
+  });
+
+  it("warns about a missing file whose name only has %% runs, which aren't substitutions", () => {
+    // Real tf: /if (1) /load /script/x%%y.tf%; /endif was No such file for /script/x%y.tf.
+    const g = graph({ [p("tfrc")]: "/if (1) /load x%%y.tf%; /endif\n" });
+    expect(g.unresolved).toMatchObject([{ kind: "not-found", file: "x%y.tf" }]);
+  });
+
   it("reads -s as tf does: any all-digit number up to 2, and a quoted value", () => {
     // Real tf: -s00 and -s002 ran, and -s"on" split on %; as -son does.
     const files = { [p("cwd", "a.tf")]: "/def a = 1\n", [p("cwd", "b.tf")]: "/def b = 1\n", [p("cwd", "c.tf")]: "/def c = 1\n" };
     const g = graph({ ...files, [p("tfrc")]: '/eval -s00 /load a.tf\n/eval -s002 /load b.tf\n/eval -s"on" /load c.tf%; /load a.tf\n' });
     expect(defNames(g)).toEqual(["a", "b", "c"]);
+    // Real tf: -s"o\n" was Invalid -s value "o\n": a \ only escapes the quote or another \.
+    expect(defNames(graph({ ...files, [p("tfrc")]: '/eval -s"o\\n" /load a.tf\n/eval -s"\\on" /load b.tf\n' }))).toEqual([]);
   });
 
   it("starts a /set value right after = or the blanks, as setdelim() does, and tracks /setenv but not /let", () => {

@@ -109,10 +109,32 @@ describe("not-substituted-here (rule 4)", () => {
     expect(message("/if (1) /echo %{x}%; /endif")).toBe(
       "%{x} stays as it is in a top-level /if or /while line: put /eval in front of the command to substitute it.",
     );
-    expect(message("/eval -soff /echo %{x}")).toBe("%{x} stays as it is in /eval -soff text: put /eval in front of the command to substitute it.");
+    expect(message("/eval -soff /echo %{x}")).toBe("%{x} stays as it is in /eval -soff text: leave out the -s option to substitute it.");
+    // Review probe p4: an /if in -soff text is raised to the newline level, but it is still -soff text.
+    expect(message("/eval -soff /if (1) /load %{x}/f.tf%; /endif")).toBe(
+      "%{x} stays as it is in /eval -soff text: leave out the -s option to substitute it.",
+    );
     expect(message("/if (1) /test echo(\"%{x}\")%; /endif")).toBe(
       "%{x} stays as it is in a top-level /if or /while line: put /eval in front of the command to substitute it.",
     );
+  });
+
+  // rev.tf R6 and R7: /eval without -s substitutes, and -son splits on %;.
+  it("offers to leave out an /eval's -s option", () => {
+    const text = "/eval -soff /echo %{x}\n";
+    const d = getDiagnostics(text).find((x) => x.code === "not-substituted-here");
+    expect(d?.fix?.title).toBe("Leave out -soff");
+    expect(d?.fix?.edits.map((e) => [e.range.start.character, e.range.end.character, e.newText])).toEqual([[6, 12, ""]]);
+  });
+
+  // Review probe p2 (B3): -soff text doesn't split on %;.
+  it("advises -son for a %; in /eval -soff text", () => {
+    const [d] = getDiagnostics("/eval -soff /echo a%; /echo b\n");
+    expect(d?.message).toBe(
+      "%; doesn't end a command in /eval -soff text, so it and the rest of the line are part of /echo: give the /eval -son, or leave out the -s option.",
+    );
+    expect(d?.fix?.title).toBe("Give the /eval -son");
+    expect(d?.fix?.edits.map((e) => [e.range.start.character, e.range.end.character, e.newText])).toEqual([[6, 11, "-son"]]);
   });
 
   // Review probe p1 (A6-A9): tf prints %{x} for each, in a /def body too, but substitutes the /test's string in a body.

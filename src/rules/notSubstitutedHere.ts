@@ -1,17 +1,18 @@
 import { entryLoads } from "../loadCommands";
 import { isTfSpace } from "../logicalEntries";
-import { code } from "../structure";
-import { entrySubstitution, type ContextStatement } from "../substitution";
+import { code, type IssueEdit } from "../structure";
+import { entrySubstitution, type ContextStatement, type EvalLevel } from "../substitution";
 import type { EntryRule, EntryMatch } from "./types";
 
 /**
  * Rule 4 (scripting.md): text tf doesn't substitute, where it was surely meant to be. tf reads a
- * plain top-level line without substitution, and a top-level `/if` or `/while` line with only
- * `%;` separating (substitution.ts has the table, and the proofs). So:
+ * plain top-level line without substitution, a top-level `/if` or `/while` line with only `%;`
+ * separating, and `/eval -soff` and `-son` text the same ways (substitution.ts has the table, and
+ * the proofs). So:
  *
  *  - `%{name}` there stays as it is: `/load %{d}/a.tf` looks for a file called `%{d}/a.tf`.
- *    Not in a macro body, an `/eval` (unless `-soff`/`-son`), a `/repeat`'s command or a `/for`,
- *    which are substituted, nor as an operand in an expression, which reads it as a variable.
+ *    Not in a macro body, an `/eval`, a `/repeat`'s command or a `/for`, which are substituted,
+ *    nor as an operand in an expression, which reads it as a variable.
  *  - Nor in a string in a condition or `$[...]`, even in a macro body: nothing substitutes it.
  *  - `%name` is only flagged in a `/load` or `/require` path, where it can only be meant as a
  *    variable: elsewhere a top-level `%name` is usually meant as text (`/set
@@ -33,6 +34,11 @@ function statementAt(statements: ContextStatement[], offset: number): ContextSta
   return found;
 }
 
+/** `/eval -soff`'s or `-son`'s name, as written in the advice. */
+function evalName(e: EvalLevel): string {
+  return `/eval -s${e.mode === "top" ? "off" : "on"}`;
+}
+
 export const notSubstitutedHere: EntryRule = {
   id: "not-substituted-here",
   severity: "warning",
@@ -47,21 +53,39 @@ export const notSubstitutedHere: EntryRule = {
       const st = statementAt(statements, at);
       return !(st && st.body !== undefined && at < st.body);
     };
+    /** Edits that take an `/eval`'s `-s` options out, with the blanks after each. */
+    const dropOptions = (e: EvalLevel): IssueEdit[] =>
+      e.options.map((o) => {
+        let end = o.end;
+        while (end < text.length && isTfSpace(text[end])) end += 1;
+        return { start: o.start, end, newText: "" };
+      });
     const out: EntryMatch[] = [];
 
     const variable = (start: number, written: string): void => {
       const st = statementAt(statements, start);
       const at = st?.start ?? 0;
-      const where = st?.viaEval
-        ? `in /eval -s${st.level === "newline" ? "on" : "off"} text`
-        : st?.level === "newline"
-          ? "in a top-level /if or /while line"
-          : "in a command at the top level of a file";
-      out.push({
+      const base = {
         start,
         end: start + written.length,
-        message: `${written} stays as it is ${where}: put /eval in front of the command to substitute it.`,
         label: "not substituted",
+      };
+      if (st?.viaEval) {
+        const name = evalName(st.viaEval);
+        out.push({
+          ...base,
+          message: `${written} stays as it is in ${name} text: leave out the -s option to substitute it.`,
+          explanation:
+            `${code(name)} runs its text ${st.viaEval.mode === "top" ? "as a plain line of a file is run" : "as a top-level /if line is run"}, ` +
+            `without substituting variables, so the command gets the text ${code(written)}. Without ${code("-s")}, ` +
+            `${code("/eval")} substitutes its text once and then runs it.`,
+          fix: { title: `Leave out ${text.slice(st.viaEval.options.at(-1)!.start, st.viaEval.options.at(-1)!.end)}`, edits: dropOptions(st.viaEval) },
+        });
+        return;
+      }
+      out.push({
+        ...base,
+        message: `${written} stays as it is ${st?.level === "newline" ? "in a top-level /if or /while line" : "in a command at the top level of a file"}: put /eval in front of the command to substitute it.`,
         explanation:
           `tf runs the commands in a file without substituting variables, so the command gets the text ${code(written)}, ` +
           `not the variable's value. Inside a top-level ${code("/if")} or ${code("/while")} line, ${code("%;")} separates ` +
@@ -110,20 +134,32 @@ export const notSubstitutedHere: EntryRule = {
       // A %; with nothing after it is a body line whose /def is missing (missing-continuation's case).
       if (next >= st.end) continue;
       const name = st.word ? `/${st.word}` : "the text";
+      const where = st.viaEval ? `in ${evalName(st.viaEval)} text` : "on a plain top-level line";
+      const advice = st.viaEval
+        ? "give the /eval -son, or leave out the -s option"
+        : "put each command on a line of its own, or start the line with /eval";
       const match: EntryMatch = {
         start: at,
         end: at + 2,
         severity: "information",
-        message: `%; doesn't end a command on a plain top-level line, so it and the rest of the line are part of ${name}: put each command on a line of its own, or start the line with /eval.`,
+        message: `%; doesn't end a command ${where}, so it and the rest of the line are part of ${name}: ${advice}.`,
         label: "not a separator",
         explanation:
-          `tf reads a plain line of a file without substitution, so ${code("%;")} is just text there and ${name === "the text" ? "the line" : code(name)} ` +
+          `tf reads ${st.viaEval ? `${code(evalName(st.viaEval))} text as a plain line of a file is read` : "a plain line of a file"} ` +
+          `without substitution, so ${code("%;")} is just text there and ${name === "the text" ? "the line" : code(name)} ` +
           `gets all of ${code(text.slice(st.start, st.end))}. ${code("%;")} separates commands in a ${code("/def")} body, in ` +
           `${code("/eval")} text, and on a line that starts with ${code("/if")} or ${code("/while")}.`,
       };
-      // Not before a keyword: /endif on a line of its own is no command (keyword-mid-statement's case).
-      const nextWord = /^\/([A-Za-z]*)/.exec(text.slice(next))?.[1]?.toLowerCase();
-      if (nextWord !== undefined && !BLOCK_KEYWORDS.has(nextWord)) match.fix = { title: "Put the next command on a line of its own", edits: [{ start: at, end: next, newText: "\n" }] };
+      if (st.viaEval) {
+        const last = st.viaEval.options.at(-1)!;
+        match.fix = { title: "Give the /eval -son", edits: [{ start: last.start, end: last.end, newText: "-son" }] };
+      } else {
+        // Not before a keyword: /endif on a line of its own is no command (keyword-mid-statement's case).
+        const nextWord = /^\/([A-Za-z]*)/.exec(text.slice(next))?.[1]?.toLowerCase();
+        if (nextWord !== undefined && !BLOCK_KEYWORDS.has(nextWord)) {
+          match.fix = { title: "Put the next command on a line of its own", edits: [{ start: at, end: next, newText: "\n" }] };
+        }
+      }
       out.push(match);
     }
     return out;

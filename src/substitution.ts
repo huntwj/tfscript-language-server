@@ -5,7 +5,7 @@ import { macroBodyStart, parseRegions, type ExpressionRegion, type StructureMode
 /**
  * Which text of a top-level entry tf substitutes, and how: one table the rules ask, rather than
  * each guessing from the command at the start of the line. Proven against real tf (probes p04,
- * p06, p10 and q05 of the 2026-10-14 rule analysis, and r2.tf):
+ * p06, p10 and q05 of the 2026-10-14 rule analysis, r2.tf, and the review's p1-p4):
  *
  *  - A plain top-level line is read at `SUB_KEYWORD` (command.c `load_file()`): `%;`, `%{x}`,
  *    `%x`, `$[...]`, `$(...)` and `\` are all text. `/set a=1%; /set b=2` sets a to
@@ -13,18 +13,18 @@ import { macroBodyStart, parseRegions, type ExpressionRegion, type StructureMode
  *  - A top-level line starting with `/if` or `/while` is raised to `SUB_NEWLINE` for the rest of
  *    the line (expand.c): `%;` separates and a run of `%`s loses one, but nothing is substituted,
  *    so `/if (1) /echo %{x}%; /endif` prints `%{x}`.
- *  - A macro body is substituted when it runs (`SUB_MACRO`): `/def`, `/bind`, `/hook`, `/trig*`
- *    and stdlib's `/alias`. So is the command of a `/repeat` (process.c compiles it as a macro
- *    body, whatever its options), all of a `/for`'s words (stdlib's `/for` runs them through
- *    `/@eval`), and `/eval` text at its `-s` level: the default and `-sfull` substitute, `-son`
- *    reads it as an `/if` line is read and `-soff` as a plain line.
+ *  - A macro body is substituted when it runs (`SUB_MACRO`): `/def`, `/bind`, `/hook` (and their
+ *    `/@` forms), `/trig*` and stdlib's `/alias`. So is the command of a `/repeat` (process.c
+ *    compiles it as a macro body, whatever its options), all of a `/for`'s words (stdlib's `/for`
+ *    runs them through `/@eval`), and `/eval` text at its `-s` level: the default and `-sfull`
+ *    substitute, `-son` reads it as an `/if` line is read and `-soff` as a plain line.
  *  - An expression is evaluated at any level: an `/if` or `/while` condition, the text of a
  *    `/test`, `/return` or `/result`, and `$[...]` where it is substituted. There `%x` and `%{x}`
  *    are operands, so a top-level `/if (%{x} == 5)` does read x.
  *  - A string in an expression is not substituted by the expression. In a condition or `$[...]`
  *    nothing substitutes it, even in a macro body: `/if (echo("%{x}"))` prints `%{x}`. The text
  *    of a `/test`, `/return` or `/result` is substituted at its statement's level first, so a
- *    string there is substituted in a macro body but not at the top level (review probe p1).
+ *    string there is substituted in a macro body but not at the top level.
  *
  * Each level reads the text the one outside it produced: inside an `/if` line `%%{x}` reaches an
  * `/eval` as `%{x}`, which it substitutes.
@@ -36,6 +36,12 @@ import { macroBodyStart, parseRegions, type ExpressionRegion, type StructureMode
  */
 export type SubContext = SubLevel | "expression" | "string";
 
+/** The `/eval -soff` or `-son` whose text a statement is, with its `-s` options' offsets into `entry.text`. */
+export interface EvalLevel {
+  mode: "top" | "newline";
+  options: { start: number; end: number }[];
+}
+
 /** A statement read at the top level, or by an `/eval -soff`/`-son` there, as offsets into `entry.text`. */
 export interface ContextStatement {
   start: number;
@@ -45,8 +51,8 @@ export interface ContextStatement {
   word: string;
   /** For a macro-defining command, where its body starts. */
   body?: number;
-  /** Read by an `/eval -soff` or `-son`, not straight from the file. */
-  viaEval: boolean;
+  /** The `/eval` that read it, when it isn't read straight from the file. */
+  viaEval?: EvalLevel;
 }
 
 export interface SubstitutionModel {
@@ -112,19 +118,29 @@ export function repeatArguments(s: string, from: number, to: number): { command:
   return command ? { command: command.start, now } : undefined;
 }
 
-/** `/eval [-s<level>] TEXT`, its arguments `s[from, to)`: where TEXT starts and how it is read. Undefined for an error. */
-export function evalArguments(s: string, from: number, to: number): { text: number; mode: StructureMode } | undefined {
+/**
+ * `/eval [-s<level>] TEXT`, its arguments `s[from, to)`: where TEXT starts, how it is read, and
+ * where each `-s` option is (the last one counts). Undefined for an error.
+ */
+export function evalArguments(
+  s: string,
+  from: number,
+  to: number,
+): { text: number; mode: StructureMode; options: { start: number; end: number }[] } | undefined {
   let mode: StructureMode = "body";
+  const options: { start: number; end: number }[] = [];
   let word = nextWord(s, from, to);
   while (word && s[word.start] === "-") {
     const opt = s.slice(word.start, word.end);
+    const at = word;
     word = nextWord(s, word.end, to);
     if (opt === "-" || opt === "--") break;
     const picked = opt.startsWith("-s") ? evalMode(opt.slice(2)) : undefined;
     if (!picked) return undefined;
     mode = picked;
+    options.push({ start: at.start, end: at.end });
   }
-  return { text: word ? word.start : to, mode };
+  return { text: word ? word.start : to, mode, options };
 }
 
 /** The strings in `s[from, to)`, read as an expression reads them (tf's `is_quote()`, `\` escaping). */
@@ -171,8 +187,13 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
     }
   };
 
+  const sub = (src: Source, from: number, to = src.text.length): Source => ({
+    text: src.text.slice(from, to),
+    map: src.map.slice(from, to + 1),
+  });
+
   /** `src.text`, read as `mode` reads it; later (inner) reads overwrite earlier ones. */
-  const read = (src: Source, mode: StructureMode, depth: number, viaEval: boolean): void => {
+  const read = (src: Source, mode: StructureMode, depth: number, viaEval: EvalLevel | undefined): void => {
     const s = src.text;
     const regions = parseRegions(s, mode);
     if (mode === "body") {
@@ -191,30 +212,31 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
         end: st.end > st.start ? (src.map[st.end - 1] as number) + 1 : (src.map[st.start] as number),
         level: st.level,
         word,
-        viaEval,
       };
+      if (viaEval) out.viaEval = viaEval;
       statements.push(out);
       if (depth >= MAX_DEPTH) continue;
       const argStart = st.start + (word ? (COMMAND_RE.exec(s.slice(st.start))?.[0].length ?? 0) : 0);
       // What the command is handed: a plain line as written, an /if line with its % runs shortened.
-      const handed = (from: number): Source =>
-        st.level === "newline" ? shortened(src, from, st.end) : { text: s.slice(from, st.end), map: src.map.slice(from, st.end + 1) };
+      const handed = (from: number): Source => (st.level === "newline" ? shortened(src, from, st.end) : sub(src, from, st.end));
       if (MACRO_DEFINER.test(word)) {
         const body = macroBodyStart(s.slice(st.start, st.end));
         if (body >= 0) {
           out.body = src.map[st.start + body] as number;
-          read(handed(st.start + body), "body", depth + 1, true);
+          read(handed(st.start + body), "body", depth + 1, undefined);
         }
       } else if (word === "for") {
-        read(handed(argStart), "body", depth + 1, true);
+        read(handed(argStart), "body", depth + 1, undefined);
       } else if (word === "repeat") {
         const h = handed(argStart);
         const r = repeatArguments(h.text, 0, h.text.length);
-        if (r) read({ text: h.text.slice(r.command), map: h.map.slice(r.command) }, "body", depth + 1, true);
+        if (r) read(sub(h, r.command), "body", depth + 1, undefined);
       } else if (word === "eval") {
         const h = handed(argStart);
         const e = evalArguments(h.text, 0, h.text.length);
-        if (e) read({ text: h.text.slice(e.text), map: h.map.slice(e.text) }, e.mode, depth + 1, true);
+        if (!e) continue;
+        const options = e.options.map((o) => ({ start: h.map[o.start] as number, end: (h.map[o.end - 1] as number) + 1 }));
+        read(sub(h, e.text), e.mode, depth + 1, e.mode === "body" ? undefined : { mode: e.mode, options });
       }
     }
     // A /test, /return or /result is a statement too, though its text is an expression.
@@ -223,19 +245,20 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
       let start = ex.start;
       while (start > 0 && isTfSpace(s[start - 1])) start -= 1;
       while (start > 0 && s[start] !== "/") start -= 1;
-      statements.push({
+      const out: ContextStatement = {
         start: src.map[start] as number,
         end: ex.end > start ? (src.map[ex.end - 1] as number) + 1 : (src.map[start] as number),
         level: ex.level ?? "keyword",
         word: commandWord(s, start),
-        viaEval,
-      });
+      };
+      if (viaEval) out.viaEval = viaEval;
+      statements.push(out);
     }
     // Expressions last: what is evaluated as an expression is read so wherever it sits.
     expressions(src, regions.expressions);
   };
 
-  read({ text: entry.text, map: Array.from({ length: entry.text.length + 1 }, (_, i) => i) }, "top", 0, false);
+  read({ text: entry.text, map: Array.from({ length: entry.text.length + 1 }, (_, i) => i) }, "top", 0, undefined);
   cache.set(entry, model);
   return model;
 }

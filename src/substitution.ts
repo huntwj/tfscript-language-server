@@ -225,8 +225,9 @@ export function atCommand(s: string, from: number, to: number): number | undefin
  * The strings in `s[from, to)`, read as an expression reads them (tf's `is_quote()`, `\` escaping),
  * and the `$(...)`s, whose text is a command list run as a macro body, not part of the expression.
  * Where a `$(...)` ends is the structure parser's to say (`known`, the `$(...)`s it read): its text
- * is read at `SUB_MACRO`, so `\)` doesn't end it, and an `/if (...)`, `/while (...)` or `/test` in
- * it reads its own parentheses (third review's probe p1). Where the parser read none (a `/test`'s
+ * is read at `SUB_MACRO`, so `\)` doesn't end it, and an `/if (...)` or `/while (...)` in it reads
+ * its own parentheses (third review's probe p1); a `/test`'s text in it does not, and ends at the
+ * first `)`. Where the parser read none (a `/test`'s
  * text with a `$` in it is only compiled when it runs), the `$(...)` is parsed here, as a body.
  */
 function stringsIn(

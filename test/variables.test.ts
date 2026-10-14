@@ -198,6 +198,42 @@ describe("/for and /repeat", () => {
     expect(scoped("/def -i a = /let zork=L%; /repeat -0 1 /echo %%zork %zork\n")).toEqual(["let:zork L", "read:zork", "read:zork L"]);
     expect(scoped("/repeat -0.5 i /echo %zork\n")).toEqual(["read:zork"]);
   });
+
+  it("runs /repeat -S and -P inside the macro, seeing its locals", () => {
+    // Real tf: /repeat -S and -P printed the body's /let x=LOCAL.
+    expect(scoped("/def -i a = /let x=L%; /repeat -S 1 /echo %%x\n")).toEqual(["let:x L", "read:x L"]);
+    expect(scoped("/def -i a = /let x=L%; /repeat -P 1 /echo %%x\n")).toEqual(["let:x L", "read:x L"]);
+  });
+
+  it("reads a $[...] the macro evaluates before handing the text on in the macro's scope", () => {
+    // Real tf: with a global i=5, /for i 1 1 /echo $[i*10] printed 50, the macro's i, not the loop's.
+    expect(scoped("/def -i t = /for i 1 2 /echo %% x=$[i*10] y=%%i\n")).toEqual(["let:i L:for", "read:i", "read:i L:for"]);
+    // Real tf: /repeat ... $[x] printed the body's local.
+    expect(scoped("/def -i t = /let x=L%; /repeat -0 1 /echo $[x]\n")).toEqual(["let:x L", "read:x L"]);
+    // Real tf: $[x] read the macro's x, $$[x] the /eval's own.
+    expect(scoped("/def -i t = /let x=E0%; /eval /let x=E%%; /echo $[x] $$[x]\n")).toEqual([
+      "let:x L",
+      "let:x L:eval",
+      "read:x L",
+      "read:x L:eval",
+    ]);
+  });
+
+  it("reads a doubled $$[...] one level down, as tf shortens $ runs like % runs", () => {
+    // Real tf: /for k 2 2 /echo $$[k*k] printed 4.
+    expect(scoped("/def -i t = /for k 1 2 /echo %% k=%%k sq=$$[k*k]\n")).toEqual(["let:k L:for", "read:k L:for", "read:k L:for", "read:k L:for"]);
+  });
+
+  it("splits /for's words after the macro's own substitution", () => {
+    // Real tf: /for i 0 $[3 - 1] /test s += i summed 0+1+2 into the body's s.
+    expect(scoped("/def -i t = /let s=0%; /for i 0 $[n - 1] /test s += i\n")).toEqual(["let:s L", "let:i L:for", "read:n", "assign:s L", "read:i L:for"]);
+  });
+
+  it("reads a /def -E condition in the deepest text it reads", () => {
+    // Eight /evals in, nothing is read any deeper, but that text's own /def -E still is.
+    const deep = `/def -i a = ${"/eval ".repeat(8)}/def -E"lim > 1" b = /echo\n`;
+    expect(names(deep)).toEqual(["read:lim"]);
+  });
 });
 
 const names = (text: string): string[] => findVariables(text).map((v) => `${v.access}:${v.name}`);

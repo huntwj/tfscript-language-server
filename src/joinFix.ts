@@ -9,6 +9,7 @@ import {
   splitRawLines,
   type LogicalEntry,
 } from "./logicalEntries";
+import { macroBodyStart } from "./structure";
 
 /**
  * Fixes that join physical lines into one command with trailing `\`s: for a top-level `/if`
@@ -46,34 +47,69 @@ const TOP_BLOCK_RE = /^\/(?:if|while)\b/i;
 /** Structural fixes the settle step applies; not "Add %; /endif ...", which would close a block early. */
 const SETTLE_CODES = new Set(["block-structure", "separator-sends-blank-line"]);
 
-function separates(entry: LogicalEntry): boolean {
-  return entry.isDefBody || entry.isOtherMacroBody || TOP_BLOCK_RE.test(entry.text);
+/** How `%;` reads in the command: "body" in a macro body, "top" in a top-level /if or /while, or not at all. */
+type Separates = "body" | "top" | undefined;
+
+function separates(entry: LogicalEntry): Separates {
+  if (entry.isDefBody || entry.isOtherMacroBody) return "body";
+  return TOP_BLOCK_RE.test(entry.text) ? "top" : undefined;
 }
 
-/** `line` with what it needs at its end to continue onto `next`, or undefined if it can't. */
-function continued(line: string, next: string, separate: boolean): string | undefined {
+/**
+ * Whether `body` already ends with a statement separator: `%;`, `%|` or `%\` with exactly one
+ * `%` (in a run of two or more, percentsub() keeps them all as text, so `%%;` is text). In a macro
+ * body a `\` before the `%` escapes it; proven live, `\%;` and even `\\%;` at the end of a `/def`
+ * body line are text. A top-level line does no `\` processing.
+ */
+function endsWithSeparator(body: string, mode: Separates): boolean {
+  if (!/[;|\\]$/.test(body) || body[body.length - 2] !== "%") return false;
+  const before = body[body.length - 3];
+  if (before === "%") return false;
+  return !(mode === "body" && before === "\\");
+}
+
+/** The command so far, as tf joins it: each line without its leading blanks or continuing `\`. */
+function joinedText(lines: string[], from: number, to: number): string {
+  let text = "";
+  for (let k = from; k <= to; k += 1) {
+    const line = lines[k] ?? "";
+    if (isCommentLine(line)) continue;
+    const part = line.slice(leadingWhitespaceLength(line));
+    text += continuesToNextLine(part) ? part.slice(0, -1) : part;
+  }
+  return text;
+}
+
+/**
+ * `line` with what it needs at its end to continue onto `next`, or undefined if it can't.
+ * `header` says the command so far is a macro's header with its body still empty (`/def a =`),
+ * where nothing needs separating.
+ */
+function continued(line: string, next: string, mode: Separates, header: boolean): string | undefined {
   if (line.endsWith("\r") || isBlankLine(line)) return undefined;
   let end = line.length;
   while (end > 0 && isTfSpace(line[end - 1])) end -= 1;
   const body = line.slice(0, end);
   if (continuesToNextLine(body)) return body; // a \ with whitespace after it
   const command = next[leadingWhitespaceLength(next)] === "/";
-  // %\ already ends the statement; after =, the body starts on the next line.
-  const sep = separate && command && !/(?:%;|%\\|=)$/.test(body);
+  const sep = mode !== undefined && command && !header && !endsWithSeparator(body, mode);
   if (!sep) return `${body} \\`;
-  // Glued onto a %, the %; would be %%;, which is text.
-  return body.endsWith("%") ? `${body} %; \\` : `${body}%; \\`;
+  // Glued onto a % the %; would be %%;, which is text; after a \ in a body, the % would be escaped.
+  return body.endsWith("%") || (mode === "body" && body.endsWith("\\")) ? `${body} %; \\` : `${body}%; \\`;
 }
 
-/** Lines `from`..`to` of `lines` joined into one command, or undefined if they can't be. */
-function joined(lines: string[], from: number, to: number, separate: boolean): string[] | undefined {
+/** Lines `from`..`to` of `lines` joined into one command starting at line `base`, or undefined if they can't be. */
+function joined(lines: string[], base: number, from: number, to: number, mode: Separates): string[] | undefined {
   const out = lines.slice();
   for (let k = from; k < to; k += 1) {
     const line = out[k] ?? "";
     if (isCommentLine(line)) continue;
     let n = k + 1;
     while (n < to && isCommentLine(out[n] ?? "")) n += 1;
-    const next = continued(line, out[n] ?? "", separate);
+    const sofar = joinedText(out, base, k);
+    const start = mode === "body" ? macroBodyStart(sofar) : -1;
+    const header = start >= 0 && sofar.slice(start).trim() === "";
+    const next = continued(line, out[n] ?? "", mode, header);
     if (next === undefined) return undefined;
     out[k] = next;
   }
@@ -153,7 +189,7 @@ function joinFix(
     const line = lines[last] ?? "";
     if (isBlankLine(line)) break;
     if (isCommentLine(line) || continuesToNextLine(line)) continue;
-    const candidate = joined(lines, first, last, separate);
+    const candidate = joined(lines, base, first, last, separate);
     if (!candidate) break;
     const original = lines.slice(base, last + 1);
     const before = diagnose(original.join("\n"));

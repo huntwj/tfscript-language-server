@@ -180,6 +180,12 @@ describe("rule fixes", () => {
     ["indented-line-after-command", ["/def -i a =", "    /echo two"], ["/def -i a = \\", "    /echo two"]],
     ["indented-line-after-command", ["/def -i a = /if (1)", "    /echo yes", "/endif"], ["/def -i a = /if (1) \\", "    /echo yes%; \\", "/endif"]],
     ["indented-line-after-command", ["/set x=1", "  /set y=2"], ["/set x=1", "/set y=2"]],
+    // Only a real separator counts (proven live): =, %%; and \%; at the end of a body line are text.
+    ["if-multiline-top-level", ["/if (1)", "  /set x=", "  /echo y", "/endif"], ["/if (1) \\", "  /set x=%; \\", "  /echo y%; \\", "/endif"]],
+    ["indented-line-after-command", ["/def -i a = /echo 100%%;", "    /echo two"], ["/def -i a = /echo 100%%;%; \\", "    /echo two"]],
+    ["indented-line-after-command", ["/def -i a = /echo a\\%;", "    /echo two"], ["/def -i a = /echo a\\%;%; \\", "    /echo two"]],
+    // A top-level line does no \ processing, so there \%; does separate.
+    ["if-multiline-top-level", ["/if (1)", "  /echo a\\%;", "  /echo b", "/endif"], ["/if (1) \\", "  /echo a\\%; \\", "  /echo b%; \\", "/endif"]],
   ];
   for (const [code, before, after] of cases) {
     it(`${code}: ${before.join(" | ")}`, () => {

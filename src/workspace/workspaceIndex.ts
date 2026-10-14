@@ -51,6 +51,8 @@ interface LibraryFile {
 export const MAX_WALKED_FILES = 5000;
 /** How long a listing of a folder no watcher covers is trusted, in milliseconds. */
 const UNWATCHED_WALK_MS = 10_000;
+/** At most how often the modification times of cached files nothing watches are checked, in milliseconds. */
+const UNWATCHED_CHECK_MS = 1000;
 /** The listing of a folder that isn't a workspace folder, which is never walked. */
 const NOT_WALKED = { files: [] as string[], truncated: false };
 
@@ -71,7 +73,7 @@ export class WorkspaceIndex {
   private resolved = new Map<string, ResolvedSettings>();
   /** Keyed by folder and context name. */
   private graphs = new Map<string, { settings: ResolvedSettings; graph: LoadGraph }>();
-  private libraries = new Map<string, string[]>();
+  private libraries = new Map<string, { files: string[]; at: number }>();
   private helps = new Map<string, ReadonlyMap<string, HelpEntry> | undefined>();
 
   constructor(
@@ -145,7 +147,8 @@ export class WorkspaceIndex {
    * (or that appeared or went away), and the graphs built from it. Run before a graph is used.
    */
   private refreshUnwatched(): void {
-    if (!this.fs.mtime) return;
+    if (!this.fs.mtime || Date.now() - this.lastRefresh < UNWATCHED_CHECK_MS) return;
+    this.lastRefresh = Date.now();
     let changed = false;
     for (const [key, entry] of this.disk) {
       if (this.isWatched(entry.file) || this.fs.mtime(entry.file) === entry.mtime) continue;
@@ -164,7 +167,10 @@ export class WorkspaceIndex {
    * script under the workspace folders — reached by a load path or not — whose name contains
    * the query's characters in order, ignoring case (the editor ranks them further).
    */
+  private lastRefresh = -Infinity;
+
   workspaceSymbols(query: string): { file: string; folder: string; symbol: TfSymbol }[] {
+    this.refreshUnwatched();
     const q = query.toLowerCase();
     const matches = (name: string): boolean => {
       let i = 0;
@@ -229,16 +235,21 @@ export class WorkspaceIndex {
    * an open library file's unsaved text counts and a changed one is read again.
    */
   private library(dir: string): LibraryFile[] {
-    const key = keyOf(dir);
-    let files = this.libraries.get(key);
-    if (!files) {
-      files = this.fs.listTfFiles(dir).map((f) => path.resolve(f));
-      this.libraries.set(key, files);
-    }
-    return files.flatMap((file) => {
+    return this.libraryListing(dir).files.flatMap((file) => {
       const text = this.read(file);
       return text === undefined ? [] : [{ path: file, text, defs: this.librarySymbols(file, text) }];
     });
+  }
+
+  /** The library's files, kept until a watched file changes, or for a few seconds when no watcher covers it. */
+  private libraryListing(dir: string): { files: string[]; at: number } {
+    const key = keyOf(dir);
+    let listed = this.libraries.get(key);
+    if (!listed || (!this.isWatched(dir) && Date.now() - listed.at >= UNWATCHED_WALK_MS)) {
+      listed = { files: this.fs.listTfFiles(dir).map((f) => path.resolve(f)), at: Date.now() };
+      this.libraries.set(key, listed);
+    }
+    return listed;
   }
 
   private librarySymbolCache = new Map<string, { text: string; defs: TfSymbol[] }>();
@@ -324,7 +335,7 @@ export class WorkspaceIndex {
   /** Whether a load path resolves, per search environment (cleared when files or settings change). */
   private resolvable = new Map<string, boolean>();
   /** Per graph, and the folder listing it was built from (which a refresh replaces). */
-  private macroContexts = new WeakMap<LoadGraph, { walked: object; elsewhere: DefinedElsewhere[]; unfollowed: UnfollowedLoad[]; files: string[]; truncated: boolean }>();
+  private macroContexts = new WeakMap<LoadGraph, { walked: object; listed: object | undefined; elsewhere: DefinedElsewhere[]; unfollowed: UnfollowedLoad[]; files: string[]; truncated: boolean }>();
 
   /**
    * A watched file or folder was created, changed or deleted (or renamed): forget what was read
@@ -396,8 +407,9 @@ export class WorkspaceIndex {
   private macroContext(file: string, folder: string, graph: LoadGraph, settings: ResolvedSettings): MacroContext {
     const lib = settings.libraryDir;
     const walked = this.walk(folder);
+    const listed = lib ? this.libraryListing(lib) : undefined;
     let shared = this.macroContexts.get(graph);
-    if (!shared || shared.walked !== walked) {
+    if (!shared || shared.walked !== walked || shared.listed !== listed) {
       const { files, truncated } = walked;
       const reached = new Set(graph.files.map((f) => keyOf(f.path)));
       const elsewhere: DefinedElsewhere[] = [];
@@ -413,7 +425,7 @@ export class WorkspaceIndex {
       if (lib) for (const f of this.library(lib)) add(f.path, f.text, true);
       // On the path, the graph knows which loads it couldn't follow.
       const unfollowed = unfollowedOnPath(graph, (f) => this.label(f, folder, lib));
-      shared = { walked, elsewhere, unfollowed, files, truncated };
+      shared = { walked, listed, elsewhere, unfollowed, files, truncated };
       this.macroContexts.set(graph, shared);
     }
     const self = keyOf(file);

@@ -508,13 +508,39 @@ describe("undefined macros, when files change", () => {
     expect(severities(index, p("ws", "loose.tf"), loose)).toEqual(["warning"]);
   });
 
-  it("checks the modification time of a file no watcher covers, such as a library file", () => {
-    const live = liveFs({ [p("lib", "stdlib.tf")]: "", [p("lib", "textutil.tf")]: "/def -i helper = /echo\n", [p("ws", "tfrc")]: tfrc });
-    const index = indexOf(live);
-    index.setWatchedRoots([p("ws")]);
-    expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["information"]);
-    live.write(p("lib", "textutil.tf"), "");
-    expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["warning"]);
+  it("checks the modification time of a file no watcher covers, such as a library file, at most once a second", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const live = liveFs({ [p("lib", "stdlib.tf")]: "", [p("lib", "textutil.tf")]: "/def -i helper = /echo\n", [p("ws", "tfrc")]: tfrc });
+      const index = indexOf(live);
+      index.setWatchedRoots([p("ws")]);
+      expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["information"]);
+      live.write(p("lib", "textutil.tf"), "");
+      // Within the second, a keystroke doesn't stat every file again.
+      vi.setSystemTime(500);
+      expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["information"]);
+      vi.setSystemTime(1500);
+      expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["warning"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lists a library no watcher covers again after a few seconds", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const live = liveFs({ [p("lib", "stdlib.tf")]: "", [p("ws", "tfrc")]: tfrc });
+      const index = indexOf(live);
+      index.setWatchedRoots([p("ws")]);
+      expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["warning"]);
+      live.write(p("lib", "textutil.tf"), "/def -i helper = /echo\n");
+      vi.setSystemTime(11_000);
+      expect(severities(index, p("ws", "tfrc"), tfrc)).toEqual(["information"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses an open library file's unsaved text", () => {

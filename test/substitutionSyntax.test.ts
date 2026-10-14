@@ -60,6 +60,18 @@ describe("substitution-syntax only where tf substitutes", () => {
     expect(syntax("/for i 1 2 /echo %{foo\n")).toHaveLength(1);
   });
 
+  // Proven live (review rev-s2 p3): tf runs these clean. Read as one body, the whole of /for's
+  // text has its COMMAND mid-statement, where the /if's (...) would be no condition.
+  it("reads a /for's COMMAND as a command list, not its whole text", () => {
+    for (const text of [
+      '/for i 1 2 /if ("%{" !~ "x") /echo %% C1:%{i}%; /endif\n',
+      '/for i 1 1 /if (strlen("a%{b") == 4) /echo %% C2:ok%; /endif\n',
+      '/for i 1 1 /if (i =~ "$[") /echo %% C3:no%; /else /echo %% C3:else%; /endif\n',
+    ]) {
+      expect(getDiagnostics(text).filter((d) => d.severity === "error")).toEqual([]);
+    }
+  });
+
   it("reads a body handed on by a top-level /if line, with no fix once a run of %s was shortened", () => {
     const [d] = syntax("/if (1) /def g = /echo %{foo%; /endif\n");
     expect(d?.message).toBe("This %{ is never closed: add }.");

@@ -339,11 +339,14 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
     map: src.map.slice(from, to + 1),
   });
 
-  /** `src.text`, read as `mode` reads it; later (inner) reads overwrite earlier ones. */
-  const read = (src: Source, mode: StructureMode, depth: number, viaEval: EvalLevel | undefined): void => {
+  /**
+   * `src.text`, read as `mode` reads it; later (inner) reads overwrite earlier ones. `issues`
+   * false for a read that only marks how the text is substituted, not how it is compiled.
+   */
+  const read = (src: Source, mode: StructureMode, depth: number, viaEval: EvalLevel | undefined, issues = true): void => {
     const s = src.text;
     const regions = parseRegions(s, mode);
-    collect(src, regions.issues);
+    if (issues) collect(src, regions.issues);
     if (mode === "body") {
       mark(src, 0, s.length, "full");
       expressions(src, regions.expressions, regions.cmdsubs);
@@ -375,9 +378,11 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
         }
       } else if (word === "for") {
         // VAR START END COMMAND: all substituted, and COMMAND is a macro body of its own, whose
-        // conditions are read as conditions (second review's g1: G4 printed %{x}).
+        // conditions are read as conditions (second review's g1: G4 printed %{x}). Only COMMAND is
+        // compiled as a command list: read as one body, the whole text has COMMAND mid-statement,
+        // where an /if (...) is no condition (review rev-s2 p3), so its issues aren't kept.
         const h = handed(argStart);
-        read(h, "body", depth + 1, undefined);
+        read(h, "body", depth + 1, undefined, false);
         let w = nextWord(h.text, 0, h.text.length);
         for (let n = 0; w && n < 3; n += 1) w = nextWord(h.text, w.end, h.text.length);
         if (w) read(sub(h, w.start), "body", depth + 1, undefined);

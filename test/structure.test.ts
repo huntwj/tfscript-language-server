@@ -267,6 +267,11 @@ describe("parseRegions", () => {
     expect(regions("/test x", "top")).toEqual(["statement/keyword:x"]);
   });
 
+  it("finds the inside of each $(...)", () => {
+    const text = "/echo $(/let a=1%; /echo $(/echo b)) c";
+    expect(parseRegions(text, "body").cmdsubs.map((c) => text.slice(c.start, c.end))).toEqual(["/echo b", "/let a=1%; /echo $(/echo b)"]);
+  });
+
   it("keeps what was read before an error", () => {
     expect(regions("/test x%; /if (1) /echo b", "body")).toEqual(["statement/full:x", "condition:1"]);
   });

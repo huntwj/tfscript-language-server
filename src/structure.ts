@@ -241,6 +241,8 @@ class Parser {
   readonly statements: Statement[] = [];
   /** Every expression read, in the order each one ended. */
   readonly expressions: ExpressionRegion[] = [];
+  /** The inside of every `$(...)` read, which runs in a variable scope of its own. */
+  readonly cmdsubs: { start: number; end: number }[] = [];
   /** Compiling stopped at an error, so tf runs none of this text. */
   stopped = false;
   /** /ifs and /endifs swallowed by a /let or /set value (for let-swallows-endif). */
@@ -945,6 +947,7 @@ class Parser {
       this.expressions.push({ start, end: this.i - 1, kind: "bracket" });
     } else if (s[this.i] === "(") {
       this.i += 1;
+      const start = this.i;
       this.cmdsub += 1;
       const outer = this.block;
       // Known gap (found in review, 2026-10-14, left for later): a keyword such as /endif inside
@@ -963,6 +966,7 @@ class Parser {
           fix: { title: "Close it with ) at the end", edits: [this.insertAtEnd(this.i, ")")] },
         });
       }
+      this.cmdsubs.push({ start, end: this.i });
       this.i += 1;
     } else {
       this.macsub(dollar);
@@ -1155,14 +1159,17 @@ export function parseStatements(text: string, mode: StructureMode): Statement[] 
 }
 
 /**
- * The command statements and expressions in `text`, read as parseStatements() reads it. Unlike
- * parseStatements(), what was read before compiling stopped at an error is kept: tf would run
- * none of it, but an editor still wants its names while the error is being fixed.
+ * The command statements, expressions and `$(...)`s in `text`, read as parseStatements() reads
+ * it. Unlike parseStatements(), what was read before compiling stopped at an error is kept: tf
+ * would run none of it, but an editor still wants its names while the error is being fixed.
  */
-export function parseRegions(text: string, mode: StructureMode): { statements: Statement[]; expressions: ExpressionRegion[] } {
+export function parseRegions(
+  text: string,
+  mode: StructureMode,
+): { statements: Statement[]; expressions: ExpressionRegion[]; cmdsubs: { start: number; end: number }[] } {
   const parser = new Parser(text, mode);
   parser.run();
-  return { statements: parser.statements, expressions: parser.expressions };
+  return { statements: parser.statements, expressions: parser.expressions, cmdsubs: parser.cmdsubs };
 }
 
 /**

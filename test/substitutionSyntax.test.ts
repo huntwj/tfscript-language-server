@@ -189,6 +189,13 @@ describe("not-substituted-here and nested or malformed %{", () => {
     expect(Date.now() - start).toBeLessThan(2000);
   });
 
+  // Review rev-s2c: skipping one it can't read recursed once per %{ nested in it, which overflowed
+  // the stack on this line and took every diagnostic of the file with it.
+  it("skips thousands of unclosed %{ without overflowing the stack", () => {
+    const codes = getDiagnostics(`/echo ${"%{x ".repeat(12000)}\n/def a = /echo $[1+2\n`).map((d) => d.code);
+    expect(codes).toEqual(["expression-syntax"]);
+  });
+
   // Proven live (s2/r/v.tf): /eval /echo %{x-} %{x%{y}} is "unmatched { or illegal character '%'",
   // where the line without /eval prints as it is.
   it("offers no substituting fix for a command /eval couldn't read", () => {

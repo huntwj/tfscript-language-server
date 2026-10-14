@@ -33,7 +33,10 @@ const VALUE_COMMANDS = new Set(["set", "let", "setenv"]);
  * or at `limit` when there is none.
  */
 function substitutionEnd(text: string, at: number, limit: number): number {
-  const close = text[at + 1] === "{" ? "}" : text[at + 1] === "[" ? "]" : ")";
+  const closer = (opener: string | undefined): string => (opener === "{" ? "}" : opener === "[" ? "]" : ")");
+  // The closer each open substitution waits for, innermost last: a loop, not recursion, so a line
+  // of thousands nested (`%{x %{x %{x ...`) can't overflow the stack.
+  const open = [closer(text[at + 1])];
   let i = at + 2;
   while (i < limit) {
     const ch = text[i];
@@ -42,9 +45,12 @@ function substitutionEnd(text: string, at: number, limit: number): number {
       while (text[i + 1] === ch) i += 1;
       i += 1;
     } else if (((ch === "%" || ch === "$") && next === "{") || (ch === "$" && (next === "[" || next === "("))) {
-      i = substitutionEnd(text, i, limit);
-    } else if (ch === close) {
-      return i + 1;
+      open.push(closer(next));
+      i += 2;
+    } else if (ch === open[open.length - 1]) {
+      open.pop();
+      i += 1;
+      if (open.length === 0) return i;
     } else {
       i += 1;
     }

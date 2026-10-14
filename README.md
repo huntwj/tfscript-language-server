@@ -7,9 +7,9 @@ terminal MUD client. tf scripts are `.tf` files full of `/def` macros, triggers,
 This is early, pre-1.0 software: diagnostics for the handful of rules proven so far (below),
 completion (commands, functions, variables, selectors), document symbols (an outline of every `/def`, `/alias`, `/bind`,
 `/hook` and `/trig*`), folding, quick fixes for many of the diagnostics, and hover,
-go-to-definition and find-references for macros across every file your tfrc's `/load` and
-`/require` lines reach (see "Load paths"), signature help, semantic highlighting, workspace-wide
-symbol search, rename, clickable `/load` and `/require` filenames, and formatting that only
+go-to-definition and find-references for macros and variables across every file your tfrc's
+`/load` and `/require` lines reach (see "Load paths"), signature help, semantic highlighting,
+highlighting every use of the name under the cursor, workspace-wide symbol search, rename, clickable `/load` and `/require` filenames, and formatting that only
 changes whitespace tf ignores. There is a VS Code
 extension (`editors/vscode/`) for syntax highlighting plus everything the server does; other editors can wire up the stdio server
 directly — see "Use".
@@ -300,7 +300,10 @@ src/
                         explanation, and the lines after its fix
   navigation.ts        getHover / getDefinition / getReferences: macro lookup (case-insensitive,
                         like tf), across files when given a NavContext; /@name always means the
-                        built-in
+                        built-in; getDocumentHighlights for the name under the cursor
+  variables.ts         findVariables(text): every variable a file names, and whether it is a
+                        global or a macro body's own /let (or getopts()) local
+  variableNavigation.ts  definition, references, rename and highlights for those
   workspace/           loadGraph.ts (tf's load order, statically), settings.ts (tfscript.*
                         settings and their defaults), workspaceIndex.ts (per-folder graphs,
                         unsaved edits, library files) — see "Load paths" above
@@ -314,6 +317,8 @@ test/
                         unit tests for those modules
   symbols.test.ts, folding.test.ts, codeActions.test.ts, navigation.test.ts  unit tests for
                         the four above
+  variables.test.ts, variableNavigation.test.ts, highlights.test.ts  variable scopes,
+                        lookups, rename and highlights
   documentLinks.test.ts  which /load and /require filenames link, and where to
   loadGraph.test.ts, workspace.test.ts  load order and path resolution (each rule proven
                         against real tf), settings defaults, cross-file navigation
@@ -347,7 +352,7 @@ node dist/server.js     # run the server directly (speaks LSP over stdio)
 
 The server advertises `completionProvider` (triggered on `/` and `{`), `documentSymbolProvider`,
 `foldingRangeProvider`, `codeActionProvider` (quick fixes only), `hoverProvider`,
-`definitionProvider`, `referencesProvider`, `signatureHelpProvider` (triggered on space, `(` and `,`), `semanticTokensProvider`
+`definitionProvider`, `referencesProvider`, `documentHighlightProvider`, `signatureHelpProvider` (triggered on space, `(` and `,`), `semanticTokensProvider`
 (full documents), `documentFormattingProvider`, `documentRangeFormattingProvider`,
 `workspaceSymbolProvider`, `renameProvider` (with prepare) and `documentLinkProvider`, and publishes diagnostics
 tagged `source: "tfscript"`. Many editors' LSP clients also pass a `--stdio` flag by
@@ -423,6 +428,24 @@ folders, whether or not a load path reaches it. Rename changes a macro you defin
 `/@name` calls, and macros defined in tf's library, and it does not touch comments (`;;;` doc
 lines included) or names inside strings or built at runtime (`/undef name`, `ismacro("name")`).
 A script outside the load path that calls the macro is not updated either.
+
+Variables get go-to-definition, find-references, rename and highlights too. A variable is named
+by `/set`, `/setenv`, `/let`, `/unset` and `/export`, read as `%name`, `%{name}` or
+`%{name-default}`, and, in an expression (`$[...]`, an `/if`, `/elseif` or `/while` condition,
+`/test`, `/result`, `/return`), as `{name}` or a bare `name`, which `name := ...`, `+=` and `++name`
+assign. Names are case-sensitive, as in tf. `/set`, `/setenv`, `/unset` and `/export` always
+mean the global; `/let`, and the `opt_` variables `getopts()` sets, belong to the macro body
+they're in, and a read in that body after its `/let` means the local. So renaming a global
+leaves a body's own `/let x` alone, and renaming that local changes only its body. Definitions
+include tf's library; rename refuses tf's special variables, variables the library sets, and
+`getopts()` variables, and a new name tf would read as a selector (`L`, `R`, `P1`). tf's scoping
+is dynamic (a macro also sees its caller's locals) and `$(...)` and `/eval` text get scopes of
+their own; neither is followed, so a body without its own `/let` reads the global here.
+Positional selectors (`%1`, `%*`, `{#}`) aren't variables, and names built at run time
+(`cylon%i`) or in strings, and `/listvar` patterns, aren't followed.
+
+Highlighting the name under the cursor marks every use of that variable or macro in the file,
+with `/set`s, `/let`s, assignments and `/def` names shown as writes.
 
 Signature help shows a command's usage synopsis while you type its arguments, with the one
 under the cursor highlighted. Synopses come from the installed `tf-help` (else the htmldoc

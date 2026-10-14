@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Variables: go-to-definition, find-references and rename for `/set`, `/setenv` and `/let`
+  variables and `getopts()`' `opt_` variables, read as `%name`, `%{name}`, `{name}` or a bare name
+  in an expression. A macro body's own `/let` variable is kept apart from the global of the same
+  name, as tf keeps them.
+- Document highlight: every use of the variable or macro under the cursor, writes and reads
+  marked apart.
 - Structural checks, from a model of how tf compiles a macro body (`src/structure.ts`):
   `block-structure` (an `/if` or `/while` left open, a keyword with no block to belong to, text
   after `/endif` or `/done` with no `%;`, pointing at a keyword stuck mid-statement when that is

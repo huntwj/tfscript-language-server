@@ -31,8 +31,9 @@ source). Node and npm are only needed to *build* this extension from source.
   toggle-comment string per language.
 - Diagnostics, completion (commands, expression functions, variables, `%{` selectors), the
   Outline/breadcrumbs (document symbols), folding, quick fixes, hover, signature help,
-  semantic highlighting, go-to-definition, find-references, Go to Symbol in Workspace
-  (Ctrl+T), rename (F2) and Format Document, via the LSP server, same as any other client.
+  semantic highlighting, go-to-definition, find-references and rename (F2) for macros and
+  variables, highlighting every use of the name under the cursor, Go to Symbol in Workspace
+  (Ctrl+T) and Format Document, via the LSP server, same as any other client.
 - A status bar item on tf files showing the load context the file is seen in and the chain of
   `/load`s that reaches it; click it (or run **tfscript: Choose Load Context**) to switch
   between the contexts listed in `tfscript.contexts`.

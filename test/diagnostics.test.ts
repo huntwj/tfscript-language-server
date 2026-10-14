@@ -561,7 +561,7 @@ describe("messages", () => {
     ["substitution-in-expression", "/test echo($[1])\n", "This $[...] is redundant, as /test's text is already an expression: write (...) instead."],
     ["substitution-in-expression", "/def a = /echo $[1 + $[2]]\n", "This $[...] is redundant, as the $[...] around it is already an expression: write (...) instead."],
     ["substitution-in-expression", "/if (%{x} == 5) /echo%; /endif\n", "This %{x} works in an expression, but tf warns that it can be confusing: write {x} instead."],
-    ["reserved-macro-name", "/def if = /echo\n", '"if" is a reserved word, so tf refuses this /def and defines nothing: pick another name.'],
+    ["invalid-macro-name", "/def if = /echo\n", '"if" is a reserved word, so tf refuses this /def and defines nothing: pick another name.'],
     ["not-a-command", "hello\n", "This line isn't a command, so tf stops loading the file here: comment it out, or start it with /."],
     [
       "not-a-command",

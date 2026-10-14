@@ -5,7 +5,7 @@ import { substitutionInExpression } from "./substitutionInExpression";
 import { indentedLineAfterCommand } from "./indentedLineAfterCommand";
 import { backslashNotLast } from "./backslashNotLast";
 import { substitutionSyntax } from "./substitutionSyntax";
-import { reservedMacroName } from "./reservedMacroName";
+import { invalidMacroName } from "./invalidMacroName";
 import { blockStructure } from "./blockStructure";
 import { expressionSyntax } from "./expressionSyntax";
 import { emptyStatement } from "./emptyStatement";
@@ -25,7 +25,7 @@ export const RULES: Rule[] = [
   indentedLineAfterCommand,
   backslashNotLast,
   substitutionSyntax,
-  reservedMacroName,
+  invalidMacroName,
   blockStructure,
   expressionSyntax,
   emptyStatement,

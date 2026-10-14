@@ -353,6 +353,8 @@ describe("rule fixes", () => {
       ["/if (1)", "    /echo % a", "    say hello", "/echo % after"],
       ["/while (0)", "    /echo % a", "    north", "/done"],
       ["/def -i a = /echo one", "    two", "/echo x"],
+      // e06: in a body \%%; separates (the \ takes one %), though the line reads as text; ambiguous.
+      ["/def foo = /echo % x", "    /echo % a\\%%;/echo % b", "/foo"],
       // A %% joined into a top-level /if loses one %: k05, e03, e04, e08, e09, e40, e41.
       ["/if (1)", "    /echo % a%%;b", "/echo % after"],
       ["/if (1)", "    /echo % a%%%;b", "/echo % after"],

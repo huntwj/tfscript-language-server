@@ -50,8 +50,6 @@ const MAX_TOTAL_TRIES = 1500;
 /** An /endif or /done as a word of its own, after a blank or a separator. */
 const CLOSER_RE = /(?<![^ \t;|\\])\/(?:endif|done)(?=[ \t\r\f\v%)]|$)/i;
 const TOP_BLOCK_RE = /^\/(?:if|while)\b/i;
-/** A statement separator: a single `%` before `;`, `|` or `\` (a run of `%`s is text). */
-const OWN_SEPARATOR_RE = /(?<!%)%[;|\\]/;
 /** A line whose last statement is a lone /do or /then. */
 const KEYWORD_END_RE = /(?:^|%;[ \t]*)\/(?:do|then)$/i;
 /** A command whose last statement is an /endif or /done, with only blanks or separators after it. */
@@ -87,6 +85,8 @@ class SeparatorScanner {
   atSeparator = false;
   /** Separators with nothing but blanks since the one before (or the start): empty statements. */
   empty = 0;
+  /** Separators read so far. */
+  separators = 0;
   constructor(private readonly mode: Separates) {}
 
   feed(text: string): this {
@@ -96,6 +96,7 @@ class SeparatorScanner {
         this.text();
       } else if (this.percents === 1 && (ch === ";" || ch === "|" || ch === "\\")) {
         if (!this.content) this.empty += 1;
+        this.separators += 1;
         this.content = false;
         this.percents = 0;
         this.atSeparator = true;
@@ -177,7 +178,11 @@ function joined(lines: string[], base: number, from: number, to: number, mode: S
   for (let k = from + 1; k <= to; k += 1) {
     const line = lines[k] ?? "";
     if (isCommentLine(line) || isBlankLine(line)) continue;
-    if (mode === "top" && OWN_SEPARATOR_RE.test(line)) return undefined;
+    const own = (m: Separates): number => new SeparatorScanner(m).feed(partOf(line)).separators;
+    if (mode === "top" && own("top") > 0) return undefined;
+    // In a body, a line whose separators turn on the body's \ processing (\%%; separates there,
+    // \%; doesn't; read without it, the other way round) is ambiguous, so it isn't joined either.
+    if (mode === "body" && own("body") !== own("top")) return undefined;
     // A top-level /if or /while line gets one more round of % processing than the line had on its
     // own (proven in tf dev, 2026-10-14: an /echo or a /def -t pattern's %% becomes %), so a %%
     // would change what the line says, or make a %%; a separator.

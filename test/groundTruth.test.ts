@@ -31,7 +31,9 @@ describeOrSkip("ground truth (~/ai/mud/tests/tfscript/cases)", () => {
       expect(match, `${file} has no ';; expect: clean|problem' header`).not.toBeNull();
 
       const expected = match![1];
-      const got = getDiagnostics(text).length > 0 ? "problem" : "clean";
+      // Information is a note on something tf runs without complaint, perhaps not as meant (a
+      // plain-line %; is text): it doesn't make a clean case a problem.
+      const got = getDiagnostics(text).some((d) => d.severity !== "information") ? "problem" : "clean";
       expect(got).toBe(expected);
     });
   }

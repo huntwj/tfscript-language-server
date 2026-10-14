@@ -10,6 +10,14 @@
   /foo`), files off every load path are checked too, tf's own library isn't, and
   `tfscript.diagnostics.ignoreMacros` lists names to leave alone.
 - Quick fixes now include the load-path diagnostics' (the server passes what it published).
+- `tfscript.pathMappings`, for a tf that runs somewhere else (a container, WSL, another host):
+  where its absolute paths are here. Loads, links and load-path diagnostics follow it, and a Unix
+  path tf won't find that no mapping covers gets a hint to add one.
+- The load path evaluates the default-value idiom `/if (x =~ "") /set x=VALUE%; /endif` (and the
+  `{x}`, `== ""` and `!x` forms) when it can tell: with the variable known, or unset because
+  nothing on the path set it, it isn't a special variable and its name isn't all upper case. So
+  `/eval /load %{x}/a.tf` after it is followed and linked, where it used to be "can't follow".
+- An `/eval` load whose path is built from variables gets a link when the load path resolved it.
 - Variables: go-to-definition, find-references and rename for `/set`, `/setenv` and `/let`
   variables and `getopts()`' `opt_` variables, read as `%name`, `%{name}`, `{name}` or a bare name
   in an expression, only where tf substitutes them (not in top-level commands, trigger patterns

@@ -146,12 +146,23 @@ not taken from the manual:
   `/eval /load %{dir}/x.tf` works; `/set` and `/setenv` commands that run while a file on the
   path loads are tracked so these resolve. One inside an `/if` or `/while` may not run, so unless
   it sets the value the variable already has, the variable is treated as unknown from there on
-  (an information note, not a guess).
+  (an information note, not a guess). The exception is the default-value idiom, a whole line
+  `/if (x =~ "") /set x=VALUE%; /endif` (or `{x} =~ ""`, `x == ""`, `!x`): when the variable is
+  known, or provably unset, the guard is evaluated as tf would. Real tf showed all these tests
+  true for an unset variable, but only `=~ ""` exact for a set one (`==` and `!` compare numbers,
+  so they are true for `0` and `abc` too). A variable counts as unset when nothing on the path set
+  it, it isn't one of tf's special variables (which have defaults), and its name has a lower-case
+  letter: tf makes every environment variable a global, and those are upper case by convention;
+- when tf runs somewhere else (a container, WSL, another host), `pathMappings` says where its
+  absolute paths are here: `[{ "tf": "/wotmud", "local": "C:/Users/me/wotmud" }]`. An absolute
+  `/load` path, a `TFPATH` or `HOME` a script sets, and the path settings when written as tf's
+  paths go through it. A Unix path tf won't find that no mapping covers gets a hint to add one.
 
 The same rules make each `/load` and `/require` filename a link to the file tf would open
 (`src/documentLinks.ts`). A load that runs while the file loads — a top-level command, or one a
 top-level `/eval` runs — in a file the load path reaches links to what the walk found, with any
-`TFPATH` or `HOME` a tfrc set before it. A load in a macro body runs whenever the macro does, and
+`TFPATH` or `HOME` a tfrc set before it, including one whose path is built from variables
+(`/eval /load %{dir}/x.tf`) when the walk knew them. A load in a macro body runs whenever the macro does, and
 nothing is known about a file nothing loads, so those resolve with the settings below. No link
 for:
 
@@ -181,6 +192,7 @@ under `tfscript`):
 | `tfPath` | `TFPATH` as tf starts with it | the `TFPATH` environment variable |
 | `workingDirectory` | tf's current directory | the workspace folder |
 | `homeDirectory` | what `~` means (tf's `HOME`) | your home directory |
+| `pathMappings` | where tf's absolute paths are here, when tf runs elsewhere: `[{ "tf": "/wotmud", "local": "C:/Users/me/wotmud" }]` | none |
 | `diagnostics.unresolvedLoads` | warn on a `/load`/`/require` tf wouldn't find (`unresolved-load`) | on |
 | `diagnostics.undefinedMacros` | warn on `/name` calls to macros defined nowhere (`undefined-macro`) | on |
 | `diagnostics.ignoreMacros` | macro names `undefined-macro` leaves alone, ignoring case; `*` is a wildcard | none |

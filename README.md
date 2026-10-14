@@ -59,7 +59,7 @@ view of the file gets truncated, since tf never reads past the line it aborts on
 | 10 | `block-structure` | an `/if` or `/while` with no `/endif`, `/done`, `/then` or `/do`; a keyword with no block to belong to; text after `/endif` or `/done` with no `%;`. Points at a keyword stuck mid-statement (`/echo a /endif`) when that is the cause, since tf only reads keywords at the start of a statement |
 | 11 | `unclosed-substitution` | a `$[`, `${`, `$(`, `%{`, string or `(` that never closes, and a `%-` naming no selector (`50%-off`), where tf substitutes: in a macro body, a top-level condition, `/test` |
 | 12 | `separator-sends-blank-line` | (warning) a `%;` straight after `/if (...)` or `/else`, which sends a blank line to the world |
-| — | `nesting-too-deep` | (information) not a problem in tf: a command nesting blocks or substitutions more than 500 levels deep, past which the structural check stops |
+| — | `nesting-too-deep` | (information) not a problem in tf: a command nesting more than 400 levels deep (each nested `/if`, `/while`, `$(...)`, `$[...]` or `%{name-...}` default is a level), past which the structural check stops; what it read before that still counts |
 
 `if-multiline-top-level`, `block-structure`, `unclosed-substitution` and
 `separator-sends-blank-line` share one model of tf's compiler, `src/structure.ts` (`list()`,

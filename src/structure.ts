@@ -147,11 +147,14 @@ class Stop extends Error {}
 class TooDeep extends Stop {}
 
 /**
- * How deep blocks and substitutions may nest before the check gives up (see Parser.deeper).
- * Measured: the parser's own recursion overflows Node's default stack at about 1250 levels of
- * `$(...)` (the deepest-recursing construct), so this keeps a wide margin.
+ * How deep blocks and substitutions may nest before the check gives up (see Parser.deeper). Each
+ * nested `/if`, `/while`, `$(...)`, `$[...]` or `%{name-...}` default is one level. Measured on
+ * Node 24 with its default stack, the parser's own recursion overflowed at about 937 `$(...)`,
+ * 1688 `/if`, 1875 `$[...]` and 2500 `%{x-` in one run, and at 1250 `$(...)`, 1562 `/if` in
+ * another (how much stack is already in use when it starts differs). `$(...)` recurses deepest,
+ * so this stays well under the lower figure for it.
  */
-const MAX_DEPTH = 500;
+const MAX_DEPTH = 400;
 
 interface MidKeyword {
   start: number;

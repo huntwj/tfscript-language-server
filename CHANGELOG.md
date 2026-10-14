@@ -37,8 +37,10 @@
 - `let-swallows-endif` no longer flags an `/if` written straight after the `=` (`/set x=/if (1)
   ...`): tf stores it as the value and runs on (a command kept for a later `/eval`, say), and when
   it leaves an `/endif` stray, `block-structure` reports that.
-- Deeply nested blocks or substitutions (past 500 levels) no longer overflow the stack: the
-  structural check stops there, and says so with an information diagnostic, `nesting-too-deep`.
+- Deeply nested blocks or substitutions no longer overflow the stack: past 400 levels (400 nested
+  `/if`s, `/while`s, `$(...)`s, `$[...]`s or `%{name-...}` defaults, in any mix) the structural
+  check stops, and says so with an information diagnostic, `nesting-too-deep`. The statements
+  read before that point still count, so a `/load` or `/require` before it is still found.
 - `if-multiline-top-level` uses the same model, so it follows nesting and no longer counts an
   `/endif` that is only text (`/if (1) /echo /endif`) as closing the `/if`.
 - `/load` and `/require` filenames are links (Ctrl+click) to the file tf would open, found the

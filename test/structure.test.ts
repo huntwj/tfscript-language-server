@@ -236,7 +236,7 @@ describe("deep nesting", () => {
       expect(checkStructure(body, "body").map((i) => i.kind)).toEqual(["too-deep"]);
     }
     expect(() => checkStructure(`${"/if (1) ".repeat(n)}/echo x${"%; /endif".repeat(n)}`, "top")).not.toThrow();
-    expect(checkStructure(`${"/if (1) ".repeat(400)}/echo x${"%; /endif".repeat(400)}`, "body")).toEqual([]);
+    expect(checkStructure(`${"/if (1) ".repeat(390)}/echo x${"%; /endif".repeat(390)}`, "body")).toEqual([]);
   });
 
   // The check stopping isn't tf stopping: tf runs the text, so the statements already read stand.

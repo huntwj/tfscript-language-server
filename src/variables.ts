@@ -246,12 +246,28 @@ interface Found {
   chain: string[];
 }
 
+/** A `/name` statement that runs: a call to the macro (or command) `name`. */
+interface Call {
+  /** Lower case, as tf looks macros up. */
+  name: string;
+  /** As written. */
+  written: string;
+  chain: string[];
+  /** The statement's `/`, as an offset into the entry's text. */
+  at: number;
+  /** The name, as offsets into the entry's text. */
+  nameStart: number;
+  nameEnd: number;
+  /** Part of the name is only known when it runs (`/run_%1`, `/x$[n]`). */
+  dynamic: boolean;
+}
+
 interface Shared {
   /** Names the next scope opened in this entry. */
   prefix: string;
   next: number;
   /** Every `/name` statement run, with the scopes it runs in and where it is in the entry. */
-  calls: { name: string; chain: string[]; at: number }[];
+  calls: Call[];
   /** The bodies of `/def`s inside a body, read once every call that runs them is known. */
   nested: { name: string; src: Source; definer: string[]; at: number; depth: number }[];
 }
@@ -637,14 +653,30 @@ function slice(src: Source, start: number, end: number): Source {
   return { text: src.text.slice(start, end), map: src.map.slice(start, end + 1) };
 }
 
-const CALL_RE = /^\/(?!@)([^\s%;|]+)/;
+// `/!name` runs /name and negates its result (stdlib.tf: `/if /!purge ...`). `/@name` is the builtin.
+const CALL_RE = /^\/(?!@)(!?)([^\s%;|$\u0001]+)/;
 
 function statement(w: Walk, st: Statement, skip: Uint8Array): void {
   const s = w.src.text;
   if (st.level === "full") percents(w, st.start, st.end, skip);
-  // A /name statement that runs here, for the /defs inside a body that it may call.
+  // A /name statement that runs here: for the /defs inside a body that it may call, and for
+  // the undefined-macro check.
   const call = CALL_RE.exec(s.slice(st.start, Math.min(st.end, st.start + 200)));
-  if (call) w.scopes.calls.push({ name: (call[1] as string).toLowerCase(), chain: callerChain(w, st), at: w.src.map[st.start] as number });
+  if (call) {
+    const written = call[2] as string;
+    const nameStart = st.start + 1 + (call[1] as string).length;
+    const nameEnd = nameStart + written.length;
+    const next = nameEnd < st.end ? s[nameEnd] : undefined;
+    w.scopes.calls.push({
+      name: written.toLowerCase(),
+      written,
+      chain: callerChain(w, st),
+      at: w.src.map[st.start] as number,
+      nameStart: w.src.map[nameStart] as number,
+      nameEnd: (w.src.map[nameEnd - 1] as number) + 1,
+      dynamic: next === "%" || next === "$" || next === PLACEHOLDER,
+    });
+  }
   const m = COMMAND_RE.exec(s.slice(st.start, Math.min(st.end, st.start + 40)));
   if (!m) return;
   const word = (m[1] as string).toLowerCase();
@@ -775,7 +807,35 @@ function region(w: Walk, ex: ExpressionRegion, skip: Uint8Array): void {
   expression(w, ex.start, ex.end);
 }
 
-function entryVariables(entry: LogicalEntry, index: number): VariableOccurrence[] {
+/** A `/name` statement tf runs: a call to a macro or command. */
+export interface MacroCall {
+  /** As written (tf looks it up ignoring case). */
+  name: string;
+  /** Just the name. */
+  range: Range;
+  /** Part of the name is only known when it runs (`/run_%1`). */
+  dynamic: boolean;
+}
+
+function entryCalls(entry: LogicalEntry, calls: Call[]): MacroCall[] {
+  const seen = new Set<number>();
+  const out: MacroCall[] = [];
+  for (const c of calls) {
+    if (seen.has(c.nameStart)) continue;
+    seen.add(c.nameStart);
+    const first = entry.offsetMap[c.nameStart];
+    const last = entry.offsetMap[c.nameEnd - 1];
+    if (!first || !last || first.line !== last.line) continue;
+    out.push({
+      name: c.written,
+      range: { start: { line: first.line, character: first.character }, end: { line: last.line, character: last.character + 1 } },
+      dynamic: c.dynamic,
+    });
+  }
+  return out.sort((a, b) => a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character);
+}
+
+function entryVariables(entry: LogicalEntry, index: number): { variables: VariableOccurrence[]; calls: MacroCall[] } {
   const s = entry.text;
   const found: Found[] = [];
   const src: Source = { text: s, map: Array.from({ length: s.length + 1 }, (_, i) => i) };
@@ -822,18 +882,34 @@ function entryVariables(entry: LogicalEntry, index: number): VariableOccurrence[
       range: { start: { line: first.line, character: first.character }, end: { line: last.line, character: last.character + 1 } },
     });
   }
-  return out;
+  return { variables: out, calls: entryCalls(entry, scopes.calls) };
 }
 
-const cache = new Map<string, VariableOccurrence[]>();
+const cache = new Map<string, { variables: VariableOccurrence[]; calls: MacroCall[] }>();
 
-/** Every variable occurrence in `text`, in document order. */
-export function findVariables(text: string): VariableOccurrence[] {
+function scan(text: string): { variables: VariableOccurrence[]; calls: MacroCall[] } {
   let result = cache.get(text);
   if (!result) {
-    result = splitLogicalEntries(text).flatMap((entry, i) => (entry.incomplete ? [] : entryVariables(entry, i)));
+    const entries = splitLogicalEntries(text).flatMap((entry, i) => (entry.incomplete ? [] : [entryVariables(entry, i)]));
+    result = { variables: entries.flatMap((e) => e.variables), calls: entries.flatMap((e) => e.calls) };
     if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
     cache.set(text, result);
   }
   return result;
+}
+
+/** Every variable occurrence in `text`, in document order. */
+export function findVariables(text: string): VariableOccurrence[] {
+  return scan(text).variables;
+}
+
+/**
+ * Every `/name` statement tf runs in `text`, in document order: a command at the start of a
+ * statement, in any text tf runs as commands (a macro body, `/eval`, `/for` and `/repeat`
+ * commands, a `/def` inside a body, a `$(...)`). `/@name` calls the builtin, so it isn't one;
+ * `/!name` is (it runs name and negates the result). Text that only mentions a command, such as
+ * `/echo try /foo`, isn't.
+ */
+export function findMacroCalls(text: string): MacroCall[] {
+  return scan(text).calls;
 }

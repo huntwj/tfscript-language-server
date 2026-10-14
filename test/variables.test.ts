@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findVariables, readSelector } from "../src/variables";
+import { findMacroCalls, findVariables, readSelector } from "../src/variables";
 
 const show = (text: string): string[] =>
   findVariables(text).map((v) => `${v.access}:${v.name}@${v.range.start.line}:${v.range.start.character}${v.scope === "global" ? "" : " local"}`);
@@ -357,5 +357,37 @@ describe("cost", () => {
     expect(timed(`/def -i a = ${"/test x ".repeat(20000)}\n`)).toBeLessThan(1000);
     expect(timed(`/def -i a = /if (${"x ".repeat(50000)}\n`)).toBeLessThan(1000);
     expect(timed(`/def -i a = ${"/set a=1 ".repeat(20000)}\n`)).toBeLessThan(1000);
+  });
+});
+
+describe("findMacroCalls", () => {
+  const calls = (text: string): string[] =>
+    findMacroCalls(text).map((c) => `${c.name}@${c.range.start.line}:${c.range.start.character}${c.dynamic ? " dynamic" : ""}`);
+
+  it("finds a command at the start of each statement tf runs, not one text only mentions or a keyword", () => {
+    const text = "/def a = /foo x%; /echo try /bar%; /@baz%; /!qux%; /if /ismacro x%; /then /y%; /endif\n";
+    const col = (word: string) => text.indexOf(word);
+    expect(calls(text)).toEqual([
+      "def@0:1",
+      `foo@0:${col("foo")}`,
+      `echo@0:${col("echo")}`,
+      `qux@0:${col("qux")}`,
+      `ismacro@0:${col("ismacro")}`,
+      `y@0:${col("/y") + 1}`,
+    ]);
+  });
+
+  it("reads /eval, /for and /repeat commands, a $(...) and a /def inside a body", () => {
+    const text = "/def a = /eval /e1%; /for i 1 2 /f1%; /repeat -0 1 /r1%; /echo $(/c1)%; /def -i in = /n1\n";
+    const col = (word: string) => text.indexOf(word);
+    expect(calls(text).filter((c) => /\d@/.test(c))).toEqual(["e1", "f1", "r1", "c1", "n1"].map((n) => `${n}@0:${col(n)}`));
+  });
+
+  it("takes a plain top-level line as one command, %; and all", () => {
+    expect(calls("/foo a%; /bar\n")).toEqual(["foo@0:1"]);
+  });
+
+  it("marks a name built when the call runs", () => {
+    expect(calls("/def a = /run_%1 x%; /x$[1]\n").filter((c) => !c.startsWith("def"))).toEqual(["run_@0:10 dynamic", "x@0:22 dynamic"]);
   });
 });

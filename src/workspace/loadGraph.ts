@@ -219,6 +219,8 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     } else if (/%\{|%[A-Za-z_]/.test(raw)) {
       return fail("not-substituted", "a top-level path is not substituted; prefix the line with /eval");
     }
+    // stdlib.tf's /require passes its words on to /load with single blanks.
+    if (kind === "require") file = file.trim().split(/[ \t\r\f\v]+/).join(" ");
     const { found, searched } = resolve(file);
     if (!found) return fail("not-found", "file not found", searched);
     resolved.push({ from, line, raw, file: path.resolve(found) });

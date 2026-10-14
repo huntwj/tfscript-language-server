@@ -76,6 +76,14 @@ describe("path resolution (proven against real tf)", () => {
   });
 });
 
+describe("how tf reads a load command (proven against real tf, 2026-10-13)", () => {
+  it("joins /require's words with single blanks, as stdlib.tf's /load %{-L} %{L} does", () => {
+    const g = graph({ [p("tfrc")]: "/require my   f.tf\n", [p("cwd", "my f.tf")]: "/def f = 1\n" });
+    expect(defNames(g)).toEqual(["f"]);
+    expect(g.unresolved).toEqual([]);
+  });
+});
+
 describe("/require and /loaded (proven against real tf)", () => {
   it("skips a second /require of the same token, even from a different file", () => {
     const g = graph({

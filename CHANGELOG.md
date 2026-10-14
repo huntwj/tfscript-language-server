@@ -43,6 +43,8 @@
   expression tf compiles: a top-level `/test`, a `$[...]` inside another, and `/return` and
   `/result`. It also covers a `%x` or `%{x}` operand, which tf warns "can be confusing"; its fix
   writes `{x}`.
+- `not-substituted-here` names a `%{x-%{y}}` whole, and leaves a `%{foo%{bar}}` alone: putting
+  `/eval` in front of that would only make tf reject it.
 - "Inline /foo" (`refactor.inline`): replaces a `/foo` call in a macro body with foo's body, and
   "Inline all calls to /foo and remove it" does that for every call in the file and deletes the
   `/def`. It is shown disabled, with the reason, when the body wouldn't run the same in the caller:

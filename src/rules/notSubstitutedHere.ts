@@ -23,7 +23,30 @@ import type { EntryRule, EntryMatch } from "./types";
  *
  * A `%` in a run of them (`%%{x}`) is left alone: whoever wrote it was thinking about escapes.
  */
-const PERCENT_BRACE_RE = /%\{[^}]*\}/g;
+/**
+ * Each `%{...}` in `text` that tf could read, to its own `}` (`%{x-%{y}}` is one, with the inner
+ * one in its default), not one in a run of `%`s. Not one with another substitution glued onto its
+ * selector (`%{foo%{bar}}`): tf can't read that as a substitution at all (substitution-syntax),
+ * so putting `/eval` in front of it would only make an error of text that prints today.
+ */
+function percentBraces(text: string): { index: number; text: string }[] {
+  const found: { index: number; text: string }[] = [];
+  for (let at = text.indexOf("%{"); at >= 0; at = text.indexOf("%{", at + 1)) {
+    if (text[at - 1] === "%") continue;
+    let selectorEnd = at + 2;
+    while (selectorEnd < text.length && !"-}%$".includes(text[selectorEnd] as string)) selectorEnd += 1;
+    let end = selectorEnd;
+    for (let depth = 1; end < text.length; end += 1) {
+      if (text[end] === "{") depth += 1;
+      else if (text[end] === "}" && (depth -= 1) === 0) break;
+    }
+    if (end >= text.length) continue;
+    const glued = text[selectorEnd] !== "-" && text[selectorEnd] !== "}";
+    if (!glued) found.push({ index: at, text: text.slice(at, end + 1) });
+    at = end;
+  }
+  return found;
+}
 const PERCENT_NAME_RE = /%[A-Za-z_][A-Za-z0-9_]*/g;
 const SEPARATOR_RE = /%;/g;
 const BLOCK_KEYWORDS = new Set(["then", "else", "elseif", "endif", "do", "done"]);
@@ -105,21 +128,20 @@ export const notSubstitutedHere: EntryRule = {
       });
     };
 
-    for (const m of text.matchAll(PERCENT_BRACE_RE)) {
-      const at = m.index as number;
-      if (text[at - 1] === "%") continue;
+    for (const m of percentBraces(text)) {
+      const at = m.index;
       if (unsubstituted(at)) {
-        variable(at, m[0]);
+        variable(at, m.text);
       } else if (contexts[at] === "string") {
-        const name = /^%\{([^}-]*)/.exec(m[0])?.[1] ?? "";
+        const name = /^%\{([^}-]*)/.exec(m.text)?.[1] ?? "";
         out.push({
           start: at,
-          end: at + m[0].length,
-          message: `${m[0]} stays as it is inside a string in an expression: take it out of the quotes and write {${name}}, as in strcat("...", {${name}}).`,
+          end: at + m.text.length,
+          message: `${m.text} stays as it is inside a string in an expression: take it out of the quotes and write {${name}}, as in strcat("...", {${name}}).`,
           label: "not substituted",
           explanation:
             `An expression doesn't substitute inside its strings, and nothing else does in a condition or ${code("$[...]")}, ` +
-            `even in a macro body, so the string holds the text ${code(m[0])}. Outside the quotes, ${code(`{${name}}`)} reads ` +
+            `even in a macro body, so the string holds the text ${code(m.text)}. Outside the quotes, ${code(`{${name}}`)} reads ` +
             `the variable: ${code(`strcat("a", {${name}}, "b")`)}.`,
         });
       }

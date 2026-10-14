@@ -98,3 +98,17 @@ describe("not-substituted-here and /eval inside a joined /if", () => {
     expect(codes("/if (1) /eval /echo a%; /echo %{W}%; /endif\n")).toContain("not-substituted-here");
   });
 });
+
+describe("not-substituted-here and nested or malformed %{", () => {
+  it("names a %{...} with a substitution in its default whole", () => {
+    expect(getDiagnostics("/echo %{x-%{y}} z\n").find((d) => d.code === "not-substituted-here")?.message).toBe(
+      "%{x-%{y}} stays as it is in a command at the top level of a file: put /eval in front of the command to substitute it.",
+    );
+  });
+
+  // /eval in front would make tf report "unmatched { or illegal character '%'" for text that
+  // prints as it is today (probe p05).
+  it("leaves a %{ with a substitution glued onto its selector alone", () => {
+    expect(codes("/echo %{foo%{bar}}\n")).not.toContain("not-substituted-here");
+  });
+});

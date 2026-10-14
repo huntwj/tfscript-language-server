@@ -1507,6 +1507,8 @@ export function parseRegions(
   spans: Span[];
   blocks: BlockRegion[];
   issues: StructureIssue[];
+  /** Compiling stopped at an error (the last of `issues`), so nothing after it was read. */
+  stopped: boolean;
 } {
   const parser = new Parser(text, mode);
   parser.run();
@@ -1517,6 +1519,7 @@ export function parseRegions(
     spans: parser.spans,
     blocks: parser.blocks,
     issues: parser.issues,
+    stopped: parser.stopped,
   };
 }
 

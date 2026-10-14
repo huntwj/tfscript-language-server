@@ -160,6 +160,28 @@ describe("not-substituted-here and nested or malformed %{", () => {
     expect(named("/echo F5:%{x-$[1]} F6:%{x-${y}}\n")).toEqual(["%{x-$[1]}", "%{x-${y}}"]);
   });
 
+  // Proven live (review rev-s2b q1e): under /eval each default is read to its own }, however long,
+  // and the %{y} after it is a substitution of its own.
+  it("reads a %{...} to the end of its statement, however long its default", () => {
+    const named = (text: string) =>
+      getDiagnostics(text)
+        .filter((d) => d.code === "not-substituted-here")
+        .map((d) => text.slice(d.range.start.character, d.range.end.character).length);
+    const long = "A".repeat(5000);
+    expect(named(`/echo Q1:%{x-${long}}\n`)).toEqual([5005]);
+    expect(named(`/echo Q2:%{x-{${long}} Q2b:%{y}\n`)).toEqual([5006, 4]);
+  });
+
+  it("skips a %{ it can't read to where tf would end it, and reads on after it", () => {
+    const named = (text: string) =>
+      getDiagnostics(text)
+        .filter((d) => d.code === "not-substituted-here")
+        .map((d) => text.slice(d.range.start.character, d.range.end.character));
+    // The %{bar} is the glued substitution's own; the %{y} after the } that ends it is not.
+    expect(named("/echo %{foo%{bar}} %{y}\n")).toEqual(["%{y}"]);
+    expect(named("/echo %{foo%{bar}x} %{y}\n")).toEqual(["%{y}"]);
+  });
+
   // Proven live (s2/r/v.tf): /eval /echo %{x-} %{x%{y}} is "unmatched { or illegal character '%'",
   // where the line without /eval prints as it is.
   it("offers no substituting fix for a command /eval couldn't read", () => {

@@ -27,37 +27,68 @@ const PERCENT_NAME_RE = /%[A-Za-z_][A-Za-z0-9_]*/g;
 const SEPARATOR_RE = /%;/g;
 const BLOCK_KEYWORDS = new Set(["then", "else", "elseif", "endif", "do", "done"]);
 const VALUE_COMMANDS = new Set(["set", "let", "setenv"]);
-/** How far past a `%{` its end is looked for: a substitution is a few words, not a file. */
-const SUBSTITUTION_LIMIT = 4096;
+/**
+ * Where the substitution opened at `at` (`%{`, `${`, `$[` or `$(`) ends, as tf ends it: after the
+ * first closer a nested substitution doesn't take (expand.c `varsub()`: `%{foo-a}b}` prints `ab}`),
+ * or at `limit` when there is none.
+ */
+function substitutionEnd(text: string, at: number, limit: number): number {
+  const close = text[at + 1] === "{" ? "}" : text[at + 1] === "[" ? "]" : ")";
+  let i = at + 2;
+  while (i < limit) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if ((ch === "%" || ch === "$") && next === ch) {
+      while (text[i + 1] === ch) i += 1;
+      i += 1;
+    } else if (((ch === "%" || ch === "$") && next === "{") || (ch === "$" && (next === "[" || next === "("))) {
+      i = substitutionEnd(text, i, limit);
+    } else if (ch === close) {
+      return i + 1;
+    } else {
+      i += 1;
+    }
+  }
+  return limit;
+}
 
 /**
  * Each `%{...}` in `text` that tf could read if it substituted there, as `/eval` would, not one in
- * a run of `%`s. Where it ends is the structure parser's to say: a default ends at the first `}`
- * a nested substitution doesn't take (expand.c `varsub()`, review rev-s2 p6: `%{foo-a}b}` prints
- * `ab}`), so `%{x-%{y}}` is one and `%{x-{} and %{y}` two. Not one tf can't read at all, such as
- * `%{foo%{bar}}` (substitution-syntax): putting `/eval` in front of that would only make an error
- * of text that prints today.
+ * a run of `%`s, nor one in another's default. Where it ends is the structure parser's to say: a
+ * default ends at the first `}` a nested substitution doesn't take (expand.c `varsub()`, review
+ * rev-s2 p6: `%{foo-a}b}` prints `ab}`), so `%{x-%{y}}` is one and `%{x-{} and %{y}` two. Not one
+ * tf can't read at all, such as `%{foo%{bar}}` (substitution-syntax): putting `/eval` in front of
+ * that would only make an error of text that prints today.
+ *
+ * The text is read from a `%{` to the end of its statement (`limitOf`) once, which finds every
+ * substitution up to where the parser stops at one it can't read; that one is skipped to where tf
+ * would end it, and reading goes on from there.
  */
-function percentBraces(text: string): { index: number; text: string }[] {
+function percentBraces(text: string, limitOf: (at: number) => number): { index: number; text: string }[] {
   const found: { index: number; text: string }[] = [];
-  for (let at = text.indexOf("%{"); at >= 0; at = text.indexOf("%{", at + 1)) {
+  let pos = 0;
+  for (let at = text.indexOf("%{"); at >= 0; at = text.indexOf("%{", pos)) {
+    pos = at + 2;
     if (text[at - 1] === "%") continue;
-    const read = parseRegions(text.slice(at, at + SUBSTITUTION_LIMIT), "body").spans.find(
-      (s) => s.start === 0 && s.kind === "substitution" && s.inner,
-    );
-    if (read) {
-      found.push({ index: at, text: text.slice(at, at + read.end) });
-      at += read.end - 1;
+    const limit = Math.max(limitOf(at), at + 2);
+    const read = parseRegions(text.slice(at, limit), "body");
+    const stop = read.stopped ? (read.issues[read.issues.length - 1]?.start ?? 0) : limit - at;
+    let covered = 0;
+    for (const span of [...read.spans].sort((a, b) => a.start - b.start || b.end - a.end)) {
+      if (span.start >= stop) break;
+      if (span.kind !== "substitution" || !span.inner || span.start < covered) continue;
+      if (text[at + span.start] !== "%" || text[at + span.start + 1] !== "{") continue;
+      found.push({ index: at + span.start, text: text.slice(at + span.start, at + span.end) });
+      covered = span.end;
+    }
+    if (!read.stopped) {
+      pos = Math.max(pos, limit);
       continue;
     }
-    // Unreadable: nothing in it is a substitution of its own either (the `%{bar}` of
-    // `%{foo%{bar}}`), so skip to the } that balances its {, or to the end.
-    let end = at + 2;
-    for (let depth = 1; end < text.length; end += 1) {
-      if (text[end] === "{") depth += 1;
-      else if (text[end] === "}" && (depth -= 1) === 0) break;
-    }
-    at = end;
+    // The %{ the parser couldn't read (nothing in it is a substitution of its own either, such as
+    // the %{bar} of %{foo%{bar}}), skipped to where tf would end it; or past whatever else stopped it.
+    const opener = text.lastIndexOf("%{", at + stop);
+    pos = Math.max(pos, opener >= at + covered ? substitutionEnd(text, opener, limit) : at + stop + 1);
   }
   return found;
 }
@@ -203,7 +234,7 @@ export const notSubstitutedHere: EntryRule = {
       });
     };
 
-    for (const m of percentBraces(text)) {
+    for (const m of percentBraces(text, (at) => statementAt(statements, at)?.end ?? text.length)) {
       const at = m.index;
       if (unsubstituted(at)) {
         variable(at, m.text);

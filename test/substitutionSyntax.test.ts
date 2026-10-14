@@ -82,6 +82,14 @@ describe("substitution-syntax only where tf substitutes", () => {
     expect(shortened?.fix).toBeUndefined();
   });
 
+  // Review rev-s2 p5: the /if line hands /eval "%{x", and tf says "unmatched { or bad
+  // substitution". The %{ it names is the last two characters of the %%{ written.
+  it("marks the %{ an /if line handed on, not the whole %%{ it was shortened from", () => {
+    const [d] = syntax("/if (1) /eval /echo %%{x%; /endif\n");
+    expect(d?.message).toBe("This %{ is never closed: add }.");
+    expect([d?.range.start.character, d?.range.end.character]).toEqual([21, 23]);
+  });
+
   it("names a { in an expression as {, not %{", () => {
     expect(getDiagnostics("/def f = /if ({x == 1) /echo%; /endif\n").find((d) => d.code === "substitution-syntax")?.message).toBe(
       "This { needs its } before the space.",

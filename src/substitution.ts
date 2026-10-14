@@ -293,9 +293,14 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
   const collect = (src: Source, found: StructureIssue[]): void => {
     const base = src.map[0] as number;
     const plain = src.map.every((v, k) => v === base + k);
+    // A run of `%`s an /if line shortened maps its first kept `%` to the one it dropped, so a range
+    // covers what was written; a problem here starts at the kept one itself (`%%{x` marks `%{`),
+    // just before whatever the next character maps to.
     const at = (start: number, end: number): { start: number; end: number } => {
-      const from = src.map[start] as number;
-      return { start: from, end: end > start ? (src.map[end - 1] as number) + 1 : from };
+      const own = src.map[start] as number;
+      const next = src.map[start + 1];
+      const from = end > start && next !== undefined ? Math.max(own, next - 1) : own;
+      return { start: from, end: end > start ? Math.max(from + 1, (src.map[end - 1] as number) + 1) : from };
     };
     for (const issue of found) {
       if (!SYNTAX_KINDS.has(issue.kind)) continue;

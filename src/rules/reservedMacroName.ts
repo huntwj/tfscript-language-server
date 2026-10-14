@@ -27,7 +27,9 @@ export const reservedMacroName: FileRule = {
           message: `"${s.name}" is a reserved word, so tf refuses this /def and defines nothing: pick another name.`,
           label: "reserved word",
           explanation:
-            `tf won't define a macro named after one of its control-flow keywords or ${code("eval")}. It skips the ` +
+            `tf won't define a macro named after one of its keywords (the control flow, such as ${code("if")} and ` +
+            `${code("while")}, and ${code("let")}, ${code("set")}, ${code("setenv")}, ${code("test")}, ${code("return")}, ` +
+            `${code("result")} and ${code("exit")}) or ${code("eval")}. It skips the ` +
             `whole ${code("/def")} with the error ${code(`"${s.name}" is a reserved word.`)}, and ${code(`/${name}`)} keeps ` +
             `meaning tf's own ${what}.`,
         };

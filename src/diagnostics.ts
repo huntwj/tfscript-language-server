@@ -1,5 +1,6 @@
-import { splitLogicalEntries, splitRawLines } from "./logicalEntries";
+import { splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { RULES, type Severity } from "./rules";
+import type { EntryMatch } from "./rules/types";
 import { findAbortEntry } from "./rules/bareLineAfterCommand";
 
 export interface Position {
@@ -7,11 +8,67 @@ export interface Position {
   character: number;
 }
 
+export interface Range {
+  start: Position;
+  end: Position;
+}
+
+export interface TfTextEdit {
+  range: Range;
+  newText: string;
+}
+
 export interface TfDiagnostic {
-  range: { start: Position; end: Position };
+  range: Range;
+  /** One sentence that reads on its own in the Problems pane. */
   message: string;
   code: string;
   severity: Severity;
+  /** A few words marking the range in the hover's source excerpt. */
+  label?: string;
+  /** Markdown prose for the hover, below the excerpt. */
+  explanation?: string;
+  related?: { range: Range; message: string }[];
+  fix?: { title: string; edits: TfTextEdit[] };
+}
+
+/** Where `offset` of `entry.text` is in the document; `entry.text.length` is just after its last character. */
+function positionOf(entry: LogicalEntry, offset: number): Position | undefined {
+  const at = entry.offsetMap[offset];
+  if (at) return { line: at.line, character: at.character };
+  const last = entry.offsetMap[offset - 1];
+  return last ? { line: last.line, character: last.character + 1 } : undefined;
+}
+
+/** The document range of `entry.text`'s `start`..`end` (exclusive), or undefined if it can't be mapped. */
+function rangeOf(entry: LogicalEntry, start: number, end: number): Range | undefined {
+  const from = positionOf(entry, start);
+  if (end <= start) return from && { start: from, end: from };
+  // offsetMap has one entry per character; end is exclusive, so the last included character is at end - 1.
+  const lastChar = entry.offsetMap[end - 1];
+  return from && lastChar ? { start: from, end: { line: lastChar.line, character: lastChar.character + 1 } } : undefined;
+}
+
+function entryDiagnostic(entry: LogicalEntry, match: EntryMatch, code: string, severity: Severity): TfDiagnostic | undefined {
+  if (match.end <= match.start) return undefined;
+  const range = rangeOf(entry, match.start, match.end);
+  if (!range) return undefined;
+  const d: TfDiagnostic = { range, message: match.message, code, severity };
+  if (match.label) d.label = match.label;
+  if (match.explanation) d.explanation = match.explanation;
+  const related = (match.related ?? []).flatMap((n) => {
+    const r = rangeOf(entry, n.start, n.end);
+    return r ? [{ range: r, message: n.message }] : [];
+  });
+  if (related.length > 0) d.related = related;
+  if (match.fix) {
+    const edits = match.fix.edits.map((e) => {
+      const r = rangeOf(entry, e.start, e.end);
+      return r && { range: r, newText: e.newText };
+    });
+    if (edits.length > 0 && edits.every((e) => e)) d.fix = { title: match.fix.title, edits: edits as TfTextEdit[] };
+  }
+  return d;
 }
 
 export function getDiagnostics(text: string): TfDiagnostic[] {
@@ -38,22 +95,8 @@ export function getDiagnostics(text: string): TfDiagnostic[] {
     if (rule.scope === "entry") {
       for (const entry of usableEntries) {
         for (const match of rule.check(entry)) {
-          if (match.end <= match.start) continue;
-          const start = entry.offsetMap[match.start];
-          // offsetMap has one entry per character; match.end is exclusive, so the last
-          // included character is at match.end - 1.
-          const lastChar = entry.offsetMap[match.end - 1];
-          if (!start || !lastChar) continue;
-
-          diagnostics.push({
-            range: {
-              start: { line: start.line, character: start.character },
-              end: { line: lastChar.line, character: lastChar.character + 1 },
-            },
-            message: match.message,
-            code: rule.id,
-            severity: rule.severity,
-          });
+          const d = entryDiagnostic(entry, match, rule.id, rule.severity);
+          if (d) diagnostics.push(d);
         }
       }
     } else {

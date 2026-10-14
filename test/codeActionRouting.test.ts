@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { QUICK_FIX, REFACTOR_REWRITE, routeCodeActions, TRIGGER_AUTOMATIC, TRIGGER_INVOKED } from "../src/codeActions";
+import { QUICK_FIX, REFACTOR_EXTRACT, REFACTOR_REWRITE, routeCodeActions, TRIGGER_AUTOMATIC, TRIGGER_INVOKED } from "../src/codeActions";
 
 // One line with a quick fix (whitespace after the \) and a body that can be split.
 const TEXT = "/def -i a = /echo a%; /echo b\n/echo x \\ \n";
@@ -36,5 +36,31 @@ describe("routeCodeActions", () => {
     const [fix, refactor] = routeCodeActions(TEXT, { range: { start: { line: 0, character: 0 }, end: { line: 1, character: 10 } } });
     expect(fix?.diagnostic?.code).toBe("trailing-space-after-backslash");
     expect(refactor?.diagnostic).toBeUndefined();
+  });
+
+  describe("extract to a new macro", () => {
+    const body = "/def -i a = /echo a%; /echo b%; /return 1\n";
+    // "/echo a" and "/echo b%; /return 1".
+    const first = { start: { line: 0, character: 12 }, end: { line: 0, character: 19 } };
+    const withReturn = { start: { line: 0, character: 22 }, end: { line: 0, character: 41 } };
+
+    it("offers it for a selection of whole statements, on the automatic check too", () => {
+      expect(kinds(routeCodeActions(body, { range: first, triggerKind: TRIGGER_AUTOMATIC, only: [REFACTOR_EXTRACT] }))).toEqual([
+        "refactor.extract: Extract to a new macro, /a_extracted",
+      ]);
+      expect(routeCodeActions(body, { range: first, only: ["refactor"] }).map((a) => a.kind)).toEqual(["refactor.rewrite", "refactor.extract"]);
+      expect(routeCodeActions(body, { range: first, only: [REFACTOR_REWRITE] }).map((a) => a.kind)).toEqual(["refactor.rewrite"]);
+    });
+
+    it("names the new macro past the names the request says are taken", () => {
+      const [action] = routeCodeActions(body, { range: first, only: [REFACTOR_EXTRACT], isTaken: (n) => n === "a_extracted" });
+      expect(action?.title).toBe("Extract to a new macro, /a_extracted2");
+    });
+
+    it("shows a selection it can't extract as disabled, with the reason, only where the client can", () => {
+      expect(routeCodeActions(body, { range: withReturn, only: [REFACTOR_EXTRACT] })).toEqual([]);
+      const [action] = routeCodeActions(body, { range: withReturn, only: [REFACTOR_EXTRACT], disabledSupport: true });
+      expect(action).toMatchObject({ kind: "refactor.extract", edits: [], disabled: expect.stringMatching(/^\/return in the selection/) });
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { getRefactorActions } from "./bodyLayout";
 import { getDiagnostics, type Position, type Range, type TfDiagnostic, type TfTextEdit } from "./diagnostics";
+import { getExtractActions } from "./extractMacro";
 
 /**
  * Quick fixes: the `fix` a diagnostic carries, the same one its hover shows. Diagnostics are
@@ -49,6 +50,7 @@ export function getCodeActions(text: string, range: Range, diagnostics: TfDiagno
 
 export const QUICK_FIX = "quickfix";
 export const REFACTOR_REWRITE = "refactor.rewrite";
+export const REFACTOR_EXTRACT = "refactor.extract";
 /** LSP's CodeActionTriggerKind: the user asked (a menu, a shortcut), or the editor asked on its own (the lightbulb). */
 export const TRIGGER_INVOKED = 1;
 export const TRIGGER_AUTOMATIC = 2;
@@ -60,13 +62,19 @@ export interface CodeActionRequest {
   triggerKind?: number;
   /** What the server last published for the document; defaults to the file's own. */
   diagnostics?: TfDiagnostic[];
+  /** Whether a macro name (lower case) is already taken where the file runs, for a new macro's name. */
+  isTaken?: (name: string) => boolean;
+  /** The client shows an action greyed out with the reason it can't run (LSP `disabled`). */
+  disabledSupport?: boolean;
 }
 
 export interface RoutedCodeAction {
   title: string;
-  kind: typeof QUICK_FIX | typeof REFACTOR_REWRITE;
+  kind: typeof QUICK_FIX | typeof REFACTOR_REWRITE | typeof REFACTOR_EXTRACT;
   edits: TfTextEdit[];
   diagnostic?: TfDiagnostic;
+  /** Why it can't run: shown greyed out, with this reason. */
+  disabled?: string;
 }
 
 function wants(only: string[] | undefined, kind: string): boolean {
@@ -87,6 +95,13 @@ export function routeCodeActions(text: string, request: CodeActionRequest): Rout
   const asked = request.triggerKind !== TRIGGER_AUTOMATIC || comparePositions(request.range.start, request.range.end) !== 0;
   if (asked && wants(request.only, REFACTOR_REWRITE)) {
     for (const a of getRefactorActions(text, request.range)) out.push({ title: a.title, kind: REFACTOR_REWRITE, edits: a.edits });
+  }
+  // Extracting needs a selection; a disabled one only where the client can show why.
+  if (wants(request.only, REFACTOR_EXTRACT)) {
+    for (const a of getExtractActions(text, request.range, request.isTaken ? { isTaken: request.isTaken } : {})) {
+      if (a.disabled === undefined) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: a.edits });
+      else if (request.disabledSupport) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: [], disabled: a.disabled });
+    }
   }
   return out;
 }

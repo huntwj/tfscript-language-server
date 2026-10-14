@@ -70,6 +70,13 @@ describe("variable definition and references", () => {
     expect(starts(getReferences(t, pos(0, 22), true, ctx))).toEqual(["file:///main.tf:0:20", "file:///other.tf:0:5", "file:///other.tf:1:7"]);
   });
 
+  it("jumps from an opt_ variable to its getopts() letter, even between two letters", () => {
+    const t = '/def -i a = /if (!getopts("lig", "")) /return%; /endif%; /echo %opt_i\n';
+    expect(starts(getDefinition(t, at(t, "%opt_i", 0, 2)))).toEqual(["self:0:28"]);
+    // The cursor right after "l" is on "i" too: the name starting there wins.
+    expect(starts(getReferences(t, pos(0, 28), true))).toEqual(["self:0:28", "self:0:64"]);
+  });
+
   it("leaves macro navigation alone", () => {
     const t = "/def -i greet = /echo %{name}\n/greet\n";
     expect(starts(getDefinition(t, pos(1, 2)))).toEqual(["self:0:8"]);
@@ -118,6 +125,13 @@ describe("variable rename", () => {
     expect(prepareRename("/set wrapspace=4\n", pos(0, 6))).toEqual({ error: "wrapspace is one of tf's special variables, so it can't be renamed." });
     const ctx: NavContext = { uri: "file:///a.tf", files: [], libraryFiles: [{ uri: "file:///lib/x.tf", text: "/set libvar=1\n" }], macros: [] };
     expect(prepareRename("/echo %libvar\n", pos(0, 8), ctx)).toEqual({ error: "libvar is set in tf's library, which isn't yours to rename." });
+  });
+
+  it("refuses a getopts() variable, whose name comes from its option letter", () => {
+    const t = '/def -i a = /if (!getopts("q", "")) /return%; /endif%; /echo %opt_q\n';
+    expect(prepareRename(t, at(t, "%opt_q", 0, 2))).toEqual({
+      error: "opt_q is set by getopts(), which names it after its option letter, so it can't be renamed.",
+    });
   });
 
   it("refuses a new name tf wouldn't read as a variable", () => {

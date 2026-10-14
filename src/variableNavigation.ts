@@ -15,11 +15,13 @@ function contains(range: Range, pos: Position): boolean {
   return afterStart && beforeEnd;
 }
 
+/** The variable under the cursor; a cursor right after a name counts, unless another name starts there (getopts("ab")). */
 export function variableAt(text: string, pos: Position): VariableOccurrence | undefined {
-  return findVariables(text).find((v) => contains(v.range, pos));
+  const all = findVariables(text).filter((v) => contains(v.range, pos));
+  return all.find((v) => v.range.end.line !== pos.line || v.range.end.character !== pos.character) ?? all[0];
 }
 
-const DEFINES = new Set(["set", "setenv", "let"]);
+const DEFINES = new Set(["set", "setenv", "let", "getopts"]);
 
 interface Found extends VariableOccurrence {
   uri: string;
@@ -73,6 +75,9 @@ function renameCheck(text: string, pos: Position, ctx?: NavContext): RenameCheck
   if (!target) return undefined;
   if (target.scope === "global" && SPECIAL_VARIABLE_NAMES.has(target.name)) {
     return { ok: false, reason: `${target.name} is one of tf's special variables, so it can't be renamed.` };
+  }
+  if (findVariables(text).some((v) => v.access === "getopts" && v.name === target.name && v.scope === target.scope)) {
+    return { ok: false, reason: `${target.name} is set by getopts(), which names it after its option letter, so it can't be renamed.` };
   }
   if (target.scope === "global") {
     for (const f of ctx?.libraryFiles ?? []) {

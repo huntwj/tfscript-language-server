@@ -39,6 +39,10 @@
   included. `bad-substitution-selector` no longer flags a plain top-level line, which prints
   `%{foo%{bar}}` as it is. A top-level `/test` whose text holds a `$`, `%` or `\` is checked too:
   tf compiles it as written, so `/test $[1+2` is "unmatched $[".
+- `dollar-bracket-in-if` is now `substitution-in-expression`. It covers a `$[...]` operand in every
+  expression tf compiles: a top-level `/test`, a `$[...]` inside another, and `/return` and
+  `/result`. It also covers a `%x` or `%{x}` operand, which tf warns "can be confusing"; its fix
+  writes `{x}`.
 - "Inline /foo" (`refactor.inline`): replaces a `/foo` call in a macro body with foo's body, and
   "Inline all calls to /foo and remove it" does that for every call in the file and deletes the
   `/def`. It is shown disabled, with the reason, when the body wouldn't run the same in the caller:

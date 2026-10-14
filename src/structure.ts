@@ -45,6 +45,11 @@ export type StructureKind =
   | "substitution"
   /** A `$[...]`, string, parenthesis or condition tf's expression compiler can't read (expr.c). */
   | "expression"
+  /**
+   * A `$[...]` or `%{x}` that is itself an operand of an expression (expr.c's `primary_expr()`):
+   * legal, but tf warns. Reported as it comes; compiling carries on.
+   */
+  | "operand"
   /** A %; right after /if (...) or /else, which sends a blank line to the world. */
   | "blank-line"
   /** Nesting past MAX_DEPTH levels, where the check stops (information, not a problem in tf). */
@@ -1283,8 +1288,69 @@ class Parser {
     this.deeper(() => this.expressionAt(close, open, keyword));
   }
 
+  /**
+   * A `$[...]` from `dollar` to `this.i` that is an operand of the expression that started at
+   * `from` (`primary_expr()` warns "legal, but redundant"). `$[` compiles its inside with `expr()`,
+   * which is `comma_expr()`, the same code `(` compiles, so `(...)` always means the same; when it
+   * is a whole condition, `($[x])` can be `(x)`.
+   */
+  private dollarOperand(dollar: number, from: number, close: "]" | ")" | undefined, keyword: string | undefined, inParens: boolean): void {
+    const s = this.s;
+    const end = this.i - 1;
+    let after = this.i;
+    while (isTfSpace(s[after])) after += 1;
+    const whole = !inParens && s.slice(from, dollar).trim() === "" && (close ? s[after] === close : after >= s.length);
+    const drop = whole && close === ")";
+    const what = close === ")" ? "the condition" : close === "]" ? "the $[...] around it" : `${keyword ?? "/test"}'s text`;
+    this.issues.push({
+      kind: "operand",
+      start: dollar,
+      end: dollar + 2,
+      message: drop
+        ? `This $[...] is redundant, as ${what} is already an expression: drop the $[ and ].`
+        : `This $[...] is redundant, as ${what} is already an expression: write (...) instead.`,
+      label: "redundant",
+      explanation:
+        `${what[0]?.toUpperCase()}${what.slice(1)} is an expression, and inside an expression ${code("$[...]")} means the ` +
+        `same as ${code("(...)")}. tf warns that it is legal, but redundant: once per session, or every time when ` +
+        `${code("%pedantic")} is on.`,
+      related: [{ start: end, end: end + 1, message: "its ]" }],
+      fix: drop
+        ? { title: "Remove the $[ and ]", edits: [{ start: dollar, end: dollar + 2, newText: "" }, { start: end, end: end + 1, newText: "" }] }
+        : { title: "Write (...) instead of $[...]", edits: [{ start: dollar, end: dollar + 2, newText: "(" }, { start: end, end: end + 1, newText: ")" }] },
+    });
+  }
+
+  /**
+   * A `%x` or `%{x}` from `percent` to `this.i` that is an operand of an expression: `varsub()`
+   * reads it as it reads `{x}`, and warns that it "can be confusing". `{x}` is the same read with
+   * no warning, so the fix drops the `%`, or puts the selector in braces when there were none (not
+   * when its default holds a brace, which would end it early).
+   */
+  private percentOperand(percent: number): void {
+    const text = this.s.slice(percent, this.i);
+    const bracket = text[1] === "{";
+    const braced = bracket ? text.slice(1) : `{${text.slice(1)}}`;
+    const exact = bracket || !/[{}]/.test(text);
+    this.issues.push({
+      kind: "operand",
+      start: percent,
+      end: this.i,
+      message: `This ${text} works in an expression, but tf warns that it can be confusing: write ${braced} instead.`,
+      label: `write ${braced}`,
+      explanation:
+        `In an expression, ${code("{x}")} reads the variable or parameter ${code("x")}. ${code("%{x}")} reads it too, but tf ` +
+        `warns that it can be confusing there, since outside an expression ${code("%{x}")} puts the value into the text ` +
+        `before the command runs. tf prints the warning once per session, or every time when ${code("%pedantic")} is on.`,
+      ...(exact
+        ? { fix: { title: `Write ${braced}`, edits: [bracket ? { start: percent, end: percent + 1, newText: "" } : { start: percent, end: this.i, newText: braced }] } }
+        : {}),
+    });
+  }
+
   private expressionAt(close: "]" | ")" | undefined, open: number, keyword?: string): void {
     const s = this.s;
+    const from = this.i;
     const parens: number[] = [];
     while (this.i < s.length) {
       const ch = s[this.i] as string;
@@ -1308,8 +1374,22 @@ class Parser {
       if (close && this.isStatEnd(this.i)) break;
       // primary_expr() (expr.c) hands these to the body scanners, where quotes are plain text.
       if (ch === "$") {
+        const dollar = this.i;
         this.i += 1;
-        this.dollarsub(this.i - 1, true);
+        this.dollarsub(dollar, true);
+        if (s[dollar + 1] === "[") this.dollarOperand(dollar, from, close, keyword, parens.length > 0);
+        continue;
+      }
+      // `%x` and `%{x}` are operands too (the only `%` in tf's expression grammar), read as `{x}` is.
+      if (ch === "%") {
+        const percent = this.i;
+        this.i += 1;
+        if (s[this.i] === "%") {
+          while (s[this.i] === "%") this.i += 1;
+        } else if (s[this.i] === "{" || "#?*-".includes(s[this.i] ?? " ") || isNameChar(s[this.i])) {
+          this.varsub(percent);
+          this.percentOperand(percent);
+        }
         continue;
       }
       if (ch === "{") {

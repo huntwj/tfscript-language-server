@@ -53,7 +53,7 @@ view of the file gets truncated, since tf never reads past the line it aborts on
 | 2 | `missing-continuation` | a top-level `/if` or `/while` still open where its line ends, with no `\` to continue it. Reported once, at the opener: the stray `/then`, `/else`, `/endif`, `/do` or `/done` and the indented lines that were meant to be part of it are its related locations, not diagnostics of their own |
 | 4 | `not-substituted-here` | text tf reads without substituting, where it was surely meant to be: a `%{var}` in a plain top-level line or a top-level `/if` or `/while` line (the fix puts `/eval` in front), or in `/eval` or `/quote` `-soff`/`-son` text (the fix leaves out the `-s`), and a `%var` in a `/load` or `/require` path there. Not in a macro body, an `/eval`, the command of a `/repeat`, `/at` or `/quote` (after its backquote), a `/for`, or an expression operand (`/if (%{x} == 5)`), which tf substitutes; never a `%name` elsewhere, as `/set std_clock_format=%H:%M` is meant as text. Also a `%{var}` inside a string in a condition or `$[...]`, which nothing substitutes, even in a macro body (a `$(...)` in one runs as a macro body). (information) A `%;` with more after it on a plain top-level line or in `-soff` text, which doesn't separate there: `/echo a%; /echo b` is one `/echo`; in a `/set`, `/let` or `/setenv` value it may be meant. One table, `src/substitution.ts`, says which text is read at which level |
 | 5 | `let-swallows-endif` | `/let`/`/set` swallowing a following `/if` or `/endif` into its value |
-| 6 | `dollar-bracket-in-if` | redundant `$[...]` inside an `/if`/`/elseif`/`/while` condition |
+| 6 | `substitution-in-expression` | (warning) a `$[...]`, `%x` or `%{x}` that is itself an operand of an expression: an `/if`, `/elseif` or `/while` condition, a `$[...]`, or a top-level `/test`, `/return` or `/result`. tf warns that `$[...]` is redundant and `%{x}` confusing (once per session, unless `%pedantic` is on); the fix writes `(...)` or `{x}`, which mean the same. Not in a string, a substitution's default, `${...}` or `$(...)`, nor in a macro body's `/test` text, which is substituted before it is compiled |
 | — | `indented-line-after-command` | an indented line starting a new command right after one that didn't end in `\` — tf's own "possibly missing trailing \\" warning |
 | — | `backslash-not-last` | a final `\` followed by whitespace (including a CRLF file's trailing `\r`) — not a continuation, tf warns and runs the line as-is |
 | — | `reserved-macro-name` | `/def` of a keyword (`if`, `then`, `let`, `set`, `test`, ...) or `eval`, in any case — tf refuses it ("is a reserved word") and defines nothing. Other builtins can be redefined, so they aren't flagged |
@@ -66,13 +66,13 @@ view of the file gets truncated, since tf never reads past the line it aborts on
 | — | `body-continues-without-backslash` | (information) a macro body whose last line ends in `%;` but not `\`, with an unindented command on the next line: that line is a command of its own, run when the file loads. Not when the body ends at a blank line, nor when the next line runs the macro just defined |
 | — | `nesting-too-deep` | (information) not a problem in tf: a command nesting more than 400 levels deep (each nested `/if`, `/while`, `$(...)`, `$[...]` or `%{name-...}` default is a level), past which the structural check stops; what it read before that still counts |
 
-`missing-continuation`, `block-structure`, `substitution-syntax`, `expression-syntax` and
-`separator-sends-blank-line` share one model of tf's compiler, `src/structure.ts` (`list()`,
-`statement()` and the substitution scanners in `expand.c`): it reads keywords only at the start of
-a statement, follows nesting, and knows that a top-level line substitutes nothing while a macro
-body does. It reports only the first error in a body, as tf stops compiling there. The
-substitution and expression rules run it over every text `src/substitution.ts` finds tf reading,
-so they see `/eval` and `/repeat` text too.
+`missing-continuation`, `block-structure`, `substitution-syntax`, `expression-syntax`,
+`substitution-in-expression` and `separator-sends-blank-line` share one model of tf's compiler,
+`src/structure.ts` (`list()`, `statement()` and the substitution scanners in `expand.c`): it reads
+keywords only at the start of a statement, follows nesting, and knows that a top-level line
+substitutes nothing while a macro body does. It reports only the first error in a body, as tf stops
+compiling there. The three substitution and expression rules run it over every text
+`src/substitution.ts` finds tf reading, so they see `/eval` and `/repeat` text too.
 
 Every diagnostic has a one-sentence message for the Problems pane, saying the problem and, where
 there is one, the fix, and a hover in the style of Rust's compiler errors: the source lines with

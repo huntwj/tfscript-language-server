@@ -82,14 +82,14 @@ export interface SubstitutionModel {
   /** The statements read without substitution, outermost first. */
   statements: ContextStatement[];
   /**
-   * The substitution and expression problems in every text tf reads (`substitution` and `expression`
-   * issues), as offsets into `entry.text`: so they are found wherever tf reads them,
+   * The substitution and expression problems in every text tf reads (`substitution`, `expression`
+   * and `operand` issues), as offsets into `entry.text`: so they are found wherever tf reads them,
    * a `/repeat` or `/eval` text included, and nowhere it doesn't, such as a plain top-level line.
    */
   issues: StructureIssue[];
 }
 
-const SYNTAX_KINDS = new Set(["substitution", "expression"]);
+const SYNTAX_KINDS = new Set(["substitution", "expression", "operand"]);
 
 /**
  * The commands that take a `= body` tf stores as a macro body (without `/` or `@`): /def and /edit

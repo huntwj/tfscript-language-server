@@ -140,7 +140,7 @@
           "match": "%%+"
         },
         {
-          "comment": "$[expression] — a redundant-inside-/if/elseif/while expression substitution (dollar-bracket-in-if); legal anywhere an expression is read. Fully recursive inside: real operators, numbers, functions, strings, and further substitutions all apply, same as any other expression context.",
+          "comment": "$[expression] — an expression substitution, redundant as an operand of another expression (substitution-in-expression); legal anywhere an expression is read. Fully recursive inside: real operators, numbers, functions, strings, and further substitutions all apply, same as any other expression context.",
           "begin": "(\\$)(\\[)",
           "end": "(\\])",
           "beginCaptures": {

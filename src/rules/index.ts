@@ -1,7 +1,7 @@
 import { missingContinuation } from "./missingContinuation";
 import { notSubstitutedHere } from "./notSubstitutedHere";
 import { letSwallowsEndif } from "./letSwallowsEndif";
-import { dollarBracketInIf } from "./dollarBracketInIf";
+import { substitutionInExpression } from "./substitutionInExpression";
 import { indentedLineAfterCommand } from "./indentedLineAfterCommand";
 import { backslashNotLast } from "./backslashNotLast";
 import { substitutionSyntax } from "./substitutionSyntax";
@@ -21,7 +21,7 @@ export const RULES: Rule[] = [
   missingContinuation,
   notSubstitutedHere,
   letSwallowsEndif,
-  dollarBracketInIf,
+  substitutionInExpression,
   indentedLineAfterCommand,
   backslashNotLast,
   substitutionSyntax,

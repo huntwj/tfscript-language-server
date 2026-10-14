@@ -155,9 +155,16 @@ describe("structural fixes", () => {
 describe("rule fixes", () => {
   // [code, before, after]: the one fix offered for `code`, which leaves the file clean.
   const cases: [string, string[], string[]][] = [
-    ["dollar-bracket-in-if", ["/def -i a = /if ($[x]) /echo y%; /endif"], ["/def -i a = /if (x) /echo y%; /endif"]],
-    ["dollar-bracket-in-if", ["/def -i a = /if ($[1+1] * 3 == 6) /echo y%; /endif"], ["/def -i a = /if ((1+1) * 3 == 6) /echo y%; /endif"]],
-    ["dollar-bracket-in-if", ['/def -i a = /while ($["]"] =~ "]") /echo y%; /done'], ['/def -i a = /while (("]") =~ "]") /echo y%; /done']],
+    ["substitution-in-expression", ["/def -i a = /if ($[x]) /echo y%; /endif"], ["/def -i a = /if (x) /echo y%; /endif"]],
+    ["substitution-in-expression", ["/def -i a = /if ($[1+1] * 3 == 6) /echo y%; /endif"], ["/def -i a = /if ((1+1) * 3 == 6) /echo y%; /endif"]],
+    ["substitution-in-expression", ['/def -i a = /while ($["]"] =~ "]") /echo y%; /done'], ['/def -i a = /while (("]") =~ "]") /echo y%; /done']],
+    // Proven live (scratchpad a.tf): each fix leaves tf's output as it was, without the warning.
+    ["substitution-in-expression", ["/test echo($[1+1])"], ["/test echo((1+1))"]],
+    ["substitution-in-expression", ["/def -i a = /echo $[1 + $[2]]"], ["/def -i a = /echo $[1 + (2)]"]],
+    ["substitution-in-expression", ["/def -i a = /if (%{x} == 5) /echo y%; /endif"], ["/def -i a = /if ({x} == 5) /echo y%; /endif"]],
+    ["substitution-in-expression", ["/def -i a = /if (%x == 5) /echo y%; /endif"], ["/def -i a = /if ({x} == 5) /echo y%; /endif"]],
+    ["substitution-in-expression", ["/def -i a = /if (%-1 =~ '') /echo y%; /endif"], ["/def -i a = /if ({-1} =~ '') /echo y%; /endif"]],
+    ["substitution-in-expression", ["/def -i a = /if (%{n-7} == 7) /echo y%; /endif"], ["/def -i a = /if ({n-7} == 7) /echo y%; /endif"]],
     ["let-swallows-endif", ["/def -i a = /if (1) /let x=1 /endif"], ["/def -i a = /if (1) /let x=1%; /endif"]],
     ["let-swallows-endif", ["/def -i a = /if (1) /set x=1 /endif /echo b"], ["/def -i a = /if (1) /set x=1%; /endif%; /echo b"]],
     ["let-swallows-endif", ["/def -i a = /let x=50% /if (1) /echo%; /endif"], ["/def -i a = /let x=50% %; /if (1) /echo%; /endif"]],

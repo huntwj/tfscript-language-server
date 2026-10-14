@@ -29,6 +29,10 @@ const KNOWN: Record<string, string[]> = {
   // lands outside any /if: tf prints "session: unexpected /ELSE in outer block" (2026-10-13; OBS-80,
   // fixed on tinyfugue's dev).
   "tintin.tf": ["block-structure@59"],
+  // /watch and /unwatch: "/let _who=$[tolower(%1)]" has %1 as an operand of the $[...]'s
+  // expression, and tf warns '"%1" substitution in expression is legal, but can be confusing'
+  // (proven 2026-10-14; {1} gives the same value without the warning).
+  "watch.tf": ["substitution-in-expression@27", "substitution-in-expression@45"],
 };
 
 describeOrSkip("tinyfugue lib/tf corpus (read-only)", () => {

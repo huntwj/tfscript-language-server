@@ -320,36 +320,74 @@ describe("let-swallows-endif (rule 5)", () => {
   });
 });
 
-describe("dollar-bracket-in-if (rule 6)", () => {
+describe("substitution-in-expression", () => {
+  const operands = (text: string) =>
+    getDiagnostics(text)
+      .filter((d) => d.code === "substitution-in-expression")
+      .map((d) => `${d.range.start.line}:${d.range.start.character}`);
+  const redundant = (text: string) =>
+    getDiagnostics(text).filter((d) => d.code === "substitution-in-expression" && d.message.startsWith("This $[...]"));
+
   it("flags $[...] inside an /if condition", () => {
     const text = "/def tfsc_d = /if ($[1+1] > 0) /echo yes%; /endif\n";
-    expect(codes(text)).toContain("dollar-bracket-in-if");
+    expect(codes(text)).toContain("substitution-in-expression");
   });
 
   it("is clean with a plain expression", () => {
     const text = "/def tfsc_e = /if (1+1 > 0) /echo yes%; /endif\n";
-    expect(codes(text)).not.toContain("dollar-bracket-in-if");
+    expect(codes(text)).not.toContain("substitution-in-expression");
   });
 
   // Confirmed live: /elseif and /while conditions get the same "legal, but redundant"
   // warning as /if — same expression-evaluation mechanism, not special-cased to /if alone.
   it("flags $[...] inside an /elseif condition", () => {
     const text = "/if (0) /elseif ($[1]) /echo hi%; /endif\n";
-    expect(codes(text)).toContain("dollar-bracket-in-if");
+    expect(codes(text)).toContain("substitution-in-expression");
   });
 
   it("flags $[...] inside a /while condition", () => {
     const text = "/while ($[1]) /break%; /done\n";
-    expect(codes(text)).toContain("dollar-bracket-in-if");
+    expect(codes(text)).toContain("substitution-in-expression");
   });
 
   // Proven live: there the $[...] is a substitution, and (...) would be text, so the fix would
   // turn /if (%{nosuch-$[1+1]} == 2) from true to false.
   it("leaves a $[...] alone inside a substitution's default, ${...} or $(...)", () => {
     for (const cond of ["%{nosuch-$[1+1]} == 2", "{nosuch-$[1+1]} == 2", "$(/echo $[1+1]) == 2", "${a$[1]} == 2", "$$[1] == 2"]) {
-      expect(codes(`/def a = /if (${cond}) /echo yes%; /endif\n`)).not.toContain("dollar-bracket-in-if");
+      expect(redundant(`/def a = /if (${cond}) /echo yes%; /endif\n`)).toEqual([]);
     }
-    expect(codes("/def a = /if (%{x-1} + $[1] == 2) /echo yes%; /endif\n")).toContain("dollar-bracket-in-if");
+    expect(redundant("/def a = /if (%{x-1} + $[1] == 2) /echo yes%; /endif\n")).toHaveLength(1);
+  });
+
+  // Proven live with %pedantic on (probe q01): tf warns for a $[ that is an operand anywhere it
+  // compiles an expression, and not for a body's /test text, which is substituted first.
+  it("flags a $[...] operand in a top-level /test, a $[...] and a top-level /if line's /test", () => {
+    expect(operands('/test echo(strcat("x", $[1+1]))\n')).toEqual(["0:23"]);
+    expect(operands("/def a = /echo $[1 + $[2]]\n")).toEqual(["0:21"]);
+    expect(operands("/if (1) /test echo($[2])%; /endif\n")).toEqual(["0:19"]);
+    expect(operands("/def b = /test echo($[3])\n")).toEqual([]);
+    expect(operands("/eval /test echo($[3])\n")).toEqual([]);
+    expect(operands("/repeat -1 1 /test echo($[4])\n")).toEqual([]);
+  });
+
+  // Proven live (probes p04, a.tf): "%{x} substitution in expression is legal, but can be confusing".
+  it("flags %x and %{x} as operands, in a condition, a $[...] and a top-level /test", () => {
+    expect(operands("/if (%{x} == 5) /echo y%; /endif\n")).toEqual(["0:5"]);
+    expect(operands("/def a = /if (%x == 5) /echo y%; /endif\n")).toEqual(["0:14"]);
+    expect(operands("/def a = /echo $[%{x} + 1]\n")).toEqual(["0:17"]);
+    expect(operands("/test echo(%x)\n")).toEqual(["0:11"]);
+  });
+
+  it("leaves %{x} alone in a string, a default, a run of %s and a body's /test text", () => {
+    expect(operands('/def a = /if ("%{x}" =~ "") /echo y%; /endif\n')).toEqual([]);
+    expect(operands("/def a = /if ({nosuch-%{x}} == 5) /echo y%; /endif\n")).toEqual([]);
+    expect(operands("/def a = /if (%%x == 5) /echo y%; /endif\n")).toEqual([]);
+    expect(operands("/def a = /test echo(%{x})\n")).toEqual([]);
+  });
+
+  it("offers no fix for a %x whose default holds a brace, which {...} would end early", () => {
+    const [d] = getDiagnostics("/def a = /if (%x-{y} == 5) /echo y%; /endif\n").filter((x) => x.code === "substitution-in-expression");
+    expect(d?.fix).toBeUndefined();
   });
 });
 
@@ -436,8 +474,8 @@ describe("messages", () => {
     ["not-substituted-here", "/load %{d}/ok.tf\n", "%{d} stays as it is in a command at the top level of a file: put /eval in front of the command to substitute it."],
     ["let-swallows-endif", "/def a = /if (1) /let v=1 /endif\n", "This /endif is part of the /let value, not a command: put %; before it."],
     ["let-swallows-endif", "/set v=1 /if (1) /echo%; /endif\n", "This /if is part of the /set value, not a command: put it on a line of its own."],
-    ["dollar-bracket-in-if", "/def a = /if ($[1]) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: drop the $[ and ]."],
-    ["dollar-bracket-in-if", "/def a = /if ($[1] + 1) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: write (...) instead."],
+    ["substitution-in-expression", "/def a = /if ($[1]) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: drop the $[ and ]."],
+    ["substitution-in-expression", "/def a = /if ($[1] + 1) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: write (...) instead."],
     ["indented-line-after-command", "/echo a\n  /echo b\n", "Line 1 has no \\ at the end, so this indented line starts a new command: end line 1 with \\ to continue it, or remove the indentation."],
     ["backslash-not-last", "/echo a \\ \n", "This \\ doesn't continue the line, because whitespace follows it: remove the whitespace."],
     [
@@ -454,6 +492,9 @@ describe("messages", () => {
     ["substitution-syntax", "/def f = /echo 50%-off\n", "%- starts a substitution, but no parameter follows it. Write %%- for a literal %-."],
     ["expression-syntax", "/test $[1+2\n", "This $[ is never closed: add ]."],
     ["expression-syntax", '/test "abc\n', 'This string is never closed: add the closing ".'],
+    ["substitution-in-expression", "/test echo($[1])\n", "This $[...] is redundant, as /test's text is already an expression: write (...) instead."],
+    ["substitution-in-expression", "/def a = /echo $[1 + $[2]]\n", "This $[...] is redundant, as the $[...] around it is already an expression: write (...) instead."],
+    ["substitution-in-expression", "/if (%{x} == 5) /echo%; /endif\n", "This %{x} works in an expression, but tf warns that it can be confusing: write {x} instead."],
     ["reserved-macro-name", "/def if = /echo\n", '"if" is a reserved word, so tf refuses this /def and defines nothing: pick another name.'],
     ["not-a-command", "hello\n", "This line isn't a command, so tf stops loading the file here: comment it out, or start it with /."],
     [

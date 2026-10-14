@@ -122,16 +122,33 @@ export function continuesToNextLine(line: string): boolean {
   return !(line.length >= 2 && line[line.length - 2] === "%");
 }
 
+/**
+ * The document's lines, split on `\n` only. A final newline leaves an empty piece after it: that
+ * is a line to an editor (the cursor can sit there), so positions keep it, but it is not a line
+ * tf reads — see fileLineCount().
+ */
 export function splitRawLines(text: string): string[] {
   return text.split("\n");
 }
 
+/**
+ * How many of splitRawLines(text) tf reads as lines: all of them, less the empty piece after a
+ * final newline. tf's tfgetS() returns a line at each `\n`, and at end of file only if text is
+ * left, so "a\\\n" is one line ending in `\`, not a `\` followed by an empty line (proven
+ * 2026-10-14: `/def -i z = /echo a%;\` then `/echo b\` then a final newline defined nothing,
+ * and tf said "last command is incomplete because of trailing \").
+ */
+export function fileLineCount(lines: string[]): number {
+  return lines.length > 0 && lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
+}
+
 export function splitLogicalEntries(text: string): LogicalEntry[] {
   const lines = splitRawLines(text);
+  const count = fileLineCount(lines);
   const entries: LogicalEntry[] = [];
 
   let i = 0;
-  while (i < lines.length) {
+  while (i < count) {
     const firstLine = lines[i] ?? "";
     if (isCommentLine(firstLine)) {
       i += 1;
@@ -153,10 +170,10 @@ export function splitLogicalEntries(text: string): LogicalEntry[] {
       if (!continues) break;
 
       let nextIdx = lineIdx + 1;
-      while (nextIdx < lines.length && isCommentLine(lines[nextIdx] ?? "")) {
+      while (nextIdx < count && isCommentLine(lines[nextIdx] ?? "")) {
         nextIdx += 1;
       }
-      if (nextIdx >= lines.length) {
+      if (nextIdx >= count) {
         incomplete = true;
         break;
       }

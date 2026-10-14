@@ -520,17 +520,29 @@ macros it calls. A call is what tf runs as one: a `/name` statement (in a body, 
 `/eval`, `/for` or `/repeat` text, a `$(...)`, or a file's top level; `/!name` too, but not
 `/@name`, which calls the builtin, nor `/echo try /name`), or `name(...)` in an expression when
 name isn't one of tf's builtin functions, which tf tries first (proven: `$[sq(3)]` ran a macro
-`sq`, while `$[strlen("ab")]` gave 2 with a macro named strlen defined). Callers are looked for in
-every tf script in the workspace folder and on the load path; what a macro calls resolves the way
-go-to-definition does. Builtin commands have no `/def`, so they aren't shown, and a redefined
-macro's calls are shown under each of its `/def`s. A `/def` inside another command isn't an item
-of its own: its calls count as its file's top level, or the definition around it.
+`sq`, while `$[strlen("ab")]` gave 2 with a macro named strlen defined). stdlib's `/expr`
+(`/result %*`) counts as an expression too. Callers are looked for in every tf script in the
+workspace folder and on the load path, or, for a `/def` outside every workspace folder (tf's
+library), in all of them. A call is shown under the `/def` it runs from the caller's own load
+path, as go-to-definition finds it, so another file's macro of the same name doesn't collect it;
+a call that resolves to no `/def` at all is kept, since the file may run after one that defines
+the macro. What a macro calls resolves the same way. Builtin commands have no `/def`, so they
+aren't shown, and a redefined macro's calls are shown under each of its `/def`s. A `/def` inside
+another command isn't an item of its own: its calls count as its file's top level, or the
+definition around it.
 
-Above each `/def`, a lens counts its references, as find-references does (calls and `${name}`
-substitutions in the files on the load path), and opens them in the references peek. The count
-is worked out only when the lens is shown. `tfscript.codeLens.references` turns them off. In VS
-Code the lens runs the extension's `tfscript.showReferences` command; another editor's client
-would need a command of that name taking a URI, a position and a list of locations.
+Find-references, highlights and rename count those `name(...)` calls as uses of the macro, too.
+Rename refuses a new name tf couldn't call that way: one with characters other than letters,
+digits and `_` (`$[s.q(2)]` is a syntax error in tf), or a builtin function's name, which tf would
+call instead.
+
+Above each `/def`, a lens counts its references, as find-references does, and opens them in the
+references peek. The count is worked out only when the lens is shown, and
+`tfscript.codeLens.references` turns them off. LSP has no standard command that opens a list of
+locations, so the lenses are only offered to a client that names one in its
+`initializationOptions` as `showReferencesCommand`, called with a URI, a position and the
+locations. The VS Code extension passes its own `tfscript.showReferences`; a client that names
+none gets no lenses, rather than ones that fail when clicked.
 
 Signature help shows a command's usage synopsis while you type its arguments, with the one
 under the cursor highlighted. Synopses come from the installed `tf-help` (else the htmldoc

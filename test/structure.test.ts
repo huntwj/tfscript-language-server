@@ -107,8 +107,8 @@ describe("checkStructure in a macro body", () => {
     expect(issue("/if (1) /if (2) /echo /endif%; /endif")).toBe("block@/if");
   });
 
-  it("leaves the /endif after a /let name=value to the swallowed list, and reports the one after /let name 1", () => {
-    expect(issue("/if (1) /let v=1 /endif")).toBe("");
+  it("points at an /endif a /let takes, with or without the =", () => {
+    expect(issue("/if (1) /let v=1 /endif")).toBe("keyword@/endif");
     // tf: expected /endif, found end of body; keyword-mid-statement doesn't match "/let y 1"
     expect(issue("/if (1) /let y 1 /endif")).toBe("keyword@/endif");
   });

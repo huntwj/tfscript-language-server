@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getDiagnostics } from "../src/diagnostics";
+import { getDiagnostics, quietInTf } from "../src/diagnostics";
 
 /**
  * Runs the diagnostics engine over every case in ~/ai/mud/tests/tfscript/cases/ — the
@@ -31,9 +31,8 @@ describeOrSkip("ground truth (~/ai/mud/tests/tfscript/cases)", () => {
       expect(match, `${file} has no ';; expect: clean|problem' header`).not.toBeNull();
 
       const expected = match![1];
-      // Information is a note on something tf runs without complaint, perhaps not as meant (a
-      // plain-line %; is text): it doesn't make a clean case a problem.
-      const got = getDiagnostics(text).some((d) => d.severity !== "information") ? "problem" : "clean";
+      // A note or warning on something tf runs without complaint (quietInTf) doesn't make a clean case a problem.
+      const got = getDiagnostics(text).some((d) => !quietInTf(d)) ? "problem" : "clean";
       expect(got).toBe(expected);
     });
   }

@@ -44,6 +44,11 @@ export type StructureKind =
    * at the start of one), which leaves its block unfinished.
    */
   | "keyword"
+  /**
+   * A keyword in the middle of a statement that its block would have taken, in a block that still
+   * closes: tf runs it as text, with no error (`/if (1) /set a=1 /else /set b=2%; /endif`).
+   */
+  | "keyword-warning"
   /** A statement in a condition list that isn't a command: tf sends it to the world (list() in expand.c). */
   | "condition-text"
   /** A keyword glued to what follows it (`/if(1)`), which tf reads as a command of that whole name. */
@@ -103,20 +108,23 @@ export interface StructureIssue extends IssueDetail {
 }
 
 /**
- * An `/if` or `/endif` inside a /let or /set value, with offsets into the checked text: the
- * keyword, where its statement starts, and the `%;`s that would make it a statement of its own
- * (none where `%;` doesn't separate, on a plain top-level line).
+ * An `/if` or `/while` in the middle of a statement, which tf reads as text, with offsets into
+ * the checked text: the keyword, where its statement starts, its command, and the `%;`s that
+ * would make it a statement of its own (none where `%;` doesn't separate, on a plain top-level
+ * line). Just text, unless the block it would have opened is what a later keyword needed:
+ * pairSwallowed() finds that out, and moves the problem tf reports to it.
  */
 export interface Swallowed {
   start: number;
   end: number;
   word: string;
   stmt: number;
+  /** The statement's command, lower case without its slash, or "" for plain text. */
+  command: string;
   edits: IssueEdit[];
   /**
-   * For a swallowed `/if`, the `/endif`, `/else` or `/elseif` that it leaves with no `/if` to
-   * belong to, where tf stops compiling ("unexpected /ENDIF in outer block"); the one problem
-   * reported, at the `/if` that caused it.
+   * The problem it leads to, which tf reports instead (an `/endif` or `/else` with no `/if`, a
+   * `/done` with no `/while`): set when putting `%;` before the keyword makes that go away.
    */
   stray?: IssueNote;
 }
@@ -248,10 +256,46 @@ interface MidKeyword {
   command: string;
   /** Where that statement starts. */
   stmt: number;
+  /**
+   * The innermost open block would have taken it, had it started a statement: an /else or
+   * /elseif in an /if's body, an /endif in one, a /done in a /while's. If that block still closes,
+   * tf runs it as text with no error (the /else ends up in a /set value): a warning.
+   */
+  taken: boolean;
 }
 
-/** keyword-mid-statement's /let and /set wording: it explains a keyword swallowed by an assignment like this. */
-const LET_ASSIGNMENT_RE = /^\/@?(?:let|set)\b\s+[^\s=]+\s*=/i;
+/**
+ * The commands whose arguments hold commands they run (or store as a macro body): a keyword in them
+ * is meant for those commands, not for the block the statement is in. MACRO_DEFINER's
+ * (substitution.ts), and the ones that run their text: /repeat, /at, /quote, /eval, /for, and
+ * stdlib's /not (`/@eval %*`).
+ */
+export const TAKES_COMMANDS = /^(?:def|edit|bind|hook|gag|hilite|trig|trigc|trigp|trigpc|alias|repeat|at|quote|eval|for|not)$/;
+
+/** A /let or /set assignment, whose value takes the rest of the statement (keyword-mid-statement's own wording). */
+const LET_ASSIGNMENT_RE = /^\/@?(let|set)\b\s+[^\s=]+\s*=/i;
+
+/** How keyword-mid-statement names what took a keyword: "the /set value", "the /echo command", ... */
+export function swallower(s: string, stmt: number, command: string): string {
+  const assignment = LET_ASSIGNMENT_RE.exec(s.slice(stmt));
+  if (assignment) return `the /${(assignment[1] as string).toLowerCase()} value`;
+  if (!command) return "the text before it";
+  return ["test", "return", "result"].includes(command) ? `the /${command} expression` : `the /${command} command`;
+}
+
+/** How the statement's command took `/word`, for the hover: `what` is swallower()'s name for it. */
+export function takesTheRest(command: string, word: string, what: string): string {
+  if (what.endsWith(" value")) {
+    const set = what.slice("the ".length, -" value".length);
+    return `${code(set)} takes the rest of the statement, up to the next ${code("%;")}, as its value, so ${code(`/${word}`)} ends up in the value.`;
+  }
+  if (what.endsWith(" expression")) {
+    return `${code(`/${command}`)} reads its expression up to the next ${code("%;")}, so ${code(`/${word}`)} becomes part of the expression.`;
+  }
+  return command
+    ? `There is no ${code("%;")} before ${code(`/${word}`)}, so ${code(`/${command}`)} takes it, and everything after it up to the next ${code("%;")}, as its own text.`
+    : `There is no ${code("%;")} before ${code(`/${word}`)}, so it is read as part of the text before it.`;
+}
 
 interface Open {
   keyword: "if" | "while";
@@ -259,10 +303,13 @@ interface Open {
   end: number;
   /** Where the current part of its body (after a condition, /then, /do or /else) starts. */
   body?: number;
-  /** The first /endif that would have closed it, found in a /let or /set value instead. */
-  swallowed?: Swallowed;
   /** How many `$(...)` it is inside. */
   cmdsub: number;
+  /**
+   * Where its last /else or /elseif is: a keyword read as text before it can't be what would have
+   * closed the block, since with a %; it would close it early and leave the /else stray (proven).
+   */
+  branch?: number;
   /** The parts of its body read so far (BlockRegion.parts). */
   parts: { start: number; end: number }[];
 }
@@ -530,16 +577,12 @@ class Parser {
     // The keyword that would have fixed it is there, but glued to what follows it (/endif;, /do/echo):
     // the one problem is reported there.
     if (fix && this.gluedBefore(fix, searchTo, since, { start, end, message: `this /${this.open[this.open.length - 1]?.keyword ?? fix}, left open` })) throw new Stop();
-    const fixer = fix ? this.mids.find((m) => m.word === fix && m.start > since && m.start < searchTo) : undefined;
+    // A closer read as text before the block's /else or /elseif would close it early, as a statement.
+    const closerFrom = fix === "endif" ? Math.max(since, this.open[this.open.length - 1]?.branch ?? -1) : since;
+    const fixer = fix ? this.mids.find((m) => m.word === fix && m.start > closerFrom && m.start < searchTo) : undefined;
     // Point at the first keyword of that statement: in "/echo a /else /echo b /endif" it is the /else.
     const mid = fixer && this.mids.find((m) => m.stmt === fixer.stmt && m.start > since);
-    // An /endif swallowed by a /let or /set value is keyword-mid-statement's to report, in its /let
-    // and /set wording, while it is still pending on the /if (swallow()). Once an /else or /elseif
-    // has dropped it, a %; before it would close the /if too early, so the plain error, with its
-    // closer at the end, is the one.
-    const swallowedByLet = fix === "endif" && !!mid && LET_ASSIGNMENT_RE.test(this.s.slice(mid.stmt, mid.start));
-    if (swallowedByLet && this.open[this.open.length - 1]?.swallowed) throw new Stop();
-    if (fixer && mid && !swallowedByLet) this.fail("keyword", mid.start, mid.end, this.midKeyword(mid, fixer, since));
+    if (fixer && mid) this.fail("keyword", mid.start, mid.end, this.midKeyword(mid, fixer, since));
     this.fail(kind, start, end, problem);
   }
 
@@ -557,6 +600,20 @@ class Parser {
       if (k < this.s.length && !this.isStatEnd(k) && !this.isCmdsubEnd(k)) at.add(k);
     }
     return [...at].sort((a, b) => a - b).map((p) => this.separatorBefore(p));
+  }
+
+  /**
+   * Whether separateSwallowed() would leave text that isn't a command as a statement of its own,
+   * after a swallowed `/endif` or `/done`: `/echo use /endif to close` would send "to close" to the
+   * world (rev-s4 s13). Then there is no fix.
+   */
+  private leavesText(swallowed: MidKeyword[]): boolean {
+    return swallowed.some((m) => {
+      if (m.word !== "endif" && m.word !== "done") return false;
+      let k = m.end;
+      while (isTfSpace(this.s[k])) k += 1;
+      return k < this.s.length && !this.isStatEnd(k) && !this.isCmdsubEnd(k) && this.s[k] !== "/";
+    });
   }
 
   /**
@@ -582,15 +639,6 @@ class Parser {
         `to the world each time the condition is tested. To test an expression, put it in parentheses, ` +
         `${code(`/${keyword} (x == 1) ...`)}, or test it with ${code("/test")}: ${code(`/${keyword} /test x == 1%; /${then} ...`)}`,
     });
-  }
-
-  /** The last /if a /let or /set value swallowed before `at` that hasn't been given a stray yet. */
-  private swallowedIfBefore(at: number): Swallowed | undefined {
-    for (let k = this.swallowed.length - 1; k >= 0; k -= 1) {
-      const w = this.swallowed[k] as Swallowed;
-      if (w.word === "if" && w.start < at && !w.stray) return w;
-    }
-    return undefined;
   }
 
   /**
@@ -646,8 +694,7 @@ class Parser {
 
   /** A keyword swallowed by the statement it sits in, which leaves its block unfinished. */
   private midKeyword(mid: MidKeyword, fixer: MidKeyword, since: number): IssueDetail {
-    const expression = ["test", "return", "result"].includes(mid.command);
-    const what = !mid.command ? "the text before it" : expression ? `the /${mid.command} expression` : `the /${mid.command} command`;
+    const what = swallower(this.s, mid.stmt, mid.command);
     const consequence: Record<string, string> = {
       endif: "the /if is never closed",
       done: "the /while is never closed",
@@ -657,11 +704,7 @@ class Parser {
     const swallowed = this.mids.filter((m) => m.stmt === mid.stmt && m.start > since);
     const words = swallowed.map((m) => `/${m.word}`);
     const list = words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}` : `${words[0]}`;
-    const reads = expression
-      ? `${code(`/${mid.command}`)} reads its expression up to the next ${code("%;")}, so ${code(`/${mid.word}`)} becomes part of the expression.`
-      : mid.command
-        ? `There is no ${code("%;")} before ${code(`/${mid.word}`)}, so ${code(`/${mid.command}`)} takes it, and everything after it up to the next ${code("%;")}, as its own text.`
-        : `There is no ${code("%;")} before ${code(`/${mid.word}`)}, so it is read as part of the text before it.`;
+    const reads = takesTheRest(mid.command, mid.word, what);
     return {
       message: `/${mid.word} here is not a keyword: it is part of ${what}, so ${consequence[fixer.word] ?? "its block is never finished"}.`,
       label: `part of ${what}`,
@@ -674,7 +717,8 @@ class Parser {
       ],
       // Not for text in a condition list (`/while i < 2 /do ...`): with the %; it compiles, and the
       // text is sent to the world each time round (condition-list-text's warning; probe c1 c02).
-      ...(!mid.command && (fixer.word === "then" || fixer.word === "do")
+      // Nor where text after a swallowed /endif would become a statement, sent to the world.
+      ...((!mid.command && (fixer.word === "then" || fixer.word === "do")) || this.leavesText(swallowed)
         ? {}
         : { fix: { title: `Put %; before ${list}`, edits: this.separateSwallowed(swallowed) } }),
     };
@@ -783,9 +827,7 @@ class Parser {
             this.endPart(stmtStart);
             this.block = word;
             this.newList(word === "else" ? "body" : "condition");
-            // An /endif swallowed before this was never going to close the /if: with a %; it
-            // would, and leave this /else or /elseif stray ("unexpected /ELSE in outer block").
-            (this.open[this.open.length - 1] as Open).swallowed = undefined;
+            (this.open[this.open.length - 1] as Open).branch = stmtStart;
             unreachable = false;
             if (word === "else") {
               this.bodyStarts();
@@ -888,12 +930,8 @@ class Parser {
     const ended = this.block as Block;
     if (ended === "endif" || ended === "done") this.blocks.push({ start, end: this.closeEnd, parts: opened.parts });
     const to = this.i + 1;
-    // Never closed (the text, or the $(...), ended first; this /if or /while, and every block open
-    // around it in the same $(...), with it): an /endif a /let or /set value swallowed is what
-    // should have closed its /if. Compiling stops here, so record each one now.
-    if (ended !== "endif" && ended !== "done") {
-      for (const o of this.open) if (o.cmdsub === this.cmdsub && o.swallowed) this.swallowed.push(o.swallowed);
-    }
+    // It closed, so the keywords it would have taken mid-statement ran as text, with no error.
+    if (ended === "endif" || ended === "done") this.takenAsText(start);
     // Where a missing /endif or /done would go: the end of the body, or before the $(...)'s ).
     const where = this.cmdsub > 0 ? "before the )" : this.mode === "top" ? "at the end of the line" : "at the end of the body";
     // Not when that part of the body is empty: after /if (x), /else or /while (x) the %; would
@@ -968,17 +1006,10 @@ class Parser {
     const outer = this.block;
     const opener = word === "do" || word === "done" ? "while" : "if";
     const verb = word === "endif" || word === "done" ? "close" : "belong to";
-    // Left with no block by an /if a /let or /set value swallowed, or by an opener glued to what
-    // follows it (/if(1)): tf stops compiling here, and the one problem is reported at the cause.
-    if (!outer) {
-      const note = { start, end, message: `this /${word}, left with no /${opener} to ${verb}` };
-      const swallowed = word === "endif" || word === "else" || word === "elseif" ? this.swallowedIfBefore(start) : undefined;
-      if (swallowed) {
-        swallowed.stray = note;
-        throw new Stop();
-      }
-      if (this.gluedBefore(opener, start, -1, note)) throw new Stop();
-    }
+    // Left with no block by an opener glued to what follows it (/if(1)): tf stops compiling here,
+    // and the one problem is reported at the cause. (One left by an /if or /while read as text is
+    // pairSwallowed()'s, once the whole text is read.)
+    if (!outer && this.gluedBefore(opener, start, -1, { start, end, message: `this /${word}, left with no /${opener} to ${verb}` })) throw new Stop();
     const where = outer ? `: it is ${describeBlock(outer)}` : "";
     const problem: IssueDetail = {
       message: `This /${word} has no /${opener} to ${verb}${where}.`,
@@ -1256,14 +1287,11 @@ class Parser {
     const s = this.s;
     const stmtStart = this.i;
     let command = keyword;
-    if (!command && s[this.i] === "/") {
+    // `//x` is text: tf sends it to the world with one `/` dropped.
+    if (!command && s[this.i] === "/" && s[this.i + 1] !== "/") {
       const m = /^\/[@!]*([^\s%]*)/.exec(s.slice(this.i));
       command = (m?.[1] ?? "").toLowerCase();
     }
-    // Whether the statement is a /let or /set assignment (worked out at its first /if or /endif),
-    // and whether a keyword in its value has been recorded as swallowed: only the first counts.
-    let assignment: boolean | undefined;
-    let swallowedHere = false;
     while (this.i < s.length) {
       const ch = s[this.i];
       if (subs >= NEWLINE && ch === "%") {
@@ -1290,10 +1318,15 @@ class Parser {
       }
       if (ch === "/" && this.i > stmtStart && isTfSpace(s[this.i - 1])) {
         const kw = this.keywordAt(this.i + 1);
-        if (kw && INNER_KEYWORDS.has(kw.word)) this.mids.push({ start: this.i, end: kw.end, word: kw.word, command, stmt: stmtStart });
-        if (kw && (kw.word === "if" || kw.word === "endif") && !swallowedHere) {
-          assignment ??= LET_ASSIGNMENT_RE.test(s.slice(stmtStart, this.i));
-          if (assignment) swallowedHere = this.swallow(kw.word, this.i, kw.end, command, stmtStart, subs >= NEWLINE);
+        if (kw && INNER_KEYWORDS.has(kw.word)) {
+          this.mids.push({ start: this.i, end: kw.end, word: kw.word, command, stmt: stmtStart, taken: this.wouldTake(kw.word, command) });
+        }
+        // An /if or /while read as text is just text, unless the block it would have opened is what
+        // a later keyword needed (pairSwallowed()). Where %; doesn't separate, it can be nothing else.
+        // Not in a command's commands: `/def %1 = /if ... %; /else` is the inner macro's (tintin.tf).
+        if (kw && (kw.word === "if" || kw.word === "while") && subs >= NEWLINE && !TAKES_COMMANDS.test(command)) {
+          const mid: MidKeyword = { start: this.i, end: kw.end, word: kw.word, command, stmt: stmtStart, taken: false };
+          this.swallowed.push({ start: this.i, end: kw.end, word: kw.word, stmt: stmtStart, command, edits: this.separateSwallowed([mid]) });
         }
       }
       this.i += 1;
@@ -1301,24 +1334,47 @@ class Parser {
   }
 
   /**
-   * Records an `/if` or `/endif` in a /let or /set value (for keyword-mid-statement), with the `%;`s
-   * that make it a statement of its own, placed as separateSwallowed() places them. An `/endif`
-   * counts only while its `/if` is open, and only the first one per `/if`: at most one can close
-   * it, so fixing a later one too would leave that one stray. It is kept pending on the `/if`, and
-   * recorded only if the `/if` reaches its end unclosed (openBlock): when a real `/endif` closes it
-   * later, the swallowed one is just text, and putting `%;` before it would close the `/if` early
-   * (proven live: "unexpected /ENDIF in outer block").
+   * Whether the innermost open block would have taken `word` as its keyword, had it started a
+   * statement (MidKeyword.taken). Not in a /test, /return or /result, whose strings hold text.
    */
-  private swallow(word: string, start: number, end: number, command: string, stmt: number, separates: boolean): boolean {
-    const edits = separates ? this.separateSwallowed([{ start, end, word, command, stmt }]) : [];
-    if (word === "endif") {
-      const open = this.open[this.open.length - 1];
-      if (!open || (this.block !== "then" && this.block !== "else") || open.swallowed) return false;
-      open.swallowed = { start, end, word, stmt, edits };
-      return true;
+  private wouldTake(word: string, command: string): boolean {
+    const open = this.open[this.open.length - 1];
+    if (!open || open.cmdsub !== this.cmdsub || ["test", "return", "result"].includes(command)) return false;
+    if (word === "else" || word === "elseif") return this.block === "then";
+    if (word === "endif") return this.block === "then" || this.block === "else";
+    return word === "done" && this.block === "do";
+  }
+
+  /**
+   * The block that opened at `start` closed: each /let or /set statement in it holding a keyword
+   * the block would have taken ran it as text, with no error (`/if (1) /set a=1 /else /set b=2%; /endif` sets a to
+   * `1 /else /set b=2`). A warning, with the fix pairSwallowed() checks.
+   */
+  private takenAsText(start: number): void {
+    const done = new Set<number>();
+    for (const m of this.mids) {
+      if (m.start <= start || !m.taken || done.has(m.stmt)) continue;
+      // Only in a /let or /set value. Text a command is given may hold a keyword on purpose: an
+      // /eval's commands (lib/tf/activity_status.tf), or `/echo use /endif to close`.
+      if (!LET_ASSIGNMENT_RE.test(this.s.slice(m.stmt))) continue;
+      done.add(m.stmt);
+      const group = this.mids.filter((x) => x.stmt === m.stmt && x.start > start && x.taken);
+      const words = group.map((x) => `/${x.word}`);
+      const list = words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}` : `${words[0]}`;
+      const what = swallower(this.s, m.stmt, m.command);
+      this.issues.push({
+        kind: "keyword-warning",
+        start: m.start,
+        end: m.end,
+        message: `/${m.word} here is not a keyword: it is part of ${what}, so tf runs it as text: put %; before it if it should start a statement.`,
+        label: `part of ${what}`,
+        explanation:
+          `tf only reads a keyword at the start of a statement, and statements are separated by ${code("%;")}. ` +
+          `${takesTheRest(m.command, m.word, what)} The block still closes, so tf loads this without an error, but ` +
+          `${code(`/${m.word}`)} is never the block's.`,
+        ...(this.leavesText(group) ? {} : { fix: { title: `Put %; before ${list}`, edits: this.separateSwallowed(group) } }),
+      });
     }
-    this.swallowed.push({ start, end, word, stmt, edits });
-    return true;
   }
 
   /** `%{...}` or `%name`, with `this.i` just after the `%` at `percent` (`varsub()`). */
@@ -1741,9 +1797,78 @@ class Parser {
 
 /** Structural problems in a macro body (`mode` "body") or a top-level command (`mode` "top"). */
 export function checkStructure(text: string, mode: StructureMode): StructureIssue[] {
-  const parser = new Parser(text, mode);
-  parser.run();
-  return parser.issues;
+  return parseSettled(text, mode).issues;
+}
+
+/** The problems that stop tf compiling: the first of them is where it stops. */
+const STOPS = new Set<StructureKind>(["block", "keyword", "continuation"]);
+
+function firstStop(issues: StructureIssue[]): StructureIssue | undefined {
+  return issues.find((i) => STOPS.has(i.kind));
+}
+
+/** Where `pos`, an offset into `s` with `edits` applied, was before them. */
+function unedited(pos: number, edits: IssueEdit[]): number {
+  let delta = 0;
+  for (const e of [...edits].sort((a, b) => a.start - b.start)) {
+    if (pos < e.start + delta + e.newText.length) break;
+    delta += e.newText.length - (e.end - e.start);
+  }
+  return pos - delta;
+}
+
+/** The first stop in `s` with `edits` applied, as an offset into `s`; Infinity if there is none. */
+function stopAfter(s: string, edits: IssueEdit[], mode: StructureMode): number {
+  let t = s;
+  for (const e of [...edits].sort((a, b) => b.start - a.start)) t = t.slice(0, e.start) + e.newText + t.slice(e.end);
+  const p = new Parser(t, mode);
+  p.run();
+  const stop = firstStop(p.issues);
+  return stop ? unedited(stop.start, edits) : Infinity;
+}
+
+/** "This /endif has no /if to close." as the related note on the keyword that caused it. */
+function strayNote(issue: StructureIssue): IssueNote {
+  return { start: issue.start, end: issue.end, message: issue.message.replace(/^This /, "the ").replace(/\.$/, "") };
+}
+
+/** How many /ifs or /whiles read as text pairSwallowed() tries, each a fresh parse of the text. */
+const MAX_PAIR_TRIES = 8;
+
+/**
+ * `s` parsed as tf compiles it, with what a fresh parse of each fix can tell (proven live, review
+ * of step 4: rev-s4 r1, r2):
+ *  - An `/if` or `/while` read as text (Swallowed) is reported only when the problem tf stops at
+ *    (the first block error: an `/endif` with no `/if`, say) goes away, or moves on, once `%;` is
+ *    put before it. Then that problem is its related location instead of a diagnostic of its own.
+ *    Otherwise it is only text (`/set msg=use /if to branch`), or the fix wouldn't pair it with the
+ *    problem (inside another `$(...)`, or with blocks in between), and both are left as they are.
+ *  - A warning's fix ("keyword-warning", a keyword its block would have taken, run as text) is kept
+ *    only if it brings no problem in before the one there is now: with a real `/endif` later, a `%;`
+ *    before a swallowed one would close the `/if` early.
+ */
+function parseSettled(s: string, mode: StructureMode): { issues: StructureIssue[]; swallowed: Swallowed[] } {
+  const p = new Parser(s, mode);
+  p.run();
+  const issues = [...p.issues];
+  const swallowed: Swallowed[] = [];
+  const block = issues.find((i) => i.kind === "block");
+  if (block && block === firstStop(issues)) {
+    let tries = 0;
+    for (const w of p.swallowed) {
+      if (w.edits.length === 0 || w.start >= block.start) continue;
+      if (tries++ >= MAX_PAIR_TRIES) break;
+      if (stopAfter(s, w.edits, mode) <= block.start) continue;
+      swallowed.push({ ...w, stray: strayNote(block) });
+      issues.splice(issues.indexOf(block), 1);
+      break;
+    }
+  }
+  const stop = firstStop(issues)?.start ?? Infinity;
+  for (const issue of issues) {
+    if (issue.kind === "keyword-warning" && issue.fix && stopAfter(s, issue.fix.edits, mode) < stop) delete issue.fix;
+  }
+  return { issues, swallowed };
 }
 
 // `/@def`, `/@bind` and so on are the builtins themselves; the /trig family is stdlib's. /edit reads
@@ -1849,13 +1974,11 @@ const cache = new WeakMap<LogicalEntry, EntryModel>();
 function entryModel(entry: LogicalEntry): EntryModel {
   let model = cache.get(entry);
   if (!model) {
-    const top = new Parser(entry.text, "top");
-    top.run();
+    const top = parseSettled(entry.text, "top");
     model = { issues: top.issues, swallowed: [...top.swallowed] };
     const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(entry.text) : -1;
     if (body >= 0) {
-      const parser = new Parser(entry.text.slice(body), "body");
-      parser.run();
+      const parser = parseSettled(entry.text.slice(body), "body");
       for (const issue of parser.issues) model.issues.push(shiftIssue(issue, body));
       for (const w of parser.swallowed) {
         const edits = w.edits.map((e) => ({ ...e, start: e.start + body, end: e.end + body }));

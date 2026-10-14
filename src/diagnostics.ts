@@ -102,6 +102,16 @@ export function onRuleError(report: (rule: string, error: unknown) => void): (ru
 }
 
 /**
+ * Whether `d` is on something tf runs without a word, perhaps not as meant: an information note
+ * (a plain-line `%;` is text), or keyword-mid-statement's warning for a keyword a /let or /set value
+ * took (`/if (1) /set a=1 /else /set b=2%; /endif` loads clean). Such a diagnostic doesn't make a
+ * file tf loads clean a problem, in the ground-truth test or the live corpus check.
+ */
+export function quietInTf(d: TfDiagnostic): boolean {
+  return d.severity === "information" || (d.code === "keyword-mid-statement" && d.severity === "warning");
+}
+
+/**
  * Every diagnostic for `text`. `joinFixes: false` leaves out the line-joining fixes (joinFix.ts),
  * which try out candidate fixes with this function and so must not recurse into themselves.
  */

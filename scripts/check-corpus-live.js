@@ -21,7 +21,7 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 const MUD_DIR = path.resolve(REPO_ROOT, "..");
 const TF_SCRIPT_CHECK = path.join(MUD_DIR, "scripts", "tf_script_check.py");
 
-const { getDiagnostics } = require("../dist/diagnostics");
+const { getDiagnostics, quietInTf } = require("../dist/diagnostics");
 
 function singleFileTarget(file) {
   return { entry: `/corpus/${file}`, files: [file] };
@@ -92,8 +92,8 @@ function runThisEngine(filesDir, files) {
     const text = readFileSync(path.join(filesDir, file), "utf8");
     const diags = getDiagnostics(text);
     perFile[file] = diags;
-    // As in groundTruth.test.ts: an information note is on something tf runs without complaint.
-    if (diags.some((d) => d.severity !== "information")) anyProblem = true;
+    // As in groundTruth.test.ts: a diagnostic on something tf runs without complaint doesn't count.
+    if (diags.some((d) => !quietInTf(d))) anyProblem = true;
   }
   return { verdict: anyProblem ? "problem" : "clean", perFile };
 }

@@ -9,8 +9,7 @@ import {
   splitRawLines,
   type LogicalEntry,
 } from "./logicalEntries";
-import { macroBodyStart, parseRegions } from "./structure";
-import { MACRO_DEFINER } from "./substitution";
+import { macroBodyStart, parseRegions, TAKES_COMMANDS } from "./structure";
 
 /**
  * Fixes that join physical lines into one command with trailing `\`s: for a top-level `/if` or
@@ -59,11 +58,10 @@ const CLOSES_RE = /(?:^|[ \t;|\\])\/(?:endif|done)(?:[ \t\r\f\v]|%[;|\\])*$/i;
 const STRAY_KEYWORD_RE = /^\/(?:then|else|elseif|endif|do|done)(?![^ \t\r\f\v%])/i;
 /**
  * Structural fixes the settle step applies; not "Add %; /endif ...", which would close a block
- * early, nor a keyword in a /let or /set value (keyword-mid-statement's "part of the /set value"),
- * whose %; would change the value.
+ * early, nor keyword-mid-statement's %; before a keyword read as text, which changes what runs.
  */
-const SETTLE_CODES = new Set(["block-structure", "keyword-mid-statement", "empty-statement"]);
-const settles = (d: TfDiagnostic): boolean => SETTLE_CODES.has(d.code) && !(d.label ?? "").endsWith(" value");
+const SETTLE_CODES = new Set(["block-structure", "empty-statement"]);
+const settles = (d: TfDiagnostic): boolean => SETTLE_CODES.has(d.code);
 
 /** How `%;` reads in the command: "body" in a macro body, "top" in a top-level /if or /while, or not at all. */
 type Separates = "body" | "top" | undefined;
@@ -137,7 +135,7 @@ class SeparatorScanner {
  * /repeat).
  */
 function runsBody(word: string): boolean {
-  return MACRO_DEFINER.test(word) || /^(?:repeat|at|quote|eval|for)$/.test(word);
+  return TAKES_COMMANDS.test(word);
 }
 
 /** A line's command, lower case, without its `/` and any `@` or `!`; "" for text. */

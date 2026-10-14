@@ -133,8 +133,9 @@ describe("structural fixes", () => {
   it("doesn't take a trailing %| for a separator, or a stray ) for the end of a $(...)", () => {
     const pipe = "/def a = /if (1) /echo b%|\n";
     expect(applyEdits(pipe, getCodeActions(pipe, WHOLE_FILE)[0]!.edits)).toBe("/def a = /if (1) /echo b%|%; /endif\n");
+    // A %; before the /endif and after it would make the ) a statement, sent to the world: no fix.
     const paren = "/def a = /if (1) /echo x /endif)\n";
-    expect(applyEdits(paren, getCodeActions(paren, WHOLE_FILE)[0]!.edits)).toBe("/def a = /if (1) /echo x%; /endif%; )\n");
+    expect(getCodeActions(paren, WHOLE_FILE)).toEqual([]);
   });
 
   it("blames a second /then on the (condition) only when one comes straight before it", () => {
@@ -286,7 +287,7 @@ describe("rule fixes", () => {
     expect(getCodeActions("/def a = /while (1) /echo x\n", WHOLE_FILE).map((a) => a.title)).toEqual(["Add %; /done at the end of the body"]);
   });
 
-  it("leaves a macro clean with every keyword-mid-statement fix applied at once", () => {
+  it("leaves a macro clean with the keyword-mid-statement fixes applied round by round", () => {
     for (const text of [
       "/def -i ld = /if (1) /let x=4 /endif%; /let z=5 /endif%; /echo ld x=%x z=%z\n",
       "/def -i lb = /set y=2 /let x=1 /endif /if (1) /echo%; /endif\n",
@@ -299,8 +300,15 @@ describe("rule fixes", () => {
       // The /if is unclosed even though the block left open at the end is a /while.
       "/def -i w1 = /if (1) /let x=1 /endif%; /while (0) /echo y\n",
     ]) {
-      const fixed = applyEdits(text, getCodeActions(text, WHOLE_FILE).flatMap((a) => a.edits));
-      expect(codes(fixed), fixed).toEqual([]);
+      // tf stops at the first error, so each round's fix shows the next one, as it would to a user.
+      let fixed = text;
+      for (let round = 0; round < 6; round += 1) {
+        const edits = getCodeActions(fixed, WHOLE_FILE).flatMap((a) => a.edits);
+        if (edits.length === 0) break;
+        fixed = applyEdits(fixed, edits);
+      }
+      // A swallowed /endif ahead of an /else stays a warning: tf runs it, as text in x's value.
+      expect(getDiagnostics(fixed).filter((d) => d.severity === "error").map((d) => d.code), fixed).toEqual([]);
     }
   });
 

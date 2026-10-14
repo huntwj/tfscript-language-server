@@ -25,8 +25,8 @@ describe("keyword-mid-statement", () => {
     const text = "/def a = /set v=1 /if (1) /echo x%; /endif";
     expect(found(text)).toEqual(at(text, "/if"));
     const d = first(text)!;
-    expect(d.message).toBe("This /if is part of the /set value, not a command: put %; before it.");
-    expect(d.related?.map((r) => `${r.range.start.character}:${r.message}`)).toEqual([`${text.indexOf("/set")}:this /set`, `${text.indexOf("/endif")}:this /endif, left with no /if to close`]);
+    expect(d.message).toBe("This /if is part of the /set value, not a command, so the /endif has no /if to close: put %; before it.");
+    expect(d.related?.map((r) => `${r.range.start.character}:${r.message}`)).toEqual([`${text.indexOf("/endif")}:the /endif has no /if to close`]);
     expect(d.explanation).toContain("which is the error tf reports");
     // An /else or /elseif left with no /if is the same (tf: "unexpected /ELSE in outer block").
     const elsed = "/def a = /let y=2 /if (1) /echo a%; /else /echo b%; /endif";
@@ -36,7 +36,7 @@ describe("keyword-mid-statement", () => {
   });
 
   it("reads /@set and /@let as /set and /let", () => {
-    expect(first("/def a = /@set z=1 /@if (1) /echo x%; /@endif")?.message).toBe("This /@if is part of the /set value, not a command: put %; before it.");
+    expect(first("/def a = /@set z=1 /@if (1) /echo x%; /@endif")?.message).toBe("This /@if is part of the /set value, not a command, so the /endif has no /if to close: put %; before it.");
   });
 
   it("offers no %; for text in a condition list, which would then be sent to the world", () => {
@@ -46,5 +46,58 @@ describe("keyword-mid-statement", () => {
     expect(d?.fix).toBeUndefined();
     // A command's expression keeps its fix: /if /test 1%; /then is what was meant.
     expect(first("/def a = /if /test 1 /then /echo x%; /endif")?.fix?.title).toBe("Put %; before /then");
+  });
+
+  // Review of step 4 (rev-s4 r1, r2), proven in tf: an /if in a value is only text, unless tf stops
+  // at what its missing block leaves behind.
+  it("says nothing about an /if or /while a value takes when nothing needs its block", () => {
+    for (const text of [
+      "/def a = /set msg=use /if to branch%; /echo %msg",
+      "/def a = /set v3=x /if (1) y /endif%; /echo %v3",
+      "/def a = /if (1) /set v18=a /if (0) b%; /endif",
+      "/def a = /set w=x /while (0) y",
+      "/set tv20=x /if (1) /echo y%; /endif",
+    ]) {
+      expect(getDiagnostics(`${text}\n`).filter((d) => d.code === CODE), text).toEqual([]);
+    }
+  });
+
+  it("leaves a stray keyword its own error where a %; before the /if wouldn't pair them", () => {
+    // tf: "unexpected /ENDIF in outer block" each time; the /if is in another $(...), behind a
+    // block that takes the /endif, or would open a condition list with no /then.
+    for (const text of [
+      "/def s03 = /set v3=see /if%; /if (1) /echo s03a%; /endif%; /endif",
+      "/def s04 = /if (1) /set v4=see /if%; /endif%; /echo s04b%; /endif",
+      "/def s05 = /echo [$(/set v5=a /if (1) /echo b)]%; /endif",
+      "/def r10 = /set v10=x /if y%; /echo [%v10]%; /endif",
+      "/def r17 = /if (1) /set v17=x /if y%; /endif%; /endif",
+    ]) {
+      expect(getDiagnostics(`${text}\n`).map((d) => d.code), text).toEqual(["block-structure"]);
+    }
+  });
+
+  it("warns about a keyword a /let or /set value takes in a block that still closes, with a fix only where it is safe", () => {
+    // tf loads it clean and sets a to "1 /else /set b=2".
+    const text = "/def a = /if (1) /set a=1 /else /set b=2%; /endif\n";
+    const d = getDiagnostics(text).find((x) => x.code === CODE)!;
+    expect(d.severity).toBe("warning");
+    expect(d.fix?.title).toBe("Put %; before /else");
+    // With a real /endif later, a %; before the swallowed one would close the /if early.
+    expect(first("/def a = /if (1) /let x=1 /endif%; /endif")?.fix).toBeUndefined();
+    // Not in text a command is given, which may hold a keyword on purpose.
+    expect(found("/def a = /if (0) /echo x /else /echo y%; /endif")).toEqual([]);
+    expect(found("/def a = /if (1) /eval /if (x) /set y=1%%; /endif%; /endif")).toEqual([]);
+  });
+
+  it("puts %; before every keyword a /set value took, as for any command", () => {
+    const d = first("/def a = /if (1) /set v27=x /else /set w27=y /endif");
+    expect(d?.severity).toBe("error");
+    expect(d?.fix?.title).toBe("Put %; before /else and /endif");
+  });
+
+  it("names //x as text, which tf sends with one / dropped", () => {
+    expect(first("/def a = /if //x /then /echo y%; /endif")?.message).toBe(
+      "/then here is not a keyword: it is part of the text before it, so the /if never reaches its /then.",
+    );
   });
 });

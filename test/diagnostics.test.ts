@@ -355,14 +355,18 @@ describe("keyword-mid-statement (rule 5)", () => {
 
   // Proven live: each of these runs clean, and with a %; before the swallowed /endif it fails
   // ("unexpected /ENDIF in outer block"): a real /endif closes the /if later, so that one is text.
-  it("says nothing about a swallowed /endif when a real one closes the /if later", () => {
+  // tf runs these clean, the first /endif in x's value (proven: s4/w1.tf p1-p4): a warning, and no
+  // fix, since a %; before it would close the /if early and leave the real /endif stray.
+  it("warns about a swallowed /endif when a real one closes the /if later, without a fix", () => {
     for (const text of [
       "/def -i p1 = /if (1) /let x=1 /endif%; /endif%; /echo p1 x=%x\n",
       "/def -i p2 = /if (1) /let x=1 /endif%; /else /echo no%; /endif%; /echo p2 x=%x\n",
       "/def -i p3 = /if (1) /let x=1 /endif%; /elseif (2) /echo no%; /endif%; /echo p3 x=%x\n",
       "/def -i p4 = /if (1) /if (2) /let x=1 /endif%; /endif%; /endif%; /echo p4 x=%x\n",
     ]) {
-      expect(codes(text), text).toEqual([]);
+      const found = getDiagnostics(text);
+      expect(found.map((d) => `${d.code}:${d.severity}`), text).toEqual(["keyword-mid-statement:warning"]);
+      expect(found[0]?.fix, text).toBeUndefined();
     }
   });
 
@@ -375,7 +379,7 @@ describe("keyword-mid-statement (rule 5)", () => {
   // Proven live: the statement's first command takes the rest, so the /if is in /set y's value.
   it("blames the statement's first /let or /set, once", () => {
     const [set, ...rest] = getDiagnostics("/def -i b = /set y=2 /let x=1 /endif /if (1) /echo%; /endif\n").filter((d) => d.code === "keyword-mid-statement");
-    expect(set?.message).toBe("This /if is part of the /set value, not a command: put %; before it.");
+    expect(set?.message).toBe("This /if is part of the /set value, not a command, so the /endif has no /if to close: put %; before it.");
     expect(rest).toEqual([]);
     expect(codes("/def -i c = /let a=1 /let b=2 /if (1) /echo%; /endif\n").filter((c) => c === "keyword-mid-statement")).toHaveLength(1);
   });
@@ -540,8 +544,9 @@ describe("messages", () => {
     ["missing-continuation", "/while (1) /echo\n", "This /while's command ends without a /done: add %; /done, or end each line but the last with \\."],
     ["missing-continuation", "/if /test 1\n", "This /if's command ends before the /then of its condition list: end each line but the last with \\."],
     ["not-substituted-here", "/load %{d}/ok.tf\n", "%{d} stays as it is in a command at the top level of a file: put /eval in front of the command to substitute it."],
-    ["keyword-mid-statement", "/def a = /if (1) /let v=1 /endif\n", "This /endif is part of the /let value, not a command: put %; before it."],
-    ["keyword-mid-statement", "/set v=1 /if (1) /echo%; /endif\n", "This /if is part of the /set value, not a command: put it on a line of its own."],
+    ["keyword-mid-statement", "/def a = /if (1) /let v=1 /endif\n", "/endif here is not a keyword: it is part of the /let value, so the /if is never closed."],
+    ["keyword-mid-statement", "/def a = /set v=1 /if (1) /echo%; /endif\n", "This /if is part of the /set value, not a command, so the /endif has no /if to close: put %; before it."],
+    ["keyword-mid-statement", "/def a = /if (1) /set a=1 /else /set b=2%; /endif\n", "/else here is not a keyword: it is part of the /set value, so tf runs it as text: put %; before it if it should start a statement."],
     ["substitution-in-expression", "/def a = /if ($[1]) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: drop the $[ and ]."],
     ["substitution-in-expression", "/def a = /if ($[1] + 1) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: write (...) instead."],
     ["indented-line-after-command", "/echo a\n  /echo b\n", "Line 1 has no \\ at the end, so this indented line starts a new command: end line 1 with \\ to continue it, or remove the indentation."],

@@ -126,7 +126,7 @@ function keywordsIn(line: string): string[] {
  * The joined text with the whitespace beside each separator in the body removed: the parts of
  * an entry formatting may change. Two entries that normalise the same run the same.
  */
-function normalise(joined: string, body: number): string {
+export function normalise(joined: string, body: number): string {
   if (body < 0) return joined;
   const seps = topLevelSeparators(joined).filter((s) => s >= body);
   let out = "";
@@ -283,34 +283,55 @@ function indentLines(lines: string[], firstIndent: string, macroBody: boolean, u
   });
 }
 
-function rejoin(lines: string[]): string {
+/** The joined text tf reads from `lines`, which hold one entry. */
+export function rejoin(lines: string[]): string {
   return splitLogicalEntries(lines.join("\n"))[0]?.text ?? "";
+}
+
+/**
+ * tf turns each tab into spaces as it reads the file, out to the next tab stop counted from the
+ * start of the physical line (tfio.c's tfgetS(), with %tabsize, whatever %expand_tabs says). A
+ * tab after a line's indentation therefore becomes a different number of spaces when the line is
+ * re-indented, split or joined: proven with lib/tf/quoter.tf's qmac, whose `[ <tab>]` is stored
+ * as `[    ]` and became `[  ]` once re-indented. Tabs in the indentation itself become spaces
+ * that are stripped anyway.
+ */
+export function hasInnerTab(lines: string[]): boolean {
+  return lines.some((l) => !isCommentLine(l) && /\S[^\t]*\t/.test(l));
+}
+
+/**
+ * The entry's macro body laid out one statement per line, each block's children indented, or
+ * undefined when it has nothing to split or the layout would not join back to the same program.
+ * `original` holds the entry's physical lines.
+ */
+export function splitEntry(entry: LogicalEntry, original: string[], indent: string, opts: { headTabs?: boolean } = {}): string[] | undefined {
+  // `headTabs`: the caller has already checked that any tab is in the head, which stays put.
+  if (!(entry.isDefBody || entry.isOtherMacroBody) || (!opts.headTabs && hasInnerTab(original))) return undefined;
+  if (!entry.parts.every((p, i) => p.line === entry.startLine + i)) return undefined;
+  const planned = plannedLines(entry);
+  if (!planned) return undefined;
+  const firstIndent = (original[0] ?? "").slice(0, leadingWhitespaceLength(original[0] ?? ""));
+  const withSlashes = planned.map((l, i) => (i < planned.length - 1 ? `${l}\\` : l));
+  const rebuilt = indentLines(withSlashes, firstIndent, true, indent);
+  const body = macroBodyStart(entry.text);
+  // A statement that starts with `;` or `#` would become a comment line, which tf skips.
+  if (rebuilt.some((l, i) => i > 0 && isCommentLine(l))) return undefined;
+  return normalise(rejoin(rebuilt), body) === normalise(entry.text, body) ? rebuilt : undefined;
 }
 
 function formatEntry(entry: LogicalEntry, original: string[], options: FormatOptions): string[] {
   const macroBody = entry.isDefBody || entry.isOtherMacroBody;
   const firstIndent = (original[0] ?? "").slice(0, leadingWhitespaceLength(original[0] ?? ""));
-  const contiguous = entry.parts.every((p, i) => p.line === entry.startLine + i);
-  // tf turns each tab into spaces as it reads the file, out to the next tab stop counted from
-  // the start of the physical line (tfio.c's tfgetS(), with %tabsize, whatever %expand_tabs
-  // says). A tab after a line's indentation therefore becomes a different number of spaces
-  // when the line is re-indented or split: proven with lib/tf/quoter.tf's qmac, whose
-  // `[ <tab>]` is stored as `[    ]` and became `[  ]` once re-indented. Such entries are left
-  // exactly as written. Tabs in the indentation itself become spaces that are stripped anyway.
-  if (original.some((l) => !isCommentLine(l) && /\S[^\t]*\t/.test(l))) return original;
+  // Such entries are left exactly as written (see hasInnerTab).
+  if (hasInnerTab(original)) return original;
   // At the top level `%;` separates nothing, so there are no statements to line up; only a
   // block (`/if (x) \`) has a shape to indent. Anything else is left as the author wrote it.
   if (!macroBody && !keywordsIn(original[0] ?? "").some((k) => OPENERS.has(k))) return original;
 
-  if (options.splitStatements && macroBody && contiguous) {
-    const planned = plannedLines(entry);
-    if (planned) {
-      const withSlashes = planned.map((l, i) => (i < planned.length - 1 ? `${l}\\` : l));
-      const rebuilt = indentLines(withSlashes, firstIndent, true, options.indent);
-      const body = macroBodyStart(entry.text);
-      const ok = !rebuilt.some((l, i) => i > 0 && isCommentLine(l)) && normalise(rejoin(rebuilt), body) === normalise(entry.text, body);
-      if (ok) return rebuilt;
-    }
+  if (options.splitStatements && macroBody) {
+    const rebuilt = splitEntry(entry, original, options.indent);
+    if (rebuilt) return rebuilt;
   }
   return indentLines(original, firstIndent, macroBody, options.indent);
 }

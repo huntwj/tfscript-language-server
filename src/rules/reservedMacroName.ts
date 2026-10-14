@@ -1,4 +1,5 @@
 import { RESERVED_MACRO_NAMES } from "../data/commands";
+import { code } from "../structure";
 import { getDocumentSymbols } from "../symbols";
 import type { FileRule, LineMatch } from "./types";
 
@@ -16,11 +17,20 @@ export const reservedMacroName: FileRule = {
   check(text: string): LineMatch[] {
     return getDocumentSymbols(text)
       .filter((s) => s.kind === "def" && RESERVED_MACRO_NAMES.has(s.name.toLowerCase()))
-      .map((s) => ({
-        line: s.selectionRange.start.line,
-        startChar: s.selectionRange.start.character,
-        endChar: s.selectionRange.end.character,
-        message: `tf refuses this /def: "${s.name}" is a reserved word, so nothing is defined and /${s.name.toLowerCase()} keeps meaning tf's own ${s.name.toLowerCase() === "eval" ? "command" : "keyword"}.`,
-      }));
+      .map((s) => {
+        const name = s.name.toLowerCase();
+        const what = name === "eval" ? "command" : "keyword";
+        return {
+          line: s.selectionRange.start.line,
+          startChar: s.selectionRange.start.character,
+          endChar: s.selectionRange.end.character,
+          message: `"${s.name}" is a reserved word, so tf refuses this /def and defines nothing: pick another name.`,
+          label: "reserved word",
+          explanation:
+            `tf won't define a macro named after one of its control-flow keywords or ${code("eval")}. It skips the ` +
+            `whole ${code("/def")} with the error ${code(`"${s.name}" is a reserved word.`)}, and ${code(`/${name}`)} keeps ` +
+            `meaning tf's own ${what}.`,
+        };
+      });
   },
 };

@@ -71,6 +71,15 @@ describe("unresolved-load", () => {
     expect(tfpath?.message).toContain("%{TFPATH} is set inside an /if or /while above");
   });
 
+  it("warns about a missing file whose name starts with a %% run, at the first % written", () => {
+    // tf looks for %g.tf here.
+    for (const eol of ["\n", "\r\n"]) {
+      const [d] = check({ [p("tfrc")]: `/if (1) /load %%g.tf%; /endif${eol}` }, p("tfrc"));
+      expect(d).toMatchObject({ severity: "warning", range: { start: { line: 0, character: 14 }, end: { line: 0, character: 20 } } });
+      expect(d?.message).toContain('"%%g.tf" (%g.tf)');
+    }
+  });
+
   it("warns about a missing file in a top-level /if whose name has a %% run", () => {
     const [d] = check({ [p("tfrc")]: "/if (1) /load x%%y.tf%; /endif\n" }, p("tfrc"));
     expect(d).toMatchObject({ severity: "warning", range: { start: { line: 0, character: 14 } } });

@@ -106,6 +106,11 @@ describe("findLoadPaths", () => {
     expect(files("/load %{d}/a.tf\n/if (1) /load %{d}/b.tf%; /endif\n/eval -son /load %{d}/c.tf\n")).toEqual(["%{d}/c.tf"]);
   });
 
+  it("covers a leading %% run as written, linking the shortened name", () => {
+    const [load] = findLoadPaths("/if (1) /load %%g.tf%; /endif\n");
+    expect(load).toMatchObject({ file: "%g.tf", range: { start: { line: 0, character: 14 }, end: { line: 0, character: 20 } } });
+  });
+
   it("links the name after each level's pass, outer first", () => {
     expect(files("/if (1) /eval -son /load a%%%%b.tf%; /endif\n/if (1) /eval /load %%{d}/x.tf%; /endif\n")).toEqual(["a%%b.tf"]);
   });

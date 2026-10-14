@@ -103,10 +103,11 @@ function shortened(src: Source, start: number, end: number): Source {
   while (i < end) {
     let j = i + 1;
     if (src.text[i] === "%") while (j < end && src.text[j] === "%") j += 1;
-    // A run of two or more `%`s drops its first; anything else is kept.
+    // A run of two or more `%`s drops its first; anything else is kept. The first `%` kept maps
+    // to the dropped one, so a range over the result still covers everything written.
     for (let k = j - i > 1 ? i + 1 : i; k < j; k += 1) {
       text += src.text[k];
-      map.push(src.map[k] as number);
+      map.push(src.map[k === i + 1 && j - i > 1 ? i : k] as number);
     }
     i = j;
   }

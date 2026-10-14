@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `block-structure` reports a `/break` inside `$(...)` that would jump out of it: one that would
+  end a loop opened outside the `$(...)`, which tf dev rejects when it compiles the macro, and one
+  with no loop (or too few) to end inside it, which compiles but stops the macro with an internal
+  error when it runs.
+
 - "Extract to a new macro" (`refactor.extract`): moves selected statements, or whole `/if` and
   `/while` blocks, of a macro body into a new `/def` above it and calls it, passing the arguments
   on with `%*`. It is shown disabled, with the reason, when the call wouldn't run the same: a

@@ -230,7 +230,12 @@ describe("deep nesting", () => {
       `/echo ${"$[".repeat(n)}1${"]".repeat(n)}`,
       `/echo ${"%{x-".repeat(n)}${"}".repeat(n)}`,
     ];
-    for (const body of bodies) expect(() => checkStructure(body, "body")).not.toThrow();
+    for (const body of bodies) {
+      expect(() => checkStructure(body, "body")).not.toThrow();
+      // It says where it stopped, rather than leaving the rest silently unchecked.
+      expect(checkStructure(body, "body").map((i) => i.kind)).toEqual(["too-deep"]);
+    }
     expect(() => checkStructure(`${"/if (1) ".repeat(n)}/echo x${"%; /endif".repeat(n)}`, "top")).not.toThrow();
+    expect(checkStructure(`${"/if (1) ".repeat(150)}/echo x${"%; /endif".repeat(150)}`, "body")).toEqual([]);
   });
 });

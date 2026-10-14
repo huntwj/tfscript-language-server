@@ -43,7 +43,9 @@ export type StructureKind =
   /** A substitution, command substitution, string or condition that never closes. */
   | "bracket"
   /** A %; right after /if (...) or /else, which sends a blank line to the world. */
-  | "blank-line";
+  | "blank-line"
+  /** Nesting past MAX_DEPTH levels, where the check stops (information, not a problem in tf). */
+  | "too-deep";
 
 /** A span of the checked text with a note on it, shown as a related location. */
 export interface IssueNote {
@@ -372,10 +374,19 @@ class Parser {
   /**
    * `fn()` one level deeper. Blocks, `$(...)`, `$[...]` and substitution defaults nest by recursion,
    * so a pathological nesting (thousands of `/if`s) would overflow the stack; past MAX_DEPTH the
-   * check stops, reporting what it found so far.
+   * check stops there, and says so.
    */
   private deeper<T>(fn: () => T): T {
-    if (this.depth >= MAX_DEPTH) throw new Stop();
+    if (this.depth >= MAX_DEPTH) {
+      this.fail("too-deep", this.i, this.i + 1, {
+        message: `This command nests more than ${MAX_DEPTH} levels deep, so the rest of it isn't checked.`,
+        label: `${MAX_DEPTH} levels deep`,
+        explanation:
+          `Blocks (${code("/if")}, ${code("/while")}) and substitutions (${code("$(...)")}, ${code("$[...]")}, ` +
+          `${code("%{...}")} defaults) nested this deep are past what this check follows. That says nothing about ` +
+          "tf: the rest of the command may well be fine, it just isn't checked.",
+      });
+    }
     this.depth += 1;
     try {
       return fn();

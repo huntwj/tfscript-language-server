@@ -1,3 +1,4 @@
+import { code } from "../structure";
 import type { EntryRule, EntryMatch } from "./types";
 
 /**
@@ -48,14 +49,18 @@ export const badSubstitutionSelector: EntryRule = {
       const nextChar = entry.text[afterSelector];
       if (nextChar !== "%" && nextChar !== "$") continue;
 
+      const selector = m[1] as string;
       matches.push({
         start: afterSelector,
         end: afterSelector + 1,
-        message:
-          `after a %{...} selector, tf only accepts '-' (a default value) or '}' here — ` +
-          `a second substitution directly glued on, like this '${nextChar}', is "unmatched ` +
-          `{ or illegal character" to real tf, not a nested substitution. Nesting only ` +
-          `works through the default value: %{selector-${nextChar === "%" ? "%{...}" : "$[...]"}}.`,
+        message: `%{${selector} needs a } or a - after the name: another substitution can't follow it directly.`,
+        label: "needs } or - here",
+        explanation:
+          `After the name in ${code(`%{${selector}`)}, tf only accepts ${code("}")}, which ends the substitution, or ` +
+          `${code("-")}, which starts a default value. To use another substitution as the default, write ` +
+          `${code(`%{${selector}-${nextChar === "%" ? "%{...}" : "$[...]"}}`)}; to put two values side by side, close the ` +
+          `first one: ${code(`%{${selector}}${nextChar === "%" ? "%{...}" : "$[...]"}`)}.`,
+        related: [{ start: m.index, end: m.index + 2, message: "this %{" }],
       });
     }
 

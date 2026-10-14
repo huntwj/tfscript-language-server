@@ -651,13 +651,16 @@ Why the call runs the same, proven in real tf (tf-script-check, 2026-10-14):
   the same way.
 - tf's scoping is dynamic: a macro called from another sees the caller's `/let` locals, and an
   assignment in an expression (`:=`, `++`) sets the nearest local, the caller's included.
-- The call is always `/name %*`, which passes the arguments on word for word: `%1`, `%*`, `%#`,
+- The call is always `/name %*`, which passes the arguments on word for word when the macro was
+  called as a command (`/foo a b`): `%1`, `%*`, `%#`,
   `%L`, `%-1`, `%-L`, `{#}`, `{1}`, `{*}` and the braced forms came out the same, with arguments
   holding quotes, `%;`, `%%`, `$[...]` and `\`, and in a trigger's and a hook's body, and with no
   arguments passing `%*` changes none of them. Always, because `/eval` text and `eval()` share the
   running macro's arguments, so a `%%1` or `\%1` there reads them too. `%Pn` reads the caller's
   last regexp match, `%?` its last result, and after the call `%?` is the new macro's last result,
-  which is what it was before.
+  which is what it was before. Called as a function, `foo("p q", "r")`, a macro keeps its
+  arguments as passed, but `%*` joins them with blanks and the new macro splits them again
+  (`%1=[p]` instead of `[p q]`), so that case is refused (below).
 
 When it is disabled:
 
@@ -671,6 +674,13 @@ When it is disabled:
 - `/return`, `/result`, `/exit` (they would end the new macro), `/shift` and `getopts()` (they
   act on the running macro's arguments), `%0` (its name), and a `/break` not inside a `/while`
   that is selected too;
+- a selection inside a `/while` that makes a local and reads it, unless its first use is a
+  `/let` of the selection's own that doesn't read it: the loop's next turn sees the last turn's
+  local, where a new macro's starts afresh each call (in tf, `/if (seen) ...%; /let seen=1` saw
+  `seen` on later turns; extracted, never);
+- moved text that reads the arguments (or runs `/eval` or `eval()` of text built when it runs)
+  out of a macro called as a function anywhere the workspace can see;
+- `/break 0`, which tf refuses to compile;
 - a `%|` or `%\` beside the selection, which ties it to the statement next to it;
 - the inside of a `$(...)`, or a condition list on its own;
 - a tab after a line's indentation (tf turns it into spaces by column, and the column moves), or
@@ -693,8 +703,10 @@ blank line) is made. Where it can't be done safely it is offered disabled, with 
 
 Why the body runs the same in the caller, from what extracting proved: tf's scoping is dynamic,
 so the body already reads and assigns the caller's `/let` locals, and its `%Pn` and `%?` are
-already the caller's; called as `/foo %*` it gets the caller's arguments word for word, and called
-as `/foo` it gets none, so then only a body that reads no argument runs the same; both are
+already the caller's; called as `/foo %*` it gets the caller's arguments word for word when the
+caller was called as a command, and called as `/foo` it gets none, so then only a body that reads
+no argument (nor runs `/eval` or `eval()` of text built when it runs, which can read them) runs
+the same; both are
 top-level `/def` bodies, substituted the same way. Fourteen macros inlined by the code (arguments
 through `%*`, a branch, the caller's locals read and assigned, a `/let` of the body's own, a
 trigger, `%?` and `%P` across the call, a `/while` with its own `/break`, a body over several
@@ -703,7 +715,13 @@ lines, and every call of a macro) printed the same in tf (tf-script-check, 2026-
 When it is disabled, each checked in tf where the reason is a behaviour:
 
 - `/return`, `/result` and `/exit` (they would end the caller), `/shift` and `getopts()` (the
-  caller's arguments), `%0` (the caller's name);
+  caller's arguments), `%0` (the caller's name), `/break 0` (tf refuses to compile it);
+- a call inside a `/while` of the caller when the body makes any local: inlined, the loop's next
+  turn sees the last turn's (in tf, `/let n=$[n+1]` called in a /while gave 1,1,1; inlined,
+  1,2,3), where each call started without one;
+- `/foo %*` with a body that reads arguments, in a caller called as a function anywhere the
+  workspace can see: `%*` joins function arguments with blanks and /foo splits them again (in tf,
+  `go("p q", "r")` gave /foo `%1=[p]`, inlined `[p q]`);
 - a `/break` not inside a `/while` of the body: in a macro it ends the macro, inlined it would
   end the loop the call is in;
 - a `/let`, or an assignment to a name with no local (which makes one when no variable of that

@@ -7,8 +7,10 @@
   `/def`. It is shown disabled, with the reason, when the body wouldn't run the same in the caller:
   `/return`, `/result`, `/exit`, `/shift`, `getopts()`, `%0`, a `/break` outside the body's own
   loop, a `/let` or new local the caller would see, `regmatch()` with the caller's `%P`, arguments
-  other than `%*`, `/!foo`, a call in `$(...)` or a condition, a macro that may have another `/def`
-  (or is in tf's library, made to be redefined), and recursion.
+  other than `%*` (and `%*` itself when the caller is called as a function, `go(...)`), a body
+  that makes a local when the call is inside a `/while`, `/!foo`, a call in `$(...)` or a
+  condition, a macro that may have another `/def` (or is in tf's library, made to be redefined),
+  and recursion.
 - `block-structure` reports a `/break` inside `$(...)` that would jump out of it: one that would
   end a loop opened outside the `$(...)`, which tf dev rejects when it compiles the macro, and one
   with no loop (or too few) to end inside it, which compiles but stops the macro with an internal
@@ -19,7 +21,9 @@
   `/let`, or an assignment to a name with no local, that the rest of the macro needs, `/return`,
   `/result`, `/exit`, `/shift`,
   `getopts()`, `%0`, a `/break` out of the selection, `regmatch()` whose `%P` is read afterwards,
-  a `%|` beside the selection, or a tab that would move.
+  a `%|` beside the selection, a tab that would move, a local the selection reads across a
+  `/while`'s turns, or argument reads moved out of a macro called as a function (whose arguments
+  `%*` would split again).
 - Call hierarchy for macros: who calls a macro (in every tf script in the workspace folder and on
   the load path, or every folder for a library macro, grouped by the macro, trigger, hook or file
   top level each call is in, and only calls that run that `/def` from the caller's load path) and

@@ -23,7 +23,11 @@
     file named `a.tf%; /load b.tf` and is now a not-found warning;
   - `/eval` text is split on `%;` and run statement by statement, so `/eval /load a.tf%; /load
     b.tf` follows both, and `/eval /set d=...%; /load %{d}/x.tf` uses the new `d`; `-s` levels
-    are honoured (`-s0` reads the text as one command, `-son` splits without substituting);
+    are honoured (`-s0` reads the text as one command unless it starts with `/if` or `/while`,
+    `-son` splits it without substituting, so `%{x}` stays literal and `%%` becomes `%`);
+  - a `/set` inside a top-level `/if` or `/while` may not run, so the variable it changes is
+    treated as unknown (an information note) instead of taking the new value;
+  - `/set x =1` sets `x` to `=1`, as tf does, and `/setenv` is tracked like `/set`;
   - a load only counts at the start of a statement: `/echo hi /load x.tf` and `/test` text are
     no longer followed, nor is anything on a line tf can't compile;
   - `/load` with an option other than `-q` loads nothing, and `-` ends the options;

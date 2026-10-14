@@ -137,7 +137,10 @@ not taken from the manual:
   work;
 - `/require` skips a file whose `/loaded` token has already run — by token, not filename;
 - a top-level line isn't substituted, so `/load %{dir}/x.tf` fails in tf too, while
-  `/eval /load %{dir}/x.tf` works; `/set` lines on the path are tracked so these resolve.
+  `/eval /load %{dir}/x.tf` works; `/set` and `/setenv` commands that run while a file on the
+  path loads are tracked so these resolve. One inside an `/if` or `/while` may not run, so unless
+  it sets the value the variable already has, the variable is treated as unknown from there on
+  (an information note, not a guess).
 
 The same rules make each `/load` and `/require` filename a link to the file tf would open
 (`src/documentLinks.ts`). A load that runs while the file loads — a top-level command, or one a
@@ -147,8 +150,9 @@ nothing is known about a file nothing loads, so those resolve with the settings 
 for:
 
 - a filename tf wouldn't find;
-- `~user/...`, which tf takes from user's home directory, unless a `~user` folder in tf's
-  current directory has the file: tf opens that one when there is no such user, so it is linked;
+- `~user/...`, which tf takes from that user's home directory whenever the user exists. Only
+  when there is no such user does tf open a `~user` folder in its current directory instead; a
+  link goes to that folder's file if it exists, since the user's home can't be checked;
 - one with a `%`, `$` or `\` in it, which is substituted when it runs — so a Windows path like
   `/load C:\x\a.tf` gets none either;
 - a load in a `/def` nested inside another macro's body, which is only text until the outer

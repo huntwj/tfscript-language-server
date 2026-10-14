@@ -9,7 +9,7 @@
 export const COMMAND_DESCRIPTIONS: Readonly<Record<string, string>> = {
   // control-flow keywords (tinyfugue/src/expand.c)
   // Like every keyword, each of these is only read as one at the start of a statement.
-  "break": "Leaves the innermost `/while` loop, or the *n* innermost with `/break n`. Outside a loop it ends the macro.",
+  "break": "Leaves the innermost `/while` loop, or the *n* innermost with `/break n`. Outside a loop it ends the macro. Inside a `$(...)` it can only end loops inside that `$(...)`.",
   "do": "Ends a `/while` condition list and starts the loop's commands: `/while /test i < 3%; /do ...%; /done`. Only after a condition list: after a `(condition)` tf rejects it.",
   "done": "Ends a `/while` loop. It only counts at the start of a statement, so it needs a `%;` before it, and anything after it needs another `%;`.",
   "else": "Starts the commands an `/if` runs when none of its conditions was true: `/if (x) ...%; /else ...%; /endif`. It only counts at the start of a statement, after a `%;`.",

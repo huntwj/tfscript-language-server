@@ -229,6 +229,20 @@ describe("/for and /repeat", () => {
     expect(scoped("/def -i t = /let s=0%; /for i 0 $[n - 1] /test s += i\n")).toEqual(["let:s L", "let:i L:for", "read:n", "assign:s L", "read:i L:for"]);
   });
 
+  it("takes a quote in a %{...} default or a $(...) as just a character", () => {
+    // Real tf: these printed "it's E", "don't L" and "it's E": the later %%x still read.
+    expect(scoped("/def -i q1 = /let x=L%; /eval /let x=E%%; /say q1 %{y-it's} %%x\n")).toEqual([
+      "let:x L",
+      "let:x L:eval",
+      "read:y",
+      "read:x L:eval",
+    ]);
+    expect(scoped("/def -i q3 = /let x=L%; /for i 1 1 /say q3 %{y-don't} %%x\n")).toEqual(["let:x L", "let:i L:for", "read:y", "read:x L"]);
+    expect(scoped("/def -i q4 = /let x=L%; /eval /let x=E%%; /say $(/echo it's) %%x\n")).toEqual(["let:x L", "let:x L:eval", "read:x L:eval"]);
+    // And in an expression: the $(...) holds no string.
+    expect(names("/def -i q5 = /test $(/echo it's) + z\n")).toEqual(["read:z"]);
+  });
+
   it("reads a /def -E condition in the deepest text it reads", () => {
     // Eight /evals in, nothing is read any deeper, but that text's own /def -E still is.
     const deep = `/def -i a = ${"/eval ".repeat(8)}/def -E"lim > 1" b = /echo\n`;

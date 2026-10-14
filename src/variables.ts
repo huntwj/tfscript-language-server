@@ -173,7 +173,7 @@ function skipString(s: string, i: number, end: number): number {
   return end;
 }
 
-/** The index just past the bracket that closes the one at `i`, skipping strings. */
+/** The index just past the bracket that closes the one at `i`, skipping strings (as in an expression). */
 function matching(s: string, i: number, end: number, open: string, close: string): number {
   let depth = 0;
   for (let k = i; k < end; k += 1) {
@@ -186,12 +186,47 @@ function matching(s: string, i: number, end: number, open: string, close: string
 }
 
 /**
+ * The index just past the `}` or `)` that closes the `{` of a `%{...}` or `${...}`, or the `(` of a
+ * `$(...)`, at `i`, or -1 if it never closes. Their text is not an expression, so a quote is just a
+ * character (`%{y-it's}`); only a `$[...]` inside has strings. A nested `%{`, `${` or `$(` closes
+ * first, and a `$(...)` ends at its first `)` outside those.
+ */
+function closeOf(s: string, i: number, to: number): number {
+  const stack = [s[i] === "(" ? ")" : "}"];
+  let k = i + 1;
+  while (k < to) {
+    const c = s[k];
+    if (c === "\\") {
+      k += 2;
+    } else if ((c === "%" || c === "$") && s[k + 1] === "{") {
+      stack.push("}");
+      k += 2;
+    } else if (c === "$" && s[k + 1] === "(") {
+      stack.push(")");
+      k += 2;
+    } else if (c === "$" && s[k + 1] === "[") {
+      k = matching(s, k + 1, to, "[", "]");
+    } else if (c === stack[stack.length - 1]) {
+      stack.pop();
+      k += 1;
+      if (stack.length === 0) return k;
+    } else {
+      k += 1;
+    }
+  }
+  return -1;
+}
+
+/**
  * Where the substitution whose selector starts at `i` (at its `{`, or just past a bare `%`) ends,
  * its `-default` and closing `}` included (varsub(): a braced default runs to the `}`, a bare
  * one to the next blank).
  */
 function substitutionEnd(s: string, i: number, to: number): number {
-  if (s[i] === "{") return matching(s, i, to, "{", "}");
+  if (s[i] === "{") {
+    const end = closeOf(s, i, to);
+    return end < 0 ? i + 1 : end;
+  }
   let k = Math.max(readSelector(s, i)?.nameEnd ?? i, i);
   if (s[k] === "-") while (k < to && !isTfSpace(s[k]) && !isStatEnd(s, k)) k += 1;
   return k;
@@ -325,9 +360,10 @@ function expression(w: Walk, from: number, to: number): void {
       while (isNameChar(s[k])) k += 1;
       i = COMMAND_NAMES.has(s.slice(i + 1, k).toLowerCase()) ? k : i + 1;
     } else if (c === "$") {
-      if (s[i + 1] === "(") i = matching(s, i + 1, to, "(", ")");
-      else if (s[i + 1] === "{") i = matching(s, i + 1, to, "{", "}");
-      else if (s[i + 1] === "[") i += 2;
+      if (s[i + 1] === "(" || s[i + 1] === "{") {
+        const end = closeOf(s, i + 1, to);
+        i = end < 0 ? i + 2 : end;
+      } else if (s[i + 1] === "[") i += 2;
       else {
         i += 1;
         while (isNameChar(s[i])) i += 1;
@@ -430,11 +466,18 @@ function handOff(src: Source, from: number, to: number, level: SubLevel): Source
       }
       const n = s[j];
       let end = j;
-      if (c === "%") {
-        if (n === "{" || n === "#" || n === "?" || n === "*" || n === "-" || isNameChar(n)) end = substitutionEnd(s, j, to);
+      if (n === "{" || (c === "$" && n === "(")) {
+        // Never closed: tf reports it; only the % or $ is taken as a substitution here.
+        const close = closeOf(s, j, to);
+        if (close < 0) {
+          add(PLACEHOLDER, i);
+          i = j;
+          continue;
+        }
+        end = close;
+      } else if (c === "%") {
+        if (n === "#" || n === "?" || n === "*" || n === "-" || isNameChar(n)) end = substitutionEnd(s, j, to);
       } else if (n === "[") end = matching(s, j, to, "[", "]");
-      else if (n === "(") end = matching(s, j, to, "(", ")");
-      else if (n === "{") end = matching(s, j, to, "{", "}");
       else {
         // $name, or $name$ (macsub())
         while (end < to && isNameChar(s[end])) end += 1;
@@ -607,7 +650,8 @@ function stringsIn(s: string, expressions: ExpressionRegion[]): Uint8Array {
         k = end;
       } else if (c === "$" && s[k + 1] === "(") {
         // A command substitution's statements are substituted as usual.
-        k = matching(s, k + 1, ex.end, "(", ")");
+        const end = closeOf(s, k + 1, ex.end);
+        k = end < 0 ? k + 2 : end;
       } else {
         k += 1;
       }

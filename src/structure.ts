@@ -128,6 +128,28 @@ export interface Statement {
 export type SubLevel = "keyword" | "newline" | "full";
 
 /**
+ * A statement, or a whole `/if`...`/endif` or `/while`...`/done` block, as offsets into the text
+ * that was parsed, with the list of statements it runs in (Parser.lists).
+ */
+export interface Unit {
+  start: number;
+  /** Where its text ends: before the `%;` after it, or after the block's `/endif` or `/done` (and the blanks after those). */
+  end: number;
+  list: number;
+  /** The command, lower case, without its `/` and any `@` or `!`: "" for text sent to the world, "if" or "while" for a block. */
+  word: string;
+  block: boolean;
+}
+
+/**
+ * A run of statements tf runs one after another: a macro body, or a block's condition list,
+ * branch or loop body, or a `$(...)`.
+ */
+export interface UnitList {
+  kind: "body" | "condition" | "cmdsub";
+}
+
+/**
  * Text tf compiles as an expression, as offsets into the text that was parsed: the inside of a
  * `$[...]` or a `(condition)`, or the text of a `/test`, `/return` or `/result` statement, which
  * is substituted at `level` first.
@@ -226,6 +248,12 @@ function isNameChar(ch: string | undefined): boolean {
   return ch !== undefined && (/[A-Za-z0-9_]/.test(ch) || ch.charCodeAt(0) >= 0x80);
 }
 
+/** The command a statement at `start` runs, lower case, without its `/` and any `@` or `!`; "" for text. */
+function commandWord(s: string, start: number): string {
+  if (s[start] !== "/") return "";
+  return (/^\/[@!]*([^\s%)]*)/.exec(s.slice(start))?.[1] ?? "").toLowerCase();
+}
+
 function isDigit(ch: string | undefined): boolean {
   return ch !== undefined && ch >= "0" && ch <= "9";
 }
@@ -279,6 +307,10 @@ class Parser {
   stopped = false;
   /** /ifs and /endifs swallowed by a /let or /set value (for let-swallows-endif). */
   readonly swallowed: Swallowed[] = [];
+  /** Every statement and block, in the order each one ended, with the list it is in. */
+  readonly units: Unit[] = [];
+  readonly lists: UnitList[] = [];
+  private listId = -1;
   constructor(private readonly s: string, private readonly mode: StructureMode) {}
 
   run(): void {
@@ -466,11 +498,28 @@ class Parser {
   }
 
   private list(subsIn: number): void {
-    this.deeper(() => this.listAt(subsIn));
+    const outer = this.listId;
+    try {
+      this.deeper(() => this.listAt(subsIn));
+    } finally {
+      this.listId = outer;
+    }
+  }
+
+  /** The statements from here on run in a list of their own. */
+  private newList(kind: UnitList["kind"]): void {
+    this.lists.push({ kind: this.cmdsub > 0 ? "cmdsub" : kind });
+    this.listId = this.lists.length - 1;
+  }
+
+  /** The statement or block that started at `start` ends here. */
+  private unit(start: number, word: string, block = false): void {
+    this.units.push({ start, end: this.i, list: this.listId, word, block });
   }
 
   private listAt(subsIn: number): void {
     let subs = subsIn;
+    this.newList(this.block === "if" || this.block === "elseif" || this.block === "while" ? "condition" : "body");
     do {
       if (subs >= NEWLINE) {
         while (isTfSpace(this.s[this.i]) || (this.s[this.i] === "\\" && isTfSpace(this.s[this.i + 1]))) this.i += 1;
@@ -488,6 +537,7 @@ class Parser {
           case "if":
           case "while": {
             this.openBlock(word, stmtStart, kwEnd, subs === KEYWORD ? NEWLINE : subs);
+            this.unit(stmtStart, word, true);
             if (subs === KEYWORD) subs = NEWLINE;
             special = word;
             break;
@@ -496,17 +546,20 @@ class Parser {
             if (this.block !== "if" && this.block !== "elseif") this.unexpected(word, stmtStart, kwEnd);
             this.block = "then";
             this.bodyStarts();
+            this.newList("body");
             continue;
           case "do":
             if (this.block !== "while") this.unexpected(word, stmtStart, kwEnd);
             this.block = "do";
             this.bodyStarts();
+            this.newList("body");
             continue;
           case "else":
           case "elseif":
             if (this.block !== "then") this.unexpected(word, stmtStart, kwEnd);
             this.endPart(stmtStart);
             this.block = word;
+            this.newList(word === "else" ? "body" : "condition");
             // An /endif swallowed before this was never going to close the /if: with a %; it
             // would, and leave this /else or /elseif stray ("unexpected /ELSE in outer block").
             (this.open[this.open.length - 1] as Open).swallowed = undefined;
@@ -532,10 +585,12 @@ class Parser {
           case "return":
           case "result":
             this.expressionStatement(subs, word);
+            this.unit(stmtStart, word);
             break;
           default:
             this.i = stmtStart;
             this.statement(subs);
+            this.unit(stmtStart, commandWord(this.s, stmtStart));
         }
       } else if (this.block === "if" || this.block === "elseif" || this.block === "while") {
         if (this.s[this.i] === "(") {
@@ -546,11 +601,14 @@ class Parser {
           if (this.isStatEnd(this.i)) this.blankLine(`${keyword} (...)`, this.i);
           this.block = this.block === "while" ? "do" : "then";
           this.bodyStarts();
+          this.newList("body");
           continue;
         }
         this.statement(subs);
+        this.unit(stmtStart, commandWord(this.s, stmtStart));
       } else {
         this.statement(subs);
+        this.unit(stmtStart, commandWord(this.s, stmtStart));
       }
 
       if (this.isCmdsubEnd(this.i)) return;
@@ -754,6 +812,7 @@ class Parser {
 
   private breakStatement(start: number, end: number): void {
     if (this.i >= this.s.length || this.isStatEnd(this.i) || this.isCmdsubEnd(this.i)) {
+      this.unit(start, "break");
       if (this.isStatEnd(this.i)) {
         this.i += 2;
         this.skipSpace();
@@ -765,6 +824,7 @@ class Parser {
     if (this.i === digits || Number(this.s.slice(digits, this.i)) <= 0) {
       this.fail("block", start, end, "/break takes a positive number of loops.");
     }
+    this.unit(start, "break");
     if (this.isStatEnd(this.i)) {
       this.i += 2;
       this.skipSpace();
@@ -1244,6 +1304,16 @@ export function parseRegions(
     spans: parser.spans,
     blocks: parser.blocks,
   };
+}
+
+/**
+ * The statements and blocks of a macro body, each with the list it runs in. `complete` is false
+ * when compiling stops at an error (tf runs none of it) or the check gives up on deep nesting.
+ */
+export function parseUnits(body: string): { units: Unit[]; lists: UnitList[]; complete: boolean } {
+  const parser = new Parser(body, "body");
+  parser.run();
+  return { units: parser.units, lists: parser.lists, complete: !parser.stopped && !parser.issues.some((i) => i.kind === "too-deep") };
 }
 
 /**

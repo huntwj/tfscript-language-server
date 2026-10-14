@@ -73,10 +73,21 @@ export interface UnresolvedLoad {
   searched: string[];
 }
 
+/** A top-level `/load` or `/require` the walk followed, and the file tf would read for it. */
+export interface ResolvedLoad {
+  from: string;
+  /** The entry's first line in `from`. */
+  line: number;
+  /** The path as written in the script, before any substitution. */
+  raw: string;
+  file: string;
+}
+
 export interface LoadGraph {
   /** Every file read, in first-load order. */
   files: LoadedFile[];
   unresolved: UnresolvedLoad[];
+  resolved: ResolvedLoad[];
 }
 
 export interface LoadGraphOptions {
@@ -122,6 +133,36 @@ export function expandVariables(text: string, vars: Map<string, string>): Expand
   return missing ? { ok: false, reason: `%{${missing}} is not set to literal text on this load path` } : { ok: true, value };
 }
 
+export interface LoadPathEnvironment {
+  /** The HOME variable, for `~`. */
+  home: string;
+  /** The TFPATH variable's directories. */
+  tfPath: string[];
+  /** The TFLIBDIR variable, searched when TFPATH is empty. */
+  libraryDir?: string;
+  /** tf's current directory. */
+  workingDir: string;
+  readFile(file: string): string | undefined;
+}
+
+/** Where tf finds the file `/load file` names (rules in the header comment), and every place it tries. */
+export function resolveLoadPath(file: string, env: LoadPathEnvironment): { found?: string; searched: string[] } {
+  let target = file;
+  if (target === "~" || target.startsWith("~/")) target = env.home + target.slice(1);
+  const candidates: string[] = [];
+  if (path.isAbsolute(target)) {
+    candidates.push(target);
+  } else {
+    candidates.push(path.join(env.workingDir, target));
+    if (env.tfPath.length > 0) {
+      for (const dir of env.tfPath) if (path.isAbsolute(dir)) candidates.push(path.join(dir, target));
+    } else if (env.libraryDir && path.isAbsolute(env.libraryDir)) {
+      candidates.push(path.join(env.libraryDir, target));
+    }
+  }
+  return { found: candidates.find((c) => env.readFile(c) !== undefined), searched: candidates };
+}
+
 function stripLoadOptions(args: string): string {
   let rest = args.trim();
   while (rest.startsWith("-")) {
@@ -142,26 +183,18 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   const files = new Map<string, LoadedFile>();
   const tokens = new Set<string>();
   const unresolved: UnresolvedLoad[] = [];
+  const resolved: ResolvedLoad[] = [];
   let seq = 0;
   let inStdlib = false;
 
   function resolve(file: string): { found?: string; searched: string[] } {
-    let target = file;
-    if (target === "~" || target.startsWith("~/")) target = (vars.get("HOME") ?? "") + target.slice(1);
-    const candidates: string[] = [];
-    if (path.isAbsolute(target)) {
-      candidates.push(target);
-    } else {
-      candidates.push(path.join(options.workingDir, target));
-      const tfPath = (vars.get("TFPATH") ?? "").split(/\s+/).filter(Boolean);
-      if (tfPath.length > 0) {
-        for (const dir of tfPath) if (path.isAbsolute(dir)) candidates.push(path.join(dir, target));
-      } else {
-        const lib = vars.get("TFLIBDIR");
-        if (lib && path.isAbsolute(lib)) candidates.push(path.join(lib, target));
-      }
-    }
-    return { found: candidates.find((c) => options.readFile(c) !== undefined), searched: candidates };
+    return resolveLoadPath(file, {
+      home: vars.get("HOME") ?? "",
+      tfPath: (vars.get("TFPATH") ?? "").split(/\s+/).filter(Boolean),
+      libraryDir: vars.get("TFLIBDIR") || undefined,
+      workingDir: options.workingDir,
+      readFile: options.readFile,
+    });
   }
 
   function handleLoads(entryText: string, from: string, line: number): void {
@@ -188,6 +221,7 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     }
     const { found, searched } = resolve(file);
     if (!found) return fail("not-found", "file not found", searched);
+    resolved.push({ from, line, raw, file: path.resolve(found) });
     walk(found, { kind, from, line });
   }
 
@@ -245,5 +279,5 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   }
   for (const entry of options.entryFiles) walk(entry, { kind: "entry" });
 
-  return { files: [...files.values()], unresolved };
+  return { files: [...files.values()], unresolved, resolved };
 }

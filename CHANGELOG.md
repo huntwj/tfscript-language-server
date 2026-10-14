@@ -10,10 +10,11 @@
   with more after it on a plain top-level line, where it doesn't separate. Information no longer
   counts as a problem in the ground-truth test or the live corpus check.
 - `not-substituted-here` also flags a `%{x}` inside a string in a condition or `$[...]`, which
-  nothing substitutes, even in a macro body, and reads the command after `/quote`'s backquote and
-  `/at`'s command as a macro body. In `/eval -soff` or `-son` text its fix leaves out the `-s`. A
-  `%;` in a `/set`, `/let` or `/setenv` value is noted without a fix, since a value can hold one on
-  purpose.
+  nothing substitutes, even in a macro body (a `$(...)` there runs as a macro body, so its quotes
+  are text), and reads the command after `/quote`'s backquote and `/at`'s command as a macro body.
+  In `/eval` or `/quote` `-soff` or `-son` text its fix leaves out the `-s`, or for a `%;` gives
+  `-son` when a command follows. A `%;` in a `/set`, `/let` or `/setenv` value is noted without a
+  fix, since a value can hold one on purpose.
 - `/@def`, `/@bind` and `/@hook` are read as the builtins they are, with a macro body.
 - "Inline /foo" (`refactor.inline`): replaces a `/foo` call in a macro body with foo's body, and
   "Inline all calls to /foo and remove it" does that for every call in the file and deletes the

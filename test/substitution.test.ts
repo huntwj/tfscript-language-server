@@ -139,4 +139,15 @@ describe("separators and strings", () => {
     expect(contextOf('/if (1) /test echo(strcat("a", $(/echo "%{x}")))%; /endif', "%{x}")).toBe("full");
     expect(contextOf("/echo $(/echo %{x})", "%{x}")).toBe("keyword");
   });
+
+  // Third review's probes p1 and n1: tf reads the $(...) as a body, where \) is text and a nested
+  // /if, /while or /test reads its own parentheses.
+  it("ends a $(...) where tf does", () => {
+    expect(contextOf('/def p1 = /if ($(/echo \\) "%{x}") =~ ") \\"XV\\"") /endif', "%{x}")).toBe("full");
+    expect(contextOf('/def p2 = /if ($(/if (1) /echo "%{x}"%; /endif) =~ "x") /endif', "%{x}")).toBe("full");
+    expect(contextOf('/if ($(/echo \\) "%{x}") =~ ") \\"XV\\"") /endif', "%{x}")).toBe("full");
+    expect(contextOf('/test echo(strcat("a", $(/echo \\) "%{x}")))', "%{x}")).toBe("full");
+    expect(contextOf('/if ($(/while (0) /done%; /echo "%{x}") =~ "x") /endif', "%{x}")).toBe("full");
+    expect(contextOf('/def n1 = /if ($(/echo \\) x") !~ "" & strlen("%{x}") == 4) /endif', "%{x}")).toBe("string");
+  });
 });

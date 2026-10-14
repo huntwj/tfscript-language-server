@@ -222,34 +222,31 @@ export function atCommand(s: string, from: number, to: number): number | undefin
 }
 
 /**
- * Where the `$(...)` whose `$` is at `at` ends (just past its `)`, or `to`). Its text is a command
- * list, where quotes are text: the first `)` outside a `$[...]` or an inner `$(...)` ends it.
- */
-function cmdsubEnd(s: string, at: number, to: number): number {
-  let brackets = 0;
-  for (let k = at + 2; k < to; k += 1) {
-    if (s[k] === "$" && s[k + 1] === "(") k = cmdsubEnd(s, k, to) - 1;
-    else if (s[k] === "$" && s[k + 1] === "[") {
-      brackets += 1;
-      k += 1;
-    } else if (s[k] === "]" && brackets > 0) brackets -= 1;
-    else if (s[k] === ")" && brackets === 0) return k + 1;
-  }
-  return to;
-}
-
-/**
  * The strings in `s[from, to)`, read as an expression reads them (tf's `is_quote()`, `\` escaping),
  * and the `$(...)`s, whose text is a command list run as a macro body, not part of the expression.
+ * Where a `$(...)` ends is the structure parser's to say (`known`, the `$(...)`s it read): its text
+ * is read at `SUB_MACRO`, so `\)` doesn't end it, and an `/if (...)`, `/while (...)` or `/test` in
+ * it reads its own parentheses (third review's probe p1). Where the parser read none (a `/test`'s
+ * text with a `$` in it is only compiled when it runs), the `$(...)` is parsed here, as a body.
  */
-function stringsIn(s: string, from: number, to: number): { strings: { start: number; end: number }[]; cmdsubs: { start: number; end: number }[] } {
+function stringsIn(
+  s: string,
+  from: number,
+  to: number,
+  known: { start: number; end: number }[],
+): { strings: { start: number; end: number }[]; cmdsubs: { start: number; end: number }[] } {
   const strings: { start: number; end: number }[] = [];
   const cmdsubs: { start: number; end: number }[] = [];
   for (let k = from; k < to; k += 1) {
     if (s[k] === "$" && s[k + 1] === "(") {
-      const end = cmdsubEnd(s, k, to);
-      cmdsubs.push({ start: k + 2, end: s[end - 1] === ")" ? end - 1 : end });
-      k = end - 1;
+      // known holds the inside, from after the ( to the ) that closes it.
+      let inner = known.find((c) => c.start === k + 2);
+      if (!inner) {
+        const read = parseRegions(s.slice(k, to), "body").cmdsubs.find((c) => c.start === 2);
+        inner = read ? { start: k + 2, end: k + read.end } : { start: k + 2, end: to };
+      }
+      cmdsubs.push(inner);
+      k = inner.end;
       continue;
     }
     const quote = s[k];
@@ -284,13 +281,13 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
 
   /**
    * Expressions, outer before inner, then the strings in each: a string in a condition or `$[...]`
-   * is never substituted. A `$(...)` in an expression runs as a macro body (review probes e1-e3:
+   * is never substituted. A `$(...)` in an expression runs as a macro body (second review's e1-e3:
    * `/if ($(/echo "%{x}") =~ ...)` compares `"XV"`, at the top level too).
    */
-  const expressions = (src: Source, list: ExpressionRegion[]): void => {
+  const expressions = (src: Source, list: ExpressionRegion[], known: { start: number; end: number }[]): void => {
     for (const ex of [...list].sort((a, b) => a.start - b.start || b.end - a.end)) {
       mark(src, ex.start, ex.end, "expression", true);
-      const { strings, cmdsubs } = stringsIn(src.text, ex.start, ex.end);
+      const { strings, cmdsubs } = stringsIn(src.text, ex.start, ex.end, known);
       for (const str of strings) mark(src, str.start, str.end, ex.kind === "statement" ? (ex.level ?? "keyword") : "string", true);
       for (const c of cmdsubs) mark(src, c.start, c.end, "full");
     }
@@ -307,7 +304,7 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
     const regions = parseRegions(s, mode);
     if (mode === "body") {
       mark(src, 0, s.length, "full");
-      expressions(src, regions.expressions);
+      expressions(src, regions.expressions, regions.cmdsubs);
       return;
     }
     // Where the text is split into statements, `%;` separates: it is read at the newline level.
@@ -375,7 +372,7 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
       statements.push(out);
     }
     // Expressions last: what is evaluated as an expression is read so wherever it sits.
-    expressions(src, regions.expressions);
+    expressions(src, regions.expressions, regions.cmdsubs);
   };
 
   read({ text: entry.text, map: Array.from({ length: entry.text.length + 1 }, (_, i) => i) }, "top", 0, undefined);

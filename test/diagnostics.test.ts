@@ -141,6 +141,18 @@ describe("not-substituted-here (rule 4)", () => {
     expect(message('/def e1 = /if ($(/echo "%{x}") =~ "\\"XV\\"") /echo s%; /endif')).toEqual([]);
     expect(message('/def e5 = /echo $[strcat("a", $(/echo "%{x}"))]')).toEqual([]);
     expect(message('/test echo(strcat("a", $(/echo "%{x}")))')).toEqual([]);
+    // Third review's probes p1 and n1: P1-P6 print XV; N1's string holds the literal text.
+    expect(message('/def p1 = /if ($(/echo \\) "%{x}") =~ ") \\"XV\\"") /echo s%; /endif')).toEqual([]);
+    expect(message('/def p2 = /if ($(/if (1) /echo "%{x}"%; /endif) =~ "\\"XV\\"") /echo s%; /endif')).toEqual([]);
+    expect(message('/test echo(strcat("a", $(/echo \\) "%{x}")))')).toEqual([]);
+    expect(message('/if ($(/while (0) /done%; /echo "%{x}") =~ "\\"XV\\"") /echo s%; /endif')).toEqual([]);
+    expect(message('/def n1 = /if ($(/echo \\) x") !~ "" & strlen("%{x}") == 4) /echo l%; /endif')).toEqual([inString]);
+  });
+
+  // Third review: tf runs /if(1) as a command named "if(1)", so the line isn't raised to the newline level.
+  it("notes a %; on a line starting /if( with no blank, which isn't an /if", () => {
+    const [d] = getDiagnostics("/if(1) /echo a%; /echo b%; /endif\n").filter((x) => x.code === "not-substituted-here");
+    expect(d?.severity).toBe("information");
   });
 
   // Review probes p1 (A4) and p2 (B1): the command after /quote's backquote is run as a macro body.

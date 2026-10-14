@@ -27,11 +27,15 @@ function overlaps(a: Range, b: Range): boolean {
   return comparePositions(a.start, b.end) <= 0 && comparePositions(b.start, a.end) <= 0;
 }
 
-export function getCodeActions(text: string, range: Range): TfCodeAction[] {
+/**
+ * `diagnostics` defaults to the file's own (getDiagnostics); the server passes what it last
+ * published, which adds the workspace's (load-path and undefined-macro diagnostics and their fixes).
+ */
+export function getCodeActions(text: string, range: Range, diagnostics: TfDiagnostic[] = getDiagnostics(text)): TfCodeAction[] {
   const seen = new Set<string>();
   const actions: TfCodeAction[] = [];
 
-  for (const diagnostic of getDiagnostics(text)) {
+  for (const diagnostic of diagnostics) {
     if (!overlaps(diagnostic.range, range) || !diagnostic.fix) continue;
     const key = JSON.stringify(diagnostic.fix.edits);
     if (seen.has(key)) continue;

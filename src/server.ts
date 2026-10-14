@@ -302,7 +302,7 @@ function wantsQuickFix(only: string[] | undefined): boolean {
 connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   const document = documents.get(params.textDocument.uri);
   if (!document || !wantsQuickFix(params.context.only)) return [];
-  return getCodeActions(document.getText(), params.range).map((action) => ({
+  return getCodeActions(document.getText(), params.range, diagnosticsFor(document)).map((action) => ({
     title: action.title,
     kind: CodeActionKind.QuickFix,
     diagnostics: [toLspDiagnostic(action.diagnostic, document.uri)],

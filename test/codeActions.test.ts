@@ -327,3 +327,13 @@ describe("range filtering", () => {
     expect(getCodeActions(unfixable, WHOLE_FILE)).toEqual([]);
   });
 });
+
+describe("diagnostics from the workspace", () => {
+  it("offers the fixes of the diagnostics it is given, such as the load-path ones the server adds", () => {
+    const text = "/def a = /helpr\n";
+    const edit = { range: { start: { line: 0, character: 10 }, end: { line: 0, character: 15 } }, newText: "helper" };
+    const workspace = [{ range: edit.range, message: "x", code: "undefined-macro", severity: "warning" as const, fix: { title: "Change to /helper", edits: [edit] } }];
+    expect(getCodeActions(text, WHOLE_FILE, workspace).map((a) => a.title)).toEqual(["Change to /helper"]);
+    expect(getCodeActions(text, WHOLE_FILE)).toEqual([]);
+  });
+});

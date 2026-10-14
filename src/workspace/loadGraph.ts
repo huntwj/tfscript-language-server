@@ -272,6 +272,8 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
       return fail(why.kind, why.reason, searched, unknownVar);
     }
     if (!found) {
+      // ~ and ~/... are under HOME; with no HOME known here, the path looked at means nothing.
+      if (/^~(?:\/|$)/.test(file) && !vars.get("HOME")) return fail("unknown-variable", "HOME isn't known on this load path", [], "HOME");
       // Without a substitution pass %{x} is literal text: a name tf really looks for, but most likely a mistake.
       if (namesVariable && !load.pending.includes("full")) return fail("not-substituted", "this path is not substituted here; prefix the command with /eval", searched);
       const user = /^~([^/]+)/.exec(file)?.[1];

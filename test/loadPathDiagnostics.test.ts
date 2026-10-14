@@ -6,12 +6,13 @@ import { loadPathDiagnostics, type LoadPathDiagnosticOptions } from "../src/work
 const ROOT = path.resolve("/fake");
 const p = (...parts: string[]) => path.join(ROOT, ...parts);
 
-function check(files: Record<string, string>, file: string, options: Partial<LoadPathDiagnosticOptions> = {}) {
+function check(files: Record<string, string>, file: string, options: Partial<LoadPathDiagnosticOptions> = {}, home?: string) {
   const byKey = new Map(Object.entries(files).map(([k, v]) => [path.resolve(k).toLowerCase(), v]));
   const graph = buildLoadGraph({
     entryFiles: [p("tfrc")],
     workingDir: p("cwd"),
     readFile: (f) => byKey.get(path.resolve(f).toLowerCase()),
+    ...(home ? { home } : {}),
   });
   return loadPathDiagnostics(file, files[file] as string, graph, {
     unresolvedLoads: true,
@@ -37,6 +38,16 @@ describe("unresolved-load", () => {
     const [abs] = check({ [p("tfrc")]: `/load ${p("lib", "gone.tf")}\n` }, p("tfrc"));
     expect(abs?.message).toBe(`tf won't find "${p("lib", "gone.tf")}": fix the path.`);
     expect(abs?.explanation).toBe(`The path is absolute, so tf looks only at \`${p("lib", "gone.tf")}\`.`);
+  });
+
+  it("says a ~/ path is under HOME, and that HOME isn't known when it isn't, rather than show a made-up path", () => {
+    const [known] = check({ [p("tfrc")]: "/load ~/x.tf\n" }, p("tfrc"), {}, p("home"));
+    expect(known?.message).toBe(`tf won't find "~/x.tf" in its HOME directory (${p("home", "x.tf")}): fix the path.`);
+    const [unknown] = check({ [p("tfrc")]: "/load ~/x.tf\n/load ~\n" }, p("tfrc"));
+    expect(unknown).toMatchObject({ severity: "information" });
+    expect(unknown?.message).toBe(
+      "This load can't be followed here: HOME isn't known on this load path, and ~ means tf's HOME: set tfscript.homeDirectory.",
+    );
   });
 
   it("points at the load the warning is about when an /eval line names the same file twice", () => {

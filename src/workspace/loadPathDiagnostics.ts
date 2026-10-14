@@ -75,13 +75,20 @@ function rangeOf(lines: string[], entries: LogicalEntry[], u: UnresolvedLoad) {
 }
 
 function unresolvedDetail(u: UnresolvedLoad): Pick<TfDiagnostic, "message" | "label" | "explanation"> {
-  if (u.kind === "unknown-variable") {
+  if (u.kind === "unknown-variable" && u.variable !== "HOME") {
     return {
       message: `This load can't be followed here: ${u.reason}.`,
       label: "can't follow",
       explanation:
         `tf works the path out when it runs. This check only follows paths built from literal ${code("/set")} ` +
         "values, so it can't tell whether tf will find the file.",
+    };
+  }
+  if (u.kind === "unknown-variable" && u.variable === "HOME") {
+    return {
+      message: `This load can't be followed here: ${u.reason}, and ~ means tf's HOME: set tfscript.homeDirectory.`,
+      label: "can't follow",
+      explanation: `A path starting with ${code("~")} is under tf's ${code("HOME")}, which this check takes from ${code("tfscript.homeDirectory")}.`,
     };
   }
   if (u.kind === "guarded-variable") {
@@ -106,6 +113,15 @@ function unresolvedDetail(u: UnresolvedLoad): Pick<TfDiagnostic, "message" | "la
   const shown = u.file === u.raw ? `"${u.raw}"` : `"${u.raw}" (${u.file})`;
   // tf searches nothing for an absolute path, or one starting with ~ (resolveLoadPath), so the
   // working directory only matters for a relative one.
+  if (/^~(?:\/|$)/.test(u.file)) {
+    return {
+      message: `tf won't find ${shown} in its HOME directory (${u.searched[0] ?? ""}): fix the path.`,
+      label: "not found",
+      explanation:
+        `A path starting with ${code("~/")} is under tf's ${code("HOME")} (${code("tfscript.homeDirectory")} here), and ` +
+        "tf looks nowhere else for it.",
+    };
+  }
   if (u.file.startsWith("~") || path.isAbsolute(u.file)) {
     return {
       message: `tf won't find ${shown}: fix the path.`,

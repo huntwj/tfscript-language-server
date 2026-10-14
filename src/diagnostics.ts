@@ -87,6 +87,21 @@ function lineDiagnostic(match: LineMatch, code: string, severity: Severity): TfD
 }
 
 /**
+ * Where a rule that throws is reported: on stderr, as unhandled rejections are (rejections.ts),
+ * which the client shows in the server's output.
+ */
+let reportRuleError = (rule: string, error: unknown): void => {
+  process.stderr.write(`tfscript: rule ${rule} failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+};
+
+/** Report a rule that throws somewhere else (tests); returns the reporter it replaced. */
+export function onRuleError(report: (rule: string, error: unknown) => void): (rule: string, error: unknown) => void {
+  const previous = reportRuleError;
+  reportRuleError = report;
+  return previous;
+}
+
+/**
  * Every diagnostic for `text`. `joinFixes: false` leaves out the line-joining fixes (joinFix.ts),
  * which try out candidate fixes with this function and so must not recurse into themselves.
  */
@@ -111,15 +126,32 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
       : text;
 
   for (const rule of RULES) {
+    // A rule that throws loses its own diagnostics, for that command, not every rule's for the file.
+    let failed = false;
+    const guarded = (run: () => void): void => {
+      try {
+        run();
+      } catch (error) {
+        if (!failed) reportRuleError(rule.id, error);
+        failed = true;
+      }
+    };
     if (rule.scope === "entry") {
       for (const entry of usableEntries) {
-        for (const match of rule.check(entry)) {
-          const d = entryDiagnostic(entry, match, rule.id, rule.severity);
-          if (d) diagnostics.push(d);
-        }
+        guarded(() => {
+          const found: TfDiagnostic[] = [];
+          for (const match of rule.check(entry)) {
+            const d = entryDiagnostic(entry, match, rule.id, rule.severity);
+            if (d) found.push(d);
+          }
+          diagnostics.push(...found);
+        });
       }
     } else {
-      for (const match of rule.check(textForFileRules)) diagnostics.push(lineDiagnostic(match, rule.id, rule.severity));
+      guarded(() => {
+        const found = rule.check(textForFileRules).map((match) => lineDiagnostic(match, rule.id, rule.severity));
+        diagnostics.push(...found);
+      });
     }
   }
 

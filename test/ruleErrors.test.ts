@@ -1,0 +1,29 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { getDiagnostics, onRuleError } from "../src/diagnostics";
+import { RULES, type Rule } from "../src/rules";
+
+describe("a rule that throws", () => {
+  const thrower: Rule = {
+    id: "throws",
+    severity: "error",
+    scope: "entry",
+    check() {
+      throw new RangeError("Maximum call stack size exceeded");
+    },
+  };
+  let restore: ReturnType<typeof onRuleError> | undefined;
+
+  afterEach(() => {
+    RULES.splice(RULES.indexOf(thrower), 1);
+    if (restore) onRuleError(restore);
+  });
+
+  it("loses only its own diagnostics, and is reported once", () => {
+    const reported: string[] = [];
+    restore = onRuleError((rule, error) => reported.push(`${rule}: ${(error as Error).message}`));
+    RULES.unshift(thrower);
+    const codes = getDiagnostics("/def a = /echo $[1+2\n/def b = /echo $[3\n").map((d) => d.code);
+    expect(codes).toEqual(["expression-syntax", "expression-syntax"]);
+    expect(reported).toEqual(["throws: Maximum call stack size exceeded"]);
+  });
+});

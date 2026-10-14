@@ -89,7 +89,7 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
     expect(g.unresolved).toEqual([]);
   });
 
-  it("takes a ~ path as absolute, never searching TFPATH for it, and can't follow ~user", () => {
+  it("takes a ~ path as absolute, never searching TFPATH for it", () => {
     // Real tf: with TFPATH=/script, /load ~nosuchuser/n.tf failed though /script/~nosuchuser/n.tf exists.
     const files = {
       [p("tfrc")]: "/load ~/a.tf\n/load ~nosuchuser/n.tf\n",
@@ -100,8 +100,14 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
     expect(defNames(g)).toEqual([]);
     expect(g.unresolved.map((u) => [u.kind, u.searched])).toEqual([
       ["not-found", [p("home", "a.tf")]],
-      ["user-home", []],
+      ["user-home", [p("cwd", "~nosuchuser", "n.tf")]],
     ]);
+  });
+
+  it("follows ~user to a folder of that name in the current directory, as tf does when there is no such user", () => {
+    // Real tf: after /cd /script, /load ~nosuchuser/n.tf read /script/~nosuchuser/n.tf.
+    const g = graph({ [p("tfrc")]: "/load ~nosuchuser/n.tf\n", [p("cwd", "~nosuchuser", "n.tf")]: "/def n = 1\n" });
+    expect(defNames(g)).toEqual(["n"]);
   });
 
   it("only takes /load at the start of a statement", () => {

@@ -78,7 +78,13 @@ function unresolvedMessage(u: UnresolvedLoad): string {
       `follows paths built from literal /set values.`
     );
   }
-  if (u.kind === "user-home") return `Can't follow this load: ${u.reason}, which this check can't read.`;
+  if (u.kind === "user-home") {
+    const user = /^~([^/]+)/.exec(u.file)?.[1] ?? "";
+    return (
+      `Can't follow this load: tf takes ~${user} from user ${user}'s home directory, or, if there is no such user, ` +
+      `as a folder named ~${user} in its current directory. Write the full path to have it checked.`
+    );
+  }
   const shown = u.file === u.raw ? `"${u.raw}"` : `"${u.raw}" (${u.file})`;
   return (
     `tf won't find ${shown}. It would try, in order: ${u.searched.join(", ")}. A relative path is ` +

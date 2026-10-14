@@ -149,11 +149,14 @@ export interface LoadPathEnvironment {
 /** Where tf finds the file `/load file` names (rules in the header comment), and every place it tries. */
 export function resolveLoadPath(file: string, env: LoadPathEnvironment): { found?: string; searched: string[] } {
   // tf counts any path starting with ~ as absolute (tfio.h is_absolute_path()), so it never
-  // searches TFPATH for one. `~user` comes from the password file, which this can't read.
+  // searches TFPATH for one. `~user/...` is user's home directory from the password file, which
+  // this can't read; when there is no such user, expand_filename() leaves the name as it is and
+  // it opens relative to the current directory (proven: after /cd /script, /load
+  // ~nosuchuser/n.tf read /script/~nosuchuser/n.tf). Only that second case can be checked.
   if (file.startsWith("~")) {
-    if (file !== "~" && !file.startsWith("~/")) return { searched: [] };
-    const home = path.resolve(env.workingDir, env.home + file.slice(1));
-    return { found: env.readFile(home) !== undefined ? home : undefined, searched: [home] };
+    const named = file === "~" || file.startsWith("~/") ? env.home + file.slice(1) : file;
+    const target = path.resolve(env.workingDir, named);
+    return { found: env.readFile(target) !== undefined ? target : undefined, searched: [target] };
   }
   const target = file;
   const candidates: string[] = [];
@@ -210,10 +213,12 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     // stdlib.tf's /require passes its words on to /load with single blanks; /load trims.
     file = load.kind === "require" ? file.trim().split(/[ \t\r\f\v]+/).join(" ") : file.trim();
     if (!file) return;
-    const user = /^~([^/]+)/.exec(file);
-    if (user) return fail("user-home", `~${user[1]} is the home directory of user ${user[1]}, which tf looks up in the system's password file`);
     const { found, searched } = resolve(file);
-    if (!found) return fail("not-found", "file not found", searched);
+    if (!found) {
+      const user = /^~([^/]+)/.exec(file)?.[1];
+      if (user) return fail("user-home", `~${user} is user ${user}'s home directory, unless there is no such user`, searched);
+      return fail("not-found", "file not found", searched);
+    }
     resolved.push({ from, line, offset: load.start, raw, file: path.resolve(found) });
     walk(found, { kind: load.kind, from, line });
   }

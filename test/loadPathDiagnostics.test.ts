@@ -37,11 +37,12 @@ describe("unresolved-load", () => {
     expect(d).toMatchObject({ code: "unresolved-load", severity: "information" });
   });
 
-  it("notes, without warning, a ~user path, which tf looks up in the password file", () => {
+  it("notes, without warning, a ~user path it can't find, since user's home directory can't be checked", () => {
     const [d] = check({ [p("tfrc")]: "/load ~bob/x.tf\n" }, p("tfrc"));
     expect(d).toMatchObject({ code: "unresolved-load", severity: "information", range: { start: { line: 0, character: 6 } } });
     expect(d?.message).toBe(
-      "Can't follow this load: ~bob is the home directory of user bob, which tf looks up in the system's password file, which this check can't read.",
+      "Can't follow this load: tf takes ~bob from user bob's home directory, or, if there is no such user, " +
+        "as a folder named ~bob in its current directory. Write the full path to have it checked.",
     );
   });
 

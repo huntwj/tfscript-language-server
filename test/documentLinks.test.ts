@@ -132,12 +132,13 @@ describe("WorkspaceIndex.documentLinks", () => {
   });
 
   it("resolves loads in a file nothing loads against the working directory, then TFLIBDIR", () => {
-    const text = "/load here.tf\n/require tools.tf\n/load ~/mine.tf\n/load nowhere.tf\n/load ~bob/a.tf\n";
+    const text = "/load here.tf\n/require tools.tf\n/load ~/mine.tf\n/load nowhere.tf\n/load ~bob/a.tf\n/load ~eve/b.tf\n";
     const fs = memoryFs({
       [p("ws", "loose.tf")]: text,
       [p("ws", "here.tf")]: "",
-      // tf never reads this: ~bob is user bob's home directory, from the password file.
+      // What tf opens for ~bob/a.tf when there is no user bob; a ~eve/b.tf there is never searched for.
       [p("ws", "~bob", "a.tf")]: "",
+      [p("lib", "~eve", "b.tf")]: "",
       [p("lib", "tools.tf")]: "",
       [p("home", "mine.tf")]: "",
     });
@@ -148,6 +149,7 @@ describe("WorkspaceIndex.documentLinks", () => {
       [0, p("ws", "here.tf")],
       [1, p("lib", "tools.tf")],
       [2, p("home", "mine.tf")],
+      [4, p("ws", "~bob", "a.tf")],
     ]);
   });
 });

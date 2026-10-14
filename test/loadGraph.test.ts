@@ -157,69 +157,30 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
     expect(g.unresolved[0]?.file).not.toContain("wrong");
   });
 
-  describe("the default-value guard, /if (x =~ \"\") /set x=VALUE%; /endif (wotmud.tf's shape)", () => {
-    // Which of the two a.tf files the /eval load after it reached.
-    const loadsWith = (tfrc: string) =>
-      defNames(graph({ [p("tfrc")]: `${tfrc}/eval /load %{d}/a.tf\n`, [p("real", "a.tf")]: "/def real = 1\n", [p("wrong", "a.tf")]: "/def wrong = 1\n" })).filter(
+  describe("variables from the settings (tfscript.variables)", () => {
+    // Which of the two a.tf files the /eval load reached.
+    const loadsWith = (tfrc: string, opts: Partial<LoadGraphOptions> = {}) =>
+      defNames(graph({ [p("tfrc")]: `${tfrc}/eval /load %{d}/a.tf\n`, [p("real", "a.tf")]: "/def real = 1\n", [p("wrong", "a.tf")]: "/def wrong = 1\n" }, opts)).filter(
         (n) => n === "real" || n === "wrong",
       );
+    // ~/ai/wotmud/tf/wotmud.tf's shape: a default the user can override first.
+    const guard = `/if (d =~ "") /set d=${p("wrong")}%; /endif\n`;
 
-    it("skips the /set when the variable is already set (real tf loaded from the first value)", () => {
-      expect(loadsWith(`/set d=${p("real")}\n/if (d =~ "") /set d=${p("wrong")}%; /endif\n`)).toEqual(["real"]);
+    it("can't tell what the default-value idiom leaves without one: the variable is unknown", () => {
+      const g = graph({ [p("tfrc")]: `${guard}/eval /load %{d}/a.tf\n` });
+      expect(g.unresolved).toMatchObject([{ kind: "guarded-variable", variable: "d" }]);
     });
 
-    it("runs it when nothing on the path set the variable, in each unset-test form", () => {
-      for (const cond of ['d =~ ""', "{d} =~ ''", 'd == ""', "!d", "!{d}"]) {
-        expect(loadsWith(`/if (${cond}) /set d=${p("real")}%; /endif\n`)).toEqual(["real"]);
-      }
+    it("gives the variable its value as tf starts, which stands through a /set inside an /if", () => {
+      expect(loadsWith(guard, { variables: { d: p("real") } })).toEqual(["real"]);
     });
 
-    it("stops trusting it once something earlier may have set variables this can't see", () => {
-      // Real tf (tf-script-check, 2026-10-14): after each of these the variable was set, and the guard skipped.
-      const guard = `/if (d =~ "") /set d=${p("real")}%; /endif\n`;
-      const opaque = [
-        "/def setup = /set d=elsewhere\n/setup\n",
-        '/test d := "elsewhere"\n',
-        "/eval /set d%{nothing}=elsewhere\n",
-        "/eval /load %{unknownv}/conf.tf\n",
-        "/toggle d\n",
-        "/for i 1 1 /set d=x\n",
-        '/if (d := "elsewhere") /echo%; /endif\n',
-        ...(process.platform === "win32" ? ["/load /srv/only/in/tf/conf.tf\n"] : []),
-      ];
-      for (const before of opaque) expect([before, loadsWith(`${before}${guard}`)]).toEqual([before, []]);
+    it("is replaced by a /set that always runs", () => {
+      expect(loadsWith(`/set d=${p("wrong")}\n`, { variables: { d: p("real") } })).toEqual(["wrong"]);
     });
 
-    it("only stops trusting it for what they may set: names, and the start of names built when they run", () => {
-      const guard = `/if (d =~ "") /set d=${p("real")}%; /endif\n`;
-      // tf's library does all of these at the top level before a tfrc runs (color.tf, stdlib.tf, tfstatus.tf).
-      const elsewhere = [
-        "/def other = /set elsewhere=1%; /let d=local\n/other\n",
-        "/for i 1 2 /set start_color%i=1\n",
-        "/test pi := 3\n",
-        "/test cylon%i := 1\n",
-        "/def deep = /eval /set deeper=1\n/def outer = /deep\n/outer\n",
-      ];
-      for (const before of elsewhere) expect([before, loadsWith(`${before}${guard}`)]).toEqual([before, ["real"]]);
-      const mine = ["/for i 1 2 /set d%i=1\n", "/test d%i := 1\n", "/def deep = /eval /set d=1\n/def outer = /deep\n/outer\n"];
-      for (const before of mine) expect([before, loadsWith(`${before}${guard}`)]).toEqual([before, []]);
-    });
-
-    it("still trusts it after tf's own commands, and after a load of a folder here that finds nothing", () => {
-      expect(loadsWith(`/echo hi\n/def x = /echo\n/set y=1\n/load ${p("nowhere", "gone.tf")}\n/if (d =~ "") /set d=${p("real")}%; /endif\n`)).toEqual(["real"]);
-    });
-
-    it("runs it when the variable is set to nothing", () => {
-      expect(loadsWith(`/set d=\n/if (!d) /set d=${p("real")}%; /endif\n`)).toEqual(["real"]);
-    });
-
-    it("can't tell for == or ! on a set value (true for 0 and abc too), an upper-case name (an environment variable may set it), or another shape", () => {
-      const unknown = (tfrc: string) => loadsWith(tfrc).length === 0;
-      expect(unknown(`/set d=${p("real")}\n/if (d == "") /set d=${p("wrong")}%; /endif\n`)).toBe(true);
-      expect(unknown(`/if (D =~ "") /set D=${p("real")}%; /endif\n/eval /set d=%{D}\n`)).toBe(true);
-      expect(unknown(`/if (dd =~ "") /set dd=${p("real")}%; /endif\n/eval /set d=%{dd}\n`)).toBe(false);
-      expect(unknown(`/if (d =~ "") /set d=${p("real")}%; /echo x%; /endif\n`)).toBe(true);
-      expect(unknown(`/if (e =~ "") /set d=${p("real")}%; /endif\n`)).toBe(true);
+    it("takes the value as tf sees it, through the path mappings", () => {
+      expect(loadsWith(guard, { variables: { d: "/srv/real" }, pathMappings: [{ tf: "/srv", local: ROOT }] })).toEqual(["real"]);
     });
   });
 

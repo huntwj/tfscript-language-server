@@ -50,6 +50,7 @@ describe("resolveSettings", () => {
       workingDir: p("ws", "run"),
       home: p("home"),
       pathMappings: [],
+      variables: {},
     });
   });
 
@@ -439,5 +440,12 @@ describe("undefined macros, cost", () => {
     // tf runs elsewhere, starting with another TFPATH: only the tfrc's TFPATH reaches lib2.
     index.setSettings(p("ws"), { libraryPath: p("lib"), entryFiles: ["tfrc"], workingDirectory: p("run"), tfPath: [p("other")] });
     expect(index.loadPathDiagnostics(p("ws", "main.tf"), files[p("ws", "main.tf")]).map((d) => d.fix?.title)).toEqual(["Add /require helpers.tf"]);
+  });
+});
+
+describe("tfscript.variables", () => {
+  it("keeps names tf allows with string values, and drops the rest", () => {
+    const raw = { variables: { wotmud_repo_dir: "/wotmud", "bad name": "x", n: 3 } } as unknown as Parameters<typeof resolveSettings>[0];
+    expect(resolveSettings(raw, p("ws"), env(memoryFs({}))).variables).toEqual({ wotmud_repo_dir: "/wotmud" });
   });
 });

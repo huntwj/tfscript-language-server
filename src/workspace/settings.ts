@@ -28,6 +28,12 @@ export interface RawSettings {
    * remote host): each maps an absolute path as tf sees it (`/wotmud`) to a folder here.
    */
   pathMappings?: { tf: string; local: string }[];
+  /**
+   * Variables with a value as tf starts, name to value, as if /set after stdlib.tf (in the
+   * environment, a tfrc outside the workspace, or a default this check can't evaluate). Values
+   * are as tf sees them, so a path goes through `pathMappings`.
+   */
+  variables?: Record<string, string>;
   diagnostics?: {
     /** `/load`/`/require` paths tf wouldn't find. Default on. */
     unresolvedLoads?: boolean;
@@ -61,6 +67,8 @@ export interface ResolvedSettings {
   home: string;
   /** Longest `tf` prefix first, `tf` with forward slashes and no trailing one, `local` absolute. */
   pathMappings: PathMapping[];
+  /** Variables with a value as tf starts (valid names, string values only). */
+  variables: Record<string, string>;
 }
 
 export interface PathMapping {
@@ -162,5 +170,8 @@ export function resolveSettings(raw: RawSettings, folder: string, environment: E
     workingDir: raw.workingDirectory ? abs(raw.workingDirectory) : folder,
     home,
     pathMappings,
+    variables: Object.fromEntries(
+      Object.entries(raw.variables ?? {}).filter(([name, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && typeof value === "string"),
+    ),
   };
 }

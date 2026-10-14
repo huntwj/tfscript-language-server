@@ -210,12 +210,13 @@ function rangeOf(lines: string[], entries: LogicalEntry[], u: UnresolvedLoad) {
 
 function unresolvedDetail(u: UnresolvedLoad): Pick<TfDiagnostic, "message" | "label" | "explanation"> {
   if (u.kind === "unknown-variable" && u.variable !== "HOME") {
+    const named = u.variable ? ` To have it checked, give %{${u.variable}} a value in tfscript.variables.` : "";
     return {
-      message: `This load can't be followed here: ${u.reason}.`,
+      message: `This load can't be followed here: ${u.reason}.${named}`,
       label: "can't follow",
       explanation:
         `tf works the path out when it runs. This check only follows paths built from literal ${code("/set")} ` +
-        "values, so it can't tell whether tf will find the file.",
+        `values and ${code("tfscript.variables")}, so it can't tell whether tf will find the file.`,
     };
   }
   if (u.kind === "unknown-variable" && u.variable === "HOME") {
@@ -226,12 +227,17 @@ function unresolvedDetail(u: UnresolvedLoad): Pick<TfDiagnostic, "message" | "la
     };
   }
   if (u.kind === "guarded-variable") {
-    // No advice: the usual reason is the default-value idiom, /if (x =~ "") /set x=...%; /endif,
-    // which exists so users can override x, and the /set may be in an earlier file.
+    // The usual reason is the default-value idiom, /if (x =~ "") /set x=...%; /endif, which
+    // exists so users can override x: so the advice is to say what x is, not to move the /set.
     return {
-      message: `This load can't be followed here: %{${u.variable}} is set inside an /if or /while on the load path.`,
+      message:
+        `This load can't be followed here: %{${u.variable}} is set inside an /if or /while on the load path, and this check ` +
+        `can't tell whether that /set runs. To have it checked, give %{${u.variable}} a value in tfscript.variables.`,
       label: "can't follow",
-      explanation: `This check can't tell whether that ${code("/set")} runs, so it can't tell which file tf would load.`,
+      explanation:
+        `${code("tfscript.variables")} gives variables the value they have when tf starts, as if ${code("/set")} then, ` +
+        `for example ${code(`{ "${u.variable}": "/path/as/tf/sees/it" }`)}. Such a value stands through a ${code("/set")} ` +
+        `inside an ${code("/if")} or ${code("/while")}, the way the default-value idiom leaves a variable that is already set.`,
     };
   }
   if (u.kind === "user-home") {

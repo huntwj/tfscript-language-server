@@ -93,8 +93,11 @@ describe("unresolved-load", () => {
     const text = "/set d=/x\n/if (d =~ \"q\") /set d=/y%; /endif\n/eval /load %{d}/a.tf\n/while (0) /set TFPATH=/z%; /done\n/load b.tf\n";
     const [d, tfpath] = check({ [p("tfrc")]: text }, p("tfrc"));
     expect(d).toMatchObject({ severity: "information", range: { start: { line: 2 } } });
-    expect(d?.message).toBe("This load can't be followed here: %{d} is set inside an /if or /while on the load path.");
-    expect(d?.explanation).toBe("This check can't tell whether that `/set` runs, so it can't tell which file tf would load.");
+    expect(d?.message).toBe(
+      "This load can't be followed here: %{d} is set inside an /if or /while on the load path, and this check can't tell " +
+        "whether that /set runs. To have it checked, give %{d} a value in tfscript.variables.",
+    );
+    expect(d?.explanation).toContain("`tfscript.variables` gives variables the value they have when tf starts");
     expect(tfpath?.message).toContain("%{TFPATH} is set inside an /if or /while on the load path");
   });
 

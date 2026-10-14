@@ -1,17 +1,10 @@
 import * as path from "node:path";
-import { bodyEffects, entryCommands, shortenPercents, type Effects, type LoadCommand, type SetCommand } from "../loadCommands";
-import { macroBodyStart, type SubLevel } from "../structure";
+import { entryCommands, shortenPercents, type LoadCommand } from "../loadCommands";
+import type { SubLevel } from "../structure";
 import { splitLogicalEntries, type LogicalEntry } from "../logicalEntries";
 import { findAbortEntry } from "../rules/bareLineAfterCommand";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
-import { SPECIAL_VARIABLE_NAMES } from "../variables";
 import { toLocalPath, type PathMapping } from "./settings";
-import { ALL_COMMANDS } from "../data/commands";
-
-/** tf's built-in commands and keywords (stdlib.tf's macros are read like any other). */
-const BUILTIN_COMMANDS: ReadonlySet<string> = new Set(ALL_COMMANDS.filter((c) => c.source !== "stdlib").map((c) => c.name.toLowerCase()));
-const STDLIB_COMMANDS: ReadonlySet<string> = new Set(ALL_COMMANDS.filter((c) => c.source === "stdlib").map((c) => c.name.toLowerCase()));
-
 /**
  * Replays tf's startup load order statically: stdlib.tf (tinyfugue/src/main.c's
  * read_configuration() loads TFLIBRARY first), then each entry file in turn, following every
@@ -31,8 +24,10 @@ const STDLIB_COMMANDS: ReadonlySet<string> = new Set(ALL_COMMANDS.filter((c) => 
  *  - A top-level line is not substituted, so a `%{var}` in a plain `/load` path is taken
  *    literally (and fails); `/eval /load %{dir}/x.tf` substitutes. `/set NAME=value` lines are
  *    tracked so `/eval` paths — and TFPATH/HOME changes made in a tfrc — resolve the way tf
- *    would, as long as the value was set to literal text. One inside an `/if` or `/while` makes
- *    the variable unknown, except the default-value idiom when it can be evaluated (guardRuns()).
+ *    would, as long as the value was set to literal text. One inside an `/if` or `/while` may
+ *    not run, so it makes the variable unknown, unless it sets the value the variable already
+ *    has. The settings can give variables a value (`variables`), as if /set when tf starts,
+ *    after stdlib.tf; such a value stands through an `/if`'s or `/while`'s /set of it.
  *  - tf may run somewhere else (a container, WSL): its absolute paths go through the settings'
  *    path mappings to find the file here (resolveLoadPath()).
  *  - Reading stops where tf aborts the file (a bare line; see bareLineAfterCommand.ts).
@@ -138,6 +133,8 @@ export interface LoadGraphOptions {
   home?: string;
   /** Where tf's absolute paths are here (settings.ts). */
   pathMappings?: readonly PathMapping[];
+  /** Variables with a value as tf starts, as tf sees them (settings.ts `variables`). */
+  variables?: Readonly<Record<string, string>>;
   readFile(file: string): string | undefined;
 }
 
@@ -147,17 +144,6 @@ const LOADED_RE = /^\s*\/loaded\s+(\S+)/i;
 export function isForeignPath(p: string): boolean {
   return process.platform === "win32" && /^[\\/](?![\\/])/.test(p);
 }
-
-const NAME = "[A-Za-z_][A-Za-z0-9_]*";
-/**
- * A whole entry that is one `/if (<unset test of x>) <one statement>%; /endif`: `!x`, `!{x}`,
- * `x =~ ""`, `{x} =~ ""`, `x == ""` or `{x} == ""` (either quote). Groups: the name (2-5),
- * the operator (6), the statement (7).
- */
-const GUARD_RE = new RegExp(
-  `^\\s*/if\\s*\\(\\s*(?:(!)\\s*(?:\\{(${NAME})\\}|(${NAME}))|(?:\\{(${NAME})\\}|(${NAME}))\\s*(=~|==)\\s*(?:""|''))\\s*\\)\\s*(/\\S[\\s\\S]*?)\\s*%;\\s*/endif\\s*$`,
-  "i",
-);
 
 /** A path's identity for comparisons: resolved, and case-folded where the filesystem is. */
 export function fileKey(file: string): string {
@@ -257,67 +243,10 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
   const unknown = new Set<string>();
   /** Variables whose value is unknown because a /set inside an /if or /while may have changed it. */
   const guarded = new Set<string>();
-  /** Every variable some /set on the path has set, or tried to: a default-value guard can't call them unset. */
-  const everSet = new Set<string>(vars.keys());
   /** The search variables still holding the settings' folders here, which aren't mapped again. */
   const local = new Set(vars.keys());
-  /**
-   * What ran on the path that may have set variables this can't follow, after which a
-   * default-value guard on them is no longer trusted: variables by name or by the start of a name
-   * built when it runs (an assignment, a macro whose body sets them), and the first thing that may
-   * have set any variable at all (a name built from nothing literal, text run from elsewhere, a call
-   * to a macro this can't read, a load it can't follow).
-   */
-  const maybeSet = new Set<string>();
-  const maybeSetPrefixes: string[] = [];
-  let anything: string | undefined;
-  /** The body of each /def read so far, by lower-case name: the latest one counts. */
-  const bodies = new Map<string, string>();
-  const effectsMemo = new Map<string, Effects>();
-
-  /** What calling macro `name` may set, through the macros it calls. */
-  function callEffects(name: string, visiting = new Set<string>()): Effects {
-    const known = effectsMemo.get(name);
-    if (known) return known;
-    const body = bodies.get(name);
-    let result: Effects;
-    if (body === undefined) {
-      // tf's own commands set only their fixed variables (special ones, which a guard never
-      // trusts), and so do stdlib.tf's macros, read or not, but /toggle and /for, which set a
-      // variable named by their arguments; any other macro this hasn't read may do anything.
-      const harmless = BUILTIN_COMMANDS.has(name) || (STDLIB_COMMANDS.has(name) && name !== "toggle" && name !== "for");
-      result = { names: [], prefixes: [], calls: [], any: !harmless };
-    } else if (visiting.has(name)) {
-      return { names: [], prefixes: [], calls: [], any: false }; // a recursive call adds nothing new
-    } else {
-      visiting.add(name);
-      const effects = bodyEffects(body);
-      result = { names: [...effects.names], prefixes: [...effects.prefixes], calls: [], any: effects.any };
-      for (const call of effects.calls) {
-        const inner = callEffects(call, visiting);
-        result.names.push(...inner.names);
-        result.prefixes.push(...inner.prefixes);
-        result.any ||= inner.any;
-      }
-      visiting.delete(name);
-    }
-    effectsMemo.set(name, result);
-    return result;
-  }
-
-  function apply(effects: Effects, what: string): void {
-    const all = [effects, ...effects.calls.map((call) => callEffects(call))];
-    for (const e of all) {
-      for (const n of e.names) maybeSet.add(n);
-      maybeSetPrefixes.push(...e.prefixes);
-      if (e.any) anything ??= what;
-    }
-  }
-
-  /** Whether something on the path so far may have set `name` unseen. */
-  function maybeSetUnseen(name: string): boolean {
-    return anything !== undefined || maybeSet.has(name) || maybeSetPrefixes.some((p) => name.startsWith(p));
-  }
+  /** Variables the settings gave a value (options.variables). */
+  const seeded = new Set<string>();
 
   function searchEnv(): SearchEnvironment {
     const libraryDir = vars.get("TFLIBDIR") || undefined;
@@ -329,35 +258,6 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     };
   }
 
-  /**
-   * Whether the /if around `command` runs it, when the whole entry is the default-value idiom
-   * `/if (x =~ "") /set x=VALUE%; /endif`, or undefined when that can't be known. Proven in real
-   * tf (tf-script-check, 2026-10-14): for an unset variable, `x =~ ""`, `x == ""`, `!x` and the
-   * `{x}` forms are all true; for a set one, only `x =~ ""` is exact (true just for an empty
-   * value), since `==` and `!` compare numbers and are true for `0` and `abc` too. A variable is
-   * taken as unset when nothing on the path has set it, it isn't one of tf's special variables
-   * (`wrapspace` has a default), and its name has a lower-case letter: tf makes every environment
-   * variable a global (HOME, PATH and TERM were set at startup), and those are upper case by
-   * convention.
-   */
-  function guardRuns(entry: LogicalEntry, command: SetCommand): boolean | undefined {
-    // Real tf: after /setup (which /sets it), /test x := "real", /eval /set x%{nothing}=..., or a
-    // load from a path this can't follow, the variable was set and the guard skipped.
-    const m = GUARD_RE.exec(entry.text);
-    if (!m) return undefined;
-    const name = (m[2] ?? m[3] ?? m[4] ?? m[5]) as string;
-    if (maybeSetUnseen(name)) return undefined;
-    const body = m[7] as string;
-    if (name !== command.name || /%[;|\\]/.test(body) || !new RegExp(`^/@?set(?:env)?\\s+${name}(?:=|\\s)`, "i").test(body)) return undefined;
-    const exact = m[6] === "=~";
-    if (vars.has(name)) {
-      const value = vars.get(name) as string;
-      if (value === "") return true;
-      return exact ? false : undefined;
-    }
-    if (unknown.has(name) || everSet.has(name) || SPECIAL_VARIABLE_NAMES.has(name) || !/[a-z]/.test(name)) return undefined;
-    return true;
-  }
   const files = new Map<string, LoadedFile>();
   const tokens = new Set<string>();
   const unresolved: UnresolvedLoad[] = [];
@@ -408,12 +308,6 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     let file = load.file;
     const fail = (k: UnresolvedKind, reason: string, searched: string[] = [], variable?: string): void => {
       unresolved.push({ from, line, start: load.start, end: load.end, kind: k, raw, file, reason, searched, ...(variable ? { variable } : {}) });
-      // Any load this can't follow may set anything. One tf won't find here only loads nothing if
-      // every place it looked is a folder here: a tf path no mapping covers may exist where tf
-      // runs (proven: /eval /load %{d}/conf.tf, with d a path only tf's container had, set the
-      // variable and the guard after it skipped). On Windows such a path is rooted but has no
-      // drive; elsewhere it can't be told from a local one.
-      if (k !== "not-found" || searched.some(isForeignPath)) anything ??= `the load of ${raw}`;
     };
     // A `%` in a run of them is text, not the start of a substitution.
     const namesVariable = /%\{|%[A-Za-z_]/.test(raw.replace(/%%+/g, ""));
@@ -469,15 +363,7 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
     for (const entry of usable) {
       if (entry.isDefBody || entry.isOtherMacroBody) {
         const symbol = defsByLine.get(entry.startLine);
-        if (symbol) {
-          loaded.defs.push({ file: loaded.path, symbol, seq: seq++ });
-          // For what a call to it may set (callEffects()); a redefinition changes that.
-          const body = macroBodyStart(entry.text);
-          if (entry.isDefBody && body >= 0) {
-            bodies.set(symbol.name.toLowerCase(), entry.text.slice(body));
-            effectsMemo.clear();
-          }
-        }
+        if (symbol) loaded.defs.push({ file: loaded.path, symbol, seq: seq++ });
         continue;
       }
       const token = LOADED_RE.exec(entry.text)?.[1];
@@ -486,31 +372,22 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
         tokens.add(token);
         continue;
       }
-      if (entry.isForLoop) {
-        // stdlib's /for VAR START END COMMAND runs COMMAND as a body, with VAR its own local.
-        const command = /^\s*\/@?for\s+\S+\s+\S+\s+\S+\s+([\s\S]*)$/i.exec(entry.text)?.[1];
-        apply(command === undefined ? { names: [], prefixes: [], calls: [], any: true } : bodyEffects(command), "a /for");
-        continue;
-      }
+      if (entry.isForLoop) continue;
       for (const command of entryCommands(entry)) {
         if (!command.topLevel) continue;
-        if (command.kind === "opaque") {
-          apply(command, command.what);
-          continue;
-        }
         if (command.kind !== "set") {
           handleLoad(entry, command, loaded.path);
           continue;
         }
         if (command.name === "TFPATH" || command.name === "TFLIBDIR" || command.name === "HOME") local.delete(command.name);
+        // A value the settings gave stands through a /set that may not run.
+        if (command.conditional && seeded.has(command.name)) continue;
         const value = valueAfter(command.value, command.pending);
-        const runs = command.conditional ? guardRuns(entry, command) : true;
-        everSet.add(command.name);
-        if (runs === false) continue; // the guard is known to skip it: nothing changes
-        if (value.ok && runs === true) {
+        if (value.ok && !command.conditional) {
           vars.set(command.name, value.value);
           unknown.delete(command.name);
           guarded.delete(command.name);
+          seeded.delete(command.name);
         } else if (!value.ok || vars.get(command.name) !== value.value) {
           // A /set inside an /if or /while may or may not run: unless it sets the value the
           // variable already has, its value is no longer known.
@@ -531,6 +408,14 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
       walk(stdlib, { kind: "stdlib" });
       inStdlib = false;
     }
+  }
+  // As if /set when tf starts, after stdlib.tf: tf's own paths, so they are mapped like a tfrc's.
+  for (const [name, value] of Object.entries(options.variables ?? {})) {
+    vars.set(name, value);
+    unknown.delete(name);
+    guarded.delete(name);
+    local.delete(name);
+    seeded.add(name);
   }
   for (const entry of options.entryFiles) walk(entry, { kind: "entry" });
 

@@ -1,5 +1,5 @@
 import { isTfSpace, type LogicalEntry } from "./logicalEntries";
-import { entryStatements, parseRegions, parseStatements, type StructureMode, type SubLevel } from "./structure";
+import { entryStatements, parseStatements, type StructureMode, type SubLevel } from "./structure";
 
 /**
  * The `/load`, `/require`, `/set` and `/setenv` commands in an entry, as tf parses them. Both
@@ -68,130 +68,7 @@ export interface SetCommand extends CommandBase {
   value: string;
 }
 
-/**
- * What a command may set that the load path can't follow: variables by name, or by the start of
- * a name built when it runs (`/set start_color_gray%i=...` may set any `start_color_gray...`),
- * macros it calls (whose bodies the load graph reads to see what they set), or anything at all.
- * Proven in real tf (tf-script-check, 2026-10-14): `/def setup = /set mydir=real` then `/setup`,
- * `/test otherdir := "real"`, `/eval /set third%{nothing}dir=real`, `/toggle` and an assignment
- * in a condition each set the variable.
- */
-export interface Effects {
-  /** Variables it may set, by name. */
-  names: string[];
-  /** It may set any variable whose name starts with one of these. */
-  prefixes: string[];
-  /** Macros it calls, lower case. */
-  calls: string[];
-  /** It may set any variable: a name built when it runs with nothing before it, or text run from elsewhere. */
-  any: boolean;
-}
-
-export interface OpaqueCommand extends CommandBase, Effects {
-  kind: "opaque";
-  /** What it is, for a message. */
-  what: string;
-}
-
-export type EntryCommand = LoadCommand | SetCommand | OpaqueCommand;
-
-const NO_EFFECTS: Effects = { names: [], prefixes: [], calls: [], any: false };
-
-/** tf commands that run text this can't read: from a file or a shell, later, or as if received. */
-const RUNS_UNREAD_TEXT = new Set(["quote", "repeat", "trigger"]);
-/** An assignment in an expression: `:=`, `+=` and the like, `++x`, `x--`. */
-export const ASSIGNMENT_RE = /:=|[+\-*/]=(?!=)|\+\+|--(?=[A-Za-z_])|(?<=[A-Za-z0-9_])--/;
-const OPERATOR = String.raw`(?::=|[+\-*/]=(?!=)|\+\+|--)`;
-/** A target built when it runs: `cylon%i := ...`, `%{x} += 1`, with the name's literal start, if any. */
-const COMPUTED_TARGET_RE = new RegExp(String.raw`([A-Za-z_][A-Za-z0-9_]*)?(?:%|\$[\[{(])[^\s=:+\-*/]*\s*${OPERATOR}`, "g");
-const TARGET_RE = new RegExp(
-  String.raw`(?:\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}|([A-Za-z_][A-Za-z0-9_]*))\s*${OPERATOR}|(?:\+\+|--)\s*(?:\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}|([A-Za-z_][A-Za-z0-9_]*))`,
-  "g",
-);
-
-/** What a name written as `written` may be once built: itself, every name with its literal start, or any name. */
-function nameEffects(written: string): Effects {
-  const start = /^[A-Za-z_][A-Za-z0-9_]*/.exec(written)?.[0] ?? "";
-  if (start === written) return { ...NO_EFFECTS, names: [written] };
-  return start === "" ? { ...NO_EFFECTS, any: true } : { ...NO_EFFECTS, prefixes: [start] };
-}
-
-/** The variables an expression assigns to: by name, by the start of a name built when it runs, or any. */
-export function assignmentTargets(expression: string): Effects {
-  if (!ASSIGNMENT_RE.test(expression)) return NO_EFFECTS;
-  const out: Effects = { names: [], prefixes: [], calls: [], any: false };
-  for (const m of expression.matchAll(COMPUTED_TARGET_RE)) {
-    if (m[1]) out.prefixes.push(m[1]);
-    else out.any = true;
-  }
-  const rest = expression.replace(COMPUTED_TARGET_RE, " ");
-  for (const m of rest.matchAll(TARGET_RE)) out.names.push((m[1] ?? m[2] ?? m[3] ?? m[4]) as string);
-  // An assignment whose target is neither: `(x) := 1`.
-  if (ASSIGNMENT_RE.test(rest.replace(TARGET_RE, " "))) out.any = true;
-  return out;
-}
-
-const SET_WORD_RE = /^\/@?(?:set|setenv)\s+([^\s=]+)/i;
-
-/** What statement `stmt` may set (see Effects), if anything. */
-function statementEffects(stmt: string): (Effects & { what: string }) | undefined {
-  const set = SET_WORD_RE.exec(stmt);
-  // (A /set NAME with nothing after it only shows the variable.)
-  if (set && !/^\/@?(?:set|setenv)\s+[A-Za-z_][A-Za-z0-9_]*\s*$/i.test(stmt)) {
-    return { ...nameEffects(set[1] as string), what: "a /set whose name is built when it runs" };
-  }
-  const call = /^\/(@?)!?([^\s%;|$]+)/.exec(stmt);
-  if (call) {
-    const name = (call[2] as string).toLowerCase();
-    if (RUNS_UNREAD_TEXT.has(name)) return { ...NO_EFFECTS, any: true, what: `/${name}` };
-    if (!call[1]) return { ...NO_EFFECTS, calls: [name], what: `the call to /${call[2]}` };
-  }
-  const expression = /\$\[([^\]]*)\]/.exec(stmt);
-  if (expression) {
-    const targets = assignmentTargets(expression[1] as string);
-    if (hasEffects(targets)) return { ...targets, what: "an assignment in an expression" };
-  }
-  return undefined;
-}
-
-export function hasEffects(e: Effects): boolean {
-  return e.any || e.names.length > 0 || e.prefixes.length > 0 || e.calls.length > 0;
-}
-
-/**
- * What a macro body may set when it runs, read as a body: its `/set`s and `/setenv`s, its
- * assignments, the macros it calls, and, read the same way, `/eval` text it runs. `/let` is the
- * macro's own. Text whose compile stops runs nothing.
- */
-export function bodyEffects(body: string, depth = 0): Effects {
-  const out: Effects = { names: [], prefixes: [], calls: [], any: false };
-  if (depth > 4) return { ...out, any: true };
-  const regions = parseRegions(body, "body");
-  if (regions.stopped) return out;
-  const add = (e: Effects): void => {
-    out.names.push(...e.names);
-    out.prefixes.push(...e.prefixes);
-    out.calls.push(...e.calls);
-    out.any ||= e.any;
-  };
-  for (const st of regions.statements) {
-    const stmt = body.slice(st.start, st.end);
-    const set = SET_WORD_RE.exec(stmt);
-    if (set) {
-      add(nameEffects(set[1] as string));
-      continue;
-    }
-    const ev = /^\/@?eval\s+(?:-s\S*\s+)?/i.exec(stmt);
-    if (ev) {
-      add(bodyEffects(stmt.slice(ev[0].length), depth + 1));
-      continue;
-    }
-    const effects = statementEffects(stmt);
-    if (effects) add(effects);
-  }
-  for (const ex of regions.expressions) add(assignmentTargets(body.slice(ex.start, ex.end)));
-  return out;
-}
+export type EntryCommand = LoadCommand | SetCommand;
 
 /**
  * What tf makes of `text` after the `pending` passes, when that doesn't depend on any variable:
@@ -299,20 +176,6 @@ interface Context {
 export function entryCommands(entry: LogicalEntry): EntryCommand[] {
   const out: EntryCommand[] = [];
 
-  /**
-   * The expressions tf compiles in `text`, read as `mode` (a `/test`, `/result` or `/return`, a
-   * `$[...]` or a condition): the variables each assigns to. Text whose compile stops runs nothing.
-   */
-  const expressions = (text: string, mode: StructureMode, where: CommandBase): void => {
-    const regions = parseRegions(text, mode);
-    if (regions.stopped) return;
-    for (const ex of regions.expressions) {
-      const expression = text.slice(ex.start, ex.end);
-      const targets = assignmentTargets(expression);
-      if (hasEffects(targets)) out.push({ ...where, ...targets, kind: "opaque", what: `the expression ${expression.trim()}` });
-    }
-  };
-
   /** The statement `src.text[start, end)`, read at `level` inside `ctx`. */
   const statement = (src: Source, start: number, end: number, level: SubLevel, ctx: Context): void => {
     if (ctx.pending.length > 0 || level === "full") {
@@ -347,7 +210,6 @@ export function entryCommands(entry: LogicalEntry): EntryCommand[] {
         mode = picked;
       }
       const from = i < args.length ? args[i]!.start : end;
-      expressions(text.slice(from, end), mode, { ...at(from, Math.max(from + 1, end)), ...ctx, viaEval: true });
       for (const st of parseStatements(text.slice(from, end), mode)) {
         statement(src, from + st.start, from + st.end, st.level, {
           ...ctx,
@@ -380,11 +242,7 @@ export function entryCommands(entry: LogicalEntry): EntryCommand[] {
     }
 
     const m = LOAD_RE.exec(stmt);
-    if (!m) {
-      const effects = statementEffects(stmt);
-      if (effects !== undefined) out.push({ ...effects, kind: "opaque", ...at(start, Math.max(start + 1, end)), ...ctx });
-      return;
-    }
+    if (!m) return;
     const kind = (m[2] as string).toLowerCase() as "load" | "require";
     if (kind === "require" && m[1]) return;
     const args = words(text, start + m[0].length, end);
@@ -406,9 +264,6 @@ export function entryCommands(entry: LogicalEntry): EntryCommand[] {
 
   // One more offset than characters, so the statement's end (a separator, or the end) maps too.
   const source: Source = { text: entry.text, map: Array.from({ length: entry.text.length + 1 }, (_, i) => i) };
-  // A /test at the top level, or an assignment in a top-level /if's condition (a macro body's run later).
-  const whole = { start: 0, end: entry.text.length, pending: [], plain: true, viaEval: false, topLevel: true, conditional: false };
-  expressions(entry.text, "top", whole);
   for (const st of entryStatements(entry)) {
     statement(source, st.start, st.end, st.level, {
       pending: [],
@@ -422,5 +277,5 @@ export function entryCommands(entry: LogicalEntry): EntryCommand[] {
 }
 
 export function entryLoads(entry: LogicalEntry): LoadCommand[] {
-  return entryCommands(entry).filter((c): c is LoadCommand => c.kind === "load" || c.kind === "require");
+  return entryCommands(entry).filter((c): c is LoadCommand => c.kind !== "set");
 }

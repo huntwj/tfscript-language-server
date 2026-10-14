@@ -164,6 +164,7 @@ export class WorkspaceIndex {
       workingDir: settings.workingDir,
       home: settings.home,
       pathMappings: settings.pathMappings,
+      variables: settings.variables,
       readFile: this.read,
     });
     const built = { settings, graph };

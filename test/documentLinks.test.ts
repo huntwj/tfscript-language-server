@@ -177,12 +177,17 @@ describe("WorkspaceIndex.documentLinks", () => {
   });
 
   it("links an /eval load built from variables as the load graph resolved it, through a path mapping (wotmud.tf's shape)", () => {
-    // ~/ai/wotmud/tf/wotmud.tf, which tf reads in a container that sees the repo as /wotmud.
+    // ~/ai/wotmud/tf/wotmud.tf, which tf reads in a container that sees the repo as /wotmud; the
+    // settings say what its default-value /if leaves wotmud_repo_dir set to.
     const main = '/if (wotmud_repo_dir =~ "") /set wotmud_repo_dir=/wotmud%; /endif\n/eval /load %{wotmud_repo_dir}/tf/mapping.tf\n';
     const fs = memoryFs({ [p("ws", "tf", "wotmud.tf")]: main, [p("ws", "tf", "mapping.tf")]: "" });
     const index = new WorkspaceIndex(fs, env(fs));
     index.setFolders([p("ws")]);
-    index.setSettings(p("ws"), { entryFiles: ["tf/wotmud.tf"], pathMappings: [{ tf: "/wotmud", local: "." }] });
+    index.setSettings(p("ws"), {
+      entryFiles: ["tf/wotmud.tf"],
+      pathMappings: [{ tf: "/wotmud", local: "." }],
+      variables: { wotmud_repo_dir: "/wotmud" },
+    });
     const [link] = index.documentLinks(p("ws", "tf", "wotmud.tf"), main);
     expect(link?.target).toBe(p("ws", "tf", "mapping.tf"));
     const written = "%{wotmud_repo_dir}/tf/mapping.tf";

@@ -145,4 +145,16 @@ describe("not-substituted-here and nested or malformed %{", () => {
     expect(named("/echo F7:%{x-{} and %{y}\n")).toEqual(["%{x-{}", "%{y}"]);
     expect(named("/echo F5:%{x-$[1]} F6:%{x-${y}}\n")).toEqual(["%{x-$[1]}", "%{x-${y}}"]);
   });
+
+  // Proven live (s2/r/v.tf): /eval /echo %{x-} %{x%{y}} is "unmatched { or illegal character '%'",
+  // where the line without /eval prints as it is.
+  it("offers no substituting fix for a command /eval couldn't read", () => {
+    const [plain] = getDiagnostics("/echo %{x-} %{x%{y}}\n").filter((d) => d.code === "not-substituted-here");
+    expect(plain?.fix).toBeUndefined();
+    const [soff] = getDiagnostics("/eval -soff /echo %{x-} %{x%{y}}\n").filter((d) => d.code === "not-substituted-here");
+    expect(soff?.fix).toBeUndefined();
+    expect(getDiagnostics("/echo %{x-} %{y}\n").find((d) => d.code === "not-substituted-here")?.fix?.title).toBe(
+      "Put /eval in front of the command",
+    );
+  });
 });

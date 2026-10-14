@@ -102,6 +102,14 @@ export const notSubstitutedHere: EntryRule = {
       });
     const out: EntryMatch[] = [];
 
+    /**
+     * Whether `st` can be substituted as written: its text, read as `/eval` reads it, has no
+     * substitution tf can't read. Else a fix that substitutes it would only make an error of a line
+     * that runs today (review rev-s2 p6: `/echo %{x-} %{x%{y}}`).
+     */
+    const readable = (st: ContextStatement | undefined): boolean =>
+      !st || !parseRegions(text.slice(st.start, st.end), "body").issues.some((i) => i.kind === "substitution" || i.kind === "expression");
+
     const variable = (start: number, written: string): void => {
       const st = statementAt(statements, start);
       const at = st?.start ?? 0;
@@ -110,6 +118,7 @@ export const notSubstitutedHere: EntryRule = {
         end: start + written.length,
         label: "not substituted",
       };
+      const safe = readable(st);
       if (st?.viaEval) {
         const name = evalName(st.viaEval);
         out.push({
@@ -121,7 +130,7 @@ export const notSubstitutedHere: EntryRule = {
             (st.viaEval.command === "eval"
               ? `${code("/eval")} substitutes its text once and then runs it.`
               : `${code("/quote")} runs the command as a macro body is run, substituting it.`),
-          fix: { title: `Leave out ${optionName(text, st.viaEval.options.at(-1)!)}`, edits: dropOptions(st.viaEval) },
+          ...(safe ? { fix: { title: `Leave out ${optionName(text, st.viaEval.options.at(-1)!)}`, edits: dropOptions(st.viaEval) } } : {}),
         });
         return;
       }
@@ -134,7 +143,7 @@ export const notSubstitutedHere: EntryRule = {
           `commands but still nothing is substituted. In a ${code("/def")} body it would be substituted when the macro ` +
           `runs, and in a condition or ${code("/test")} it is read as a variable. ${code("/eval")} substitutes the rest ` +
           `of the command once and then runs it: ${code(`/eval ${text.slice(at).split(/\s/, 1)[0]} ...`)}`,
-        fix: { title: "Put /eval in front of the command", edits: [{ start: at, end: at, newText: "/eval " }] },
+        ...(safe ? { fix: { title: "Put /eval in front of the command", edits: [{ start: at, end: at, newText: "/eval " }] } } : {}),
       });
     };
 

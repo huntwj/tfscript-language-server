@@ -46,6 +46,13 @@ describe("empty-statement: a statement with nothing in it sends a blank line", (
     expect(d?.message).toBe("This %; after /if ends an empty statement, which tf warns about and sends to the world as a blank line: remove it.");
   });
 
+  it("says tf warns in a $(...) inside a condition, where tf's block is still the /if's", () => {
+    // Review rev-s5 p5 d03 and d04: tf warns, as its block stays IF inside the $(...).
+    expect(empties("/def f = /if ($(%;/echo 1)) /echo a%; /endif\n")[0]?.message).toContain("tf warns about and sends");
+    expect(empties("/def f = /if /echo a $(%;/echo 1)%; /then /echo b%; /endif\n")[0]?.message).toContain("tf warns about and sends");
+    expect(empties("/def f = /echo a $(%;/echo 1)\n")[0]?.message).toContain("which tf sends");
+  });
+
   it("says whether tf warns about it itself", () => {
     expect(empties("/def f = /if (0) /echo x%; /else%; /echo a%; /endif\n")[0]?.message).toContain("tf warns about and sends");
     expect(empties("/def f = /if /test 1%; /then%; /echo a%; /endif\n")[0]?.message).toContain("which tf sends");
@@ -85,6 +92,10 @@ describe("empty-statement: a statement with nothing in it sends a blank line", (
     // After or before a %|, tf reports a piping error instead (e15).
     expect(at("/def f = /echo a%;%| /echo b\n")).toEqual([]);
     expect(at("/def f = /echo a%|%; /echo b\n")).toEqual([]);
+    // ...and tf compiles nothing then, so an empty statement next to one sends nothing (probe pp).
+    expect(at("/def f = /if (1) /echo a%; /else%;%|/echo b%; /endif\n")).toEqual([]);
+    expect(at("/def f = /echo [$(/echo a%|%;)]\n")).toEqual([]);
+    expect(at("/def f = /echo a%|%;%; /echo b\n")).toEqual([]);
     // A plain top-level line has no separators at all.
     expect(at("/echo a%;%; /echo b\n")).toEqual([]);
     // A /break's statement ends at the ) of its $(...), as any other's.

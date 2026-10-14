@@ -367,6 +367,8 @@ class Parser {
   private emptyAfter: { label: string; warns: boolean } | undefined;
   /** The separator that ended the last statement, and where: an empty statement after `%|` is an error, not a send. */
   private lastSep: { at: number; char: string } | undefined;
+  /** The block each open `$(...)` was in: tf's `block` is one global, which a `$(...)` doesn't reset. */
+  private readonly cmdsubBlocks: Block[] = [];
   constructor(private readonly s: string, private readonly mode: StructureMode) {}
 
   run(): void {
@@ -876,8 +878,13 @@ class Parser {
     const sep = this.isStatEnd(p) && this.s[p + 1] !== "|";
     const close = !sep && this.isCmdsubEnd(p);
     if ((!sep && !close) || this.lastSep?.char === "|") return;
-    // In a condition list tf warns about any statement that isn't a command (expand.c:1433).
-    const inCondition = this.block === "if" || this.block === "elseif" || this.block === "while";
+    // In a condition list tf warns about any statement that isn't a command (expand.c:1433). Its
+    // `block` is still the /if's inside a `$(...)` (review rev-s5 p5 d03, d04), which this parser
+    // resets to "" there, so that is read from the blocks the open `$(...)`s are in.
+    const isCondition = (b: Block | undefined): boolean => b === "if" || b === "elseif" || b === "while";
+    const inCondition = isCondition(this.block);
+    let tfBlock: Block | undefined = this.block;
+    for (let k = this.cmdsubBlocks.length - 1; tfBlock === "" && k >= 0; k -= 1) tfBlock = this.cmdsubBlocks[k];
     const prior = this.lastSep;
     const sepChar = sep ? this.s[p + 1] : undefined;
     const text = this.emptyAfter
@@ -889,14 +896,24 @@ class Parser {
           : this.cmdsub > 0 && first
             ? "at the start of the $(...)"
             : "before the first command";
-    const where = { text, warns: inCondition || (this.emptyAfter?.warns ?? false) };
+    const where = { text, warns: isCondition(tfBlock) || (this.emptyAfter?.warns ?? false) };
     const warned = where.warns ? "tf warns about and sends" : "tf sends";
     const what = sep ? this.s.slice(p, p + 2) : ")";
     const explanation =
       `A statement that is empty, like this one, still runs: tf sends it to the world as a blank line, ` +
       (where.warns ? "with a warning when it compiles the text. " : "and doesn't warn. ") +
       `A ${code("%;")} at the very end sends nothing.`;
+    // Next to a %|, an empty statement is piped from or into, which tf rejects ("Piping input to"
+    // or "output of a server command"), compiling nothing, so nothing is sent (step-5 probe pp:
+    // `/else%;%|`, `%|%;)`, `%|%;%;`; review rev-s5 p4 c24): that is a different problem.
+    const pipeAt = (q: number): boolean => this.s[q] === "%" && this.s[q + 1] === "|";
+    let back = prior ? prior.at : 0;
+    while (back > 0 && isTfSpace(this.s[back - 1])) back -= 1;
+    if (prior && pipeAt(back - 2)) return;
     if (sep) {
+      let next = p + 2;
+      while (isTfSpace(this.s[next])) next += 1;
+      if (pipeAt(next)) return;
       this.issues.push({
         kind: "empty-statement",
         start: p,
@@ -1303,6 +1320,7 @@ class Parser {
       this.cmdsub += 1;
       this.cmdsubStarts.push({ at: dollar, inExpression });
       const outer = this.block;
+      this.cmdsubBlocks.push(outer);
       // Known gap (found in review, 2026-10-14, left for later): a keyword such as /endif inside
       // a $(...), as in `$(/endif)`, is reported as a block-structure error here, though tf
       // doesn't treat it that way. Model how tf compiles a keyword in a command substitution
@@ -1310,6 +1328,7 @@ class Parser {
       this.block = "";
       this.list(FULL);
       this.block = outer;
+      this.cmdsubBlocks.pop();
       this.cmdsub -= 1;
       this.cmdsubStarts.pop();
       this.dropMids(dollar);

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Expand and shrink selection: from the word under the cursor out through a substitution
+  (`%{x}`, `$[...]`, `$(...)`, `${...}`), a string or parenthesis in an expression, a condition, the
+  statement, a part of a block's body and the whole `/if` or `/while`, the macro body, the whole
+  command across its continuation lines, and the file. It follows what tf substitutes, so a
+  `%{x}` in a plain top-level command, which tf leaves as text, is just text here too.
 - Two refactorings for a macro body: "Split /foo's body onto separate lines" (one statement per
   line, blocks indented, as the formatter lays it out) and "Join /foo's body onto one line". Each
   is offered only when tf would run the same program afterwards, and never on CRLF lines, across

@@ -6,7 +6,7 @@ terminal MUD client. tf scripts are `.tf` files full of `/def` macros, triggers,
 
 This is early, pre-1.0 software: diagnostics for the handful of rules proven so far (below),
 completion (commands, functions, variables, selectors), document symbols (an outline of every `/def`, `/alias`, `/bind`,
-`/hook` and `/trig*`), folding, quick fixes for many of the diagnostics, and hover,
+`/hook` and `/trig*`), folding, expand/shrink selection, quick fixes for many of the diagnostics, and hover,
 go-to-definition and find-references for macros and variables across every file your tfrc's
 `/load` and `/require` lines reach (see "Load paths"), signature help, semantic highlighting,
 highlighting every use of the name under the cursor, workspace-wide symbol search, rename, clickable `/load` and `/require` filenames, formatting that only
@@ -335,6 +335,8 @@ src/
   symbols.ts           getDocumentSymbols(text): one symbol per macro-defining entry; /def
                         names follow macro.c's macro_spec() option grammar
   folding.ts           getFoldingRanges(text): continued entries and comment runs
+  selectionRange.ts    getSelectionRanges(text, positions): word, substitution, expression,
+                        statement, block, macro body, command and file, from the parser's model
   codeActions.ts       getCodeActions(text, range): each diagnostic's own fix, offered once
                         (recomputed server-side)
   bodyLayout.ts        getRefactorActions(text, range): split a macro body onto separate lines,
@@ -399,7 +401,7 @@ node dist/server.js     # run the server directly (speaks LSP over stdio)
 ```
 
 The server advertises `completionProvider` (triggered on `/` and `{`), `documentSymbolProvider`,
-`foldingRangeProvider`, `codeActionProvider` (quick fixes and `refactor.rewrite`), `hoverProvider`,
+`foldingRangeProvider`, `selectionRangeProvider`, `codeActionProvider` (quick fixes and `refactor.rewrite`), `hoverProvider`,
 `definitionProvider`, `referencesProvider`, `documentHighlightProvider`, `signatureHelpProvider` (triggered on space, `(` and `,`), `semanticTokensProvider`
 (full documents), `documentFormattingProvider`, `documentRangeFormattingProvider`,
 `workspaceSymbolProvider`, `renameProvider` (with prepare) and `documentLinkProvider`, and publishes diagnostics

@@ -33,6 +33,12 @@ describe("unresolved-load", () => {
     expect(d?.explanation).toContain("not from this file's folder");
   });
 
+  it("gives working-directory advice only for a relative path, which is the only kind tf searches", () => {
+    const [abs] = check({ [p("tfrc")]: `/load ${p("lib", "gone.tf")}\n` }, p("tfrc"));
+    expect(abs?.message).toBe(`tf won't find "${p("lib", "gone.tf")}": fix the path.`);
+    expect(abs?.explanation).toBe(`The path is absolute, so tf looks only at \`${p("lib", "gone.tf")}\`.`);
+  });
+
   it("points at the load the warning is about when an /eval line names the same file twice", () => {
     const twice = "/eval /load x.tf%; /load x.tf\n";
     const echo = "/eval /echo x.tf%; /load x.tf\n";

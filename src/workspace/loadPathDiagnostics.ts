@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { ALL_COMMANDS } from "../data/commands";
 import type { TfDiagnostic } from "../diagnostics";
 import { splitLogicalEntries, splitRawLines, type LogicalEntry } from "../logicalEntries";
@@ -103,6 +104,15 @@ function unresolvedDetail(u: UnresolvedLoad): Pick<TfDiagnostic, "message" | "la
     };
   }
   const shown = u.file === u.raw ? `"${u.raw}"` : `"${u.raw}" (${u.file})`;
+  // tf searches nothing for an absolute path, or one starting with ~ (resolveLoadPath), so the
+  // working directory only matters for a relative one.
+  if (u.file.startsWith("~") || path.isAbsolute(u.file)) {
+    return {
+      message: `tf won't find ${shown}: fix the path.`,
+      label: "not found",
+      explanation: `The path is absolute, so tf looks only at ${u.searched.map((s) => code(s)).join(", ")}.`,
+    };
+  }
   return {
     message: `tf won't find ${shown}: fix the path, or set tfscript.workingDirectory to the folder tf runs in.`,
     label: "not found",

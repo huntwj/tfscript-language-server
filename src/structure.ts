@@ -127,6 +127,21 @@ export interface Statement {
 
 export type SubLevel = "keyword" | "newline" | "full";
 
+/**
+ * Text tf compiles as an expression, as offsets into the text that was parsed: the inside of a
+ * `$[...]` or a `(condition)`, or the text of a `/test`, `/return` or `/result` statement, which
+ * is substituted at `level` first.
+ */
+export interface ExpressionRegion {
+  start: number;
+  end: number;
+  kind: "bracket" | "condition" | "statement";
+  /** For a statement, how its text is substituted before it is compiled. */
+  level?: SubLevel;
+}
+
+const levelOf = (subs: number): SubLevel => (subs >= FULL ? "full" : subs >= NEWLINE ? "newline" : "keyword");
+
 const KEYWORDS = new Set([
   "break", "do", "done", "else", "elseif", "endif", "exit", "if",
   "let", "result", "return", "set", "setenv", "test", "then", "while",
@@ -224,6 +239,8 @@ class Parser {
   readonly issues: StructureIssue[] = [];
   /** Every plain command statement read, in order (not `/test`, `/return` or `/result`). */
   readonly statements: Statement[] = [];
+  /** Every expression read, in the order each one ended. */
+  readonly expressions: ExpressionRegion[] = [];
   /** Compiling stopped at an error, so tf runs none of this text. */
   stopped = false;
   /** /ifs and /endifs swallowed by a /let or /set value (for let-swallows-endif). */
@@ -711,6 +728,7 @@ class Parser {
   private expressionStatement(subs: number, keyword: string): void {
     const start = this.i;
     this.statement(subs, keyword);
+    this.expressions.push({ start, end: this.i, kind: "statement", level: levelOf(subs) });
     const text = this.s.slice(start, this.i);
     if (/[%$\\]/.test(text)) return; // generated at runtime: compiled then
     const sub = new Parser(text, this.mode);
@@ -728,8 +746,7 @@ class Parser {
     const start = this.i;
     this.statementText(subs, keyword);
     if (!keyword) {
-      const level = subs >= FULL ? "full" : subs >= NEWLINE ? "newline" : "keyword";
-      this.statements.push({ start, end: this.i, level, conditional: this.open.length > 0 });
+      this.statements.push({ start, end: this.i, level: levelOf(subs), conditional: this.open.length > 0 });
     }
   }
 
@@ -923,7 +940,9 @@ class Parser {
       while (s[this.i] === "$") this.i += 1;
     } else if (s[this.i] === "[") {
       this.i += 1;
+      const start = this.i;
       this.expression("]", dollar);
+      this.expressions.push({ start, end: this.i - 1, kind: "bracket" });
     } else if (s[this.i] === "(") {
       this.i += 1;
       this.cmdsub += 1;
@@ -999,6 +1018,7 @@ class Parser {
     const open = this.i;
     this.i += 1;
     this.expression(")", open, keyword);
+    this.expressions.push({ start: open + 1, end: this.i - 1, kind: "condition" });
   }
 
   /**
@@ -1132,6 +1152,17 @@ export function parseStatements(text: string, mode: StructureMode): Statement[] 
   const parser = new Parser(text, mode);
   parser.run();
   return parser.stopped ? [] : parser.statements;
+}
+
+/**
+ * The command statements and expressions in `text`, read as parseStatements() reads it. Unlike
+ * parseStatements(), what was read before compiling stopped at an error is kept: tf would run
+ * none of it, but an editor still wants its names while the error is being fixed.
+ */
+export function parseRegions(text: string, mode: StructureMode): { statements: Statement[]; expressions: ExpressionRegion[] } {
+  const parser = new Parser(text, mode);
+  parser.run();
+  return { statements: parser.statements, expressions: parser.expressions };
 }
 
 /**

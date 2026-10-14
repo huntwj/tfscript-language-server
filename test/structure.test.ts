@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkStructure, macroBodyStart, parseStatements, type StructureMode } from "../src/structure";
+import { checkStructure, macroBodyStart, parseRegions, parseStatements, type StructureMode } from "../src/structure";
 
 /**
  * Every input here was run through real tf (tf-script-check, 2026-10-13): the macro bodies as
@@ -245,5 +245,29 @@ describe("deep nesting", () => {
     const texts = (text: string) => parseStatements(text, "body").map((st) => text.slice(st.start, st.end));
     expect(texts(`/load a.tf%; ${deep(5000)}`)).toEqual(["/load a.tf"]);
     expect(texts(`${deep(250)}%; /load a.tf`)).toEqual([deep(250), "/load a.tf"]);
+  });
+});
+
+describe("parseRegions", () => {
+  const regions = (text: string, mode: StructureMode) =>
+    parseRegions(text, mode).expressions.map((ex) => `${ex.kind}${ex.level ? `/${ex.level}` : ""}:${text.slice(ex.start, ex.end)}`);
+
+  it("finds every expression tf compiles: $[...], conditions, and /test, /return and /result text", () => {
+    expect(regions("/if (x > 1) /test y := $[z]%; /endif%; /@result w%; /echo $[v]", "body")).toEqual([
+      "condition:x > 1",
+      "bracket:z",
+      "statement/full:y := $[z]",
+      "statement/full:w",
+      "bracket:v",
+    ]);
+  });
+
+  it("finds no $[...] in a top-level command, where tf doesn't substitute it", () => {
+    expect(regions("/echo $[x]", "top")).toEqual([]);
+    expect(regions("/test x", "top")).toEqual(["statement/keyword:x"]);
+  });
+
+  it("keeps what was read before an error", () => {
+    expect(regions("/test x%; /if (1) /echo b", "body")).toEqual(["statement/full:x", "condition:1"]);
   });
 });

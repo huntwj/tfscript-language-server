@@ -215,6 +215,19 @@ describe("not-substituted-here (rule 4)", () => {
     expect(fixes("/echo a%; /if (1) /echo b%; /endif")).toEqual(["Put the next command on a line of its own", "none"]);
   });
 
+  // Review rev-s2d c.tf and d.tf (proven, s2/r/bang.tf): /@if, /@endif and /@else are keywords as
+  // /if, /endif and /else are; /!if is no keyword, and split off it is "if: no such command".
+  it("reads /@ and /! forms of a keyword as tf does", () => {
+    const fixes = (text: string) =>
+      getDiagnostics(`${text}\n`)
+        .filter((d) => d.message.startsWith("%; "))
+        .map((d) => d.fix?.title ?? "none");
+    for (const text of ["/echo D01a%; /@endif", "/echo D05a%; /@else", "/echo D02a%; /@while (0) /echo b", "/echo C04a%; /@if (1) /echo b", "/echo C05a%; /!if (1) /echo b"]) {
+      expect(fixes(text)).toEqual(["none"]);
+    }
+    expect(fixes("/echo C08a%; /@if (1) /echo C08b%; /@endif")).toEqual(["Put the next command on a line of its own", "none"]);
+  });
+
   it("stays near-linear on a line of thousands of %;", () => {
     const start = Date.now();
     expect(getDiagnostics(`/echo %{x} %{y ${"%; ".repeat(20000)}\n`).length).toBe(20000);

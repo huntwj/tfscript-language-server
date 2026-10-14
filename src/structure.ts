@@ -256,10 +256,16 @@ function isNameChar(ch: string | undefined): boolean {
   return ch !== undefined && (/[A-Za-z0-9_]/.test(ch) || ch.charCodeAt(0) >= 0x80);
 }
 
-/** The command a statement at `start` runs, lower case, without its `/` and any `@` or `!`; "" for text. */
-function commandWord(s: string, start: number): string {
+/** A command at the start of a statement: its `/`, any `@` or `!`, and its name. */
+export const COMMAND_RE = /^\/[@!]*([^\s%)]*)/;
+
+/**
+ * The command a statement at `start` runs, lower case, without its `/` and any `@` or `!`; "" for
+ * text. The one reading of a command word, for every rule (`/@if` and `/!if` are `if`).
+ */
+export function commandWord(s: string, start: number): string {
   if (s[start] !== "/") return "";
-  return (/^\/[@!]*([^\s%)]*)/.exec(s.slice(start))?.[1] ?? "").toLowerCase();
+  return (COMMAND_RE.exec(s.slice(start))?.[1] ?? "").toLowerCase();
 }
 
 function isDigit(ch: string | undefined): boolean {

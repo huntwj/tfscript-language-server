@@ -1,6 +1,6 @@
 import { isTfSpace, type LogicalEntry } from "./logicalEntries";
 import { evalMode, shortened, type Source } from "./loadCommands";
-import { code, macroBodyStart, parseRegions, type ExpressionRegion, type StructureIssue, type StructureMode, type SubLevel } from "./structure";
+import { code, COMMAND_RE, commandWord, macroBodyStart, parseRegions, type ExpressionRegion, type StructureIssue, type StructureMode, type SubLevel } from "./structure";
 
 /**
  * Which text of a top-level entry tf substitutes, and how: one table the rules ask, rather than
@@ -98,14 +98,6 @@ const SYNTAX_KINDS = new Set(["substitution", "expression", "operand"]);
  */
 export const MACRO_DEFINER = /^(?:def|edit|bind|hook|gag|hilite|trig|trigc|trigp|trigpc|alias)$/;
 const MAX_DEPTH = 8;
-
-const COMMAND_RE = /^\/[@!]*([^\s%)]*)/;
-
-/** The command a statement at `start` runs, lower case, without its `/` and any `@` or `!`; "" for text. */
-function commandWord(s: string, start: number): string {
-  if (s[start] !== "/") return "";
-  return (COMMAND_RE.exec(s.slice(start))?.[1] ?? "").toLowerCase();
-}
 
 function nextWord(s: string, i: number, end: number): { start: number; end: number } | undefined {
   while (i < end && isTfSpace(s[i])) i += 1;

@@ -1,6 +1,6 @@
 import { entryLoads, shortened } from "../loadCommands";
 import { isTfSpace } from "../logicalEntries";
-import { code, parseRegions, type IssueEdit, type StructureMode } from "../structure";
+import { code, commandWord, parseRegions, type IssueEdit, type StructureMode } from "../structure";
 import { entrySubstitution, type ContextStatement, type EvalLevel, type LevelOption } from "../substitution";
 import type { EntryRule, EntryMatch } from "./types";
 
@@ -380,8 +380,12 @@ export const notSubstitutedHere: EntryRule = {
       };
       // Not before a keyword: split off, /endif or /else is no command but a stray keyword
       // (keyword-mid-statement's case; second review's probe k1: -son made "unexpected /ELSE").
-      const nextWord = /^\/([A-Za-z]*)/.exec(text.slice(next))?.[1]?.toLowerCase();
-      const command = nextWord !== undefined && !BLOCK_KEYWORDS.has(nextWord);
+      // As tf reads a command word: /@endif and /!if are /endif and /if (review rev-s2d d.tf).
+      const nextWord = text[next] === "/" ? commandWord(text, next) : undefined;
+      // /!if is no keyword to tf, nor a command it has: split off, it is "if: no such command or
+      // macro" (review rev-s2d c.tf, proven).
+      const bangKeyword = /^\/[@!]*!/.test(text.slice(next, next + 3)) && (nextWord === "if" || nextWord === "while" || BLOCK_KEYWORDS.has(nextWord ?? ""));
+      const command = nextWord !== undefined && !BLOCK_KEYWORDS.has(nextWord) && !bangKeyword;
       // Nor where the commands it would split off open a block they don't close (review rev-s2c
       // h.tf: `/echo a%; /if (1) /echo b` on lines of their own is an /if with no /endif).
       // A line split off can only leave a block open if it starts one; -son reads the whole text.

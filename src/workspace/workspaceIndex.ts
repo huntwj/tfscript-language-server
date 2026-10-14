@@ -5,8 +5,8 @@ import type { ExternalMacro, NavContext } from "../navigation";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
 import { findLoadPaths, type LoadPath } from "../documentLinks";
 import type { Range } from "../symbols";
-import { buildLoadGraph, fileKey as keyOf, resolveLoadPath, type LoadGraph, type LoadedFile } from "./loadGraph";
-import { resolveSettings, type Environment, type RawSettings, type ResolvedSettings } from "./settings";
+import { buildLoadGraph, fileKey as keyOf, resolveLoadPath, type LoadGraph, type LoadedFile, type LoadPathEnvironment } from "./loadGraph";
+import { resolveSettings, toTfPath, type Environment, type RawSettings, type ResolvedSettings } from "./settings";
 import { parseTfHelp, type HelpEntry } from "./tfHelp";
 import {
   loadPathDiagnostics,
@@ -150,6 +150,7 @@ export class WorkspaceIndex {
       tfPath: settings.tfPath,
       workingDir: settings.workingDir,
       home: settings.home,
+      pathMappings: settings.pathMappings,
       readFile: this.read,
     });
     const built = { settings, graph };
@@ -253,7 +254,7 @@ export class WorkspaceIndex {
       // Off it, nothing is known about how tf is started: every file's loads, and which of them
       // don't resolve with the settings, so an off-path file can look at the files that load it.
       const loads = new Map<string, { written: string[]; unfollowed: UnfollowedLoad[] }>();
-      const env = { home: settings.home, tfPath: settings.tfPath, libraryDir: settings.libraryDir, workingDir: settings.workingDir, readFile: this.read };
+      const env = this.envFor(settings);
       for (const f of this.fs.walkTfFiles(folder)) {
         const text = this.read(f);
         if (text === undefined) continue;
@@ -347,18 +348,33 @@ export class WorkspaceIndex {
    * would. Undefined when none of them reaches it.
    */
   private requirePath(target: string, settings: ResolvedSettings): string | undefined {
-    const env = { home: settings.home, tfPath: settings.tfPath, libraryDir: settings.libraryDir, workingDir: settings.workingDir, readFile: this.read };
+    const env = this.envFor(settings);
     const dirs = [settings.workingDir, ...(settings.tfPath.length > 0 ? settings.tfPath : settings.libraryDir ? [settings.libraryDir] : [])];
-    for (const dir of dirs) {
+    const candidates = dirs.flatMap((dir) => {
       const rel = path.relative(dir, target);
-      if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) continue;
-      const written = rel.replace(/\\/g, "/");
-      // /require joins its words with single blanks, so a name with a run of them can't be written.
-      if (/\s\s/.test(written)) continue;
+      return rel === "" || rel.startsWith("..") || path.isAbsolute(rel) ? [] : [rel.replace(/\\/g, "/")];
+    });
+    // Else tf's own absolute path for it, through a path mapping.
+    const tfPath = toTfPath(target, settings.pathMappings);
+    if (tfPath !== undefined) candidates.push(tfPath);
+    // /require joins its words with single blanks, so a name with a run of them can't be written.
+    return candidates.find((written) => {
+      if (/\s\s/.test(written)) return false;
       const found = resolveLoadPath(written, env).found;
-      if (found !== undefined && keyOf(found) === keyOf(target)) return written;
-    }
-    return undefined;
+      return found !== undefined && keyOf(found) === keyOf(target);
+    });
+  }
+
+  /** How tf finds a file, with the settings tf starts with. */
+  private envFor(settings: ResolvedSettings): LoadPathEnvironment {
+    return {
+      home: settings.home,
+      tfPath: settings.tfPath,
+      libraryDir: settings.libraryDir,
+      workingDir: settings.workingDir,
+      pathMappings: settings.pathMappings,
+      readFile: this.read,
+    };
   }
 
   /**
@@ -373,14 +389,8 @@ export class WorkspaceIndex {
     const { settings, graph } = this.contextFor(file);
     const self = keyOf(file);
     const onPath = graph.files.some((f) => keyOf(f.path) === self);
-    const env = {
-      home: settings.home,
-      tfPath: settings.tfPath,
-      libraryDir: settings.libraryDir,
-      workingDir: settings.workingDir,
-      readFile: this.read,
-    };
-    return findLoadPaths(text).flatMap((load) => {
+    const env = this.envFor(settings);
+    const links = findLoadPaths(text).flatMap((load) => {
       let target: string | undefined;
       if (onPath && load.topLevel) {
         target = graph.resolved.find((r) => keyOf(r.from) === self && r.line === load.line && r.offset === load.offset)?.file;
@@ -390,6 +400,24 @@ export class WorkspaceIndex {
       }
       return target === undefined ? [] : [{ range: load.range, target, kind: load.kind }];
     });
+    if (!onPath) return links;
+    // A path built from variables (`/eval /load %{dir}/x.tf`) isn't literal text, but the load
+    // graph worked it out with the variables set on the path: link it too.
+    const linked = new Set(links.map((l) => `${l.range.start.line}:${l.range.start.character}`));
+    const entries = splitLogicalEntries(text);
+    for (const r of graph.resolved) {
+      if (keyOf(r.from) !== self) continue;
+      const entry = entries.find((e) => e.startLine === r.line);
+      const from = entry?.offsetMap[r.offset];
+      const last = entry?.offsetMap[r.offset + r.raw.length - 1];
+      if (!from || !last || from.line !== last.line || linked.has(`${from.line}:${from.character}`)) continue;
+      links.push({
+        range: { start: { line: from.line, character: from.character }, end: { line: last.line, character: last.character + 1 } },
+        target: r.file,
+        kind: r.kind,
+      });
+    }
+    return links.sort((a, b) => a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character);
   }
 
   /**

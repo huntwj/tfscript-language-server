@@ -175,4 +175,34 @@ describe("WorkspaceIndex.documentLinks", () => {
       [4, p("ws", "~bob", "a.tf")],
     ]);
   });
+
+  it("links an /eval load built from variables as the load graph resolved it, through a path mapping (wotmud.tf's shape)", () => {
+    // ~/ai/wotmud/tf/wotmud.tf, which tf reads in a container that sees the repo as /wotmud.
+    const main = '/if (wotmud_repo_dir =~ "") /set wotmud_repo_dir=/wotmud%; /endif\n/eval /load %{wotmud_repo_dir}/tf/mapping.tf\n';
+    const fs = memoryFs({ [p("ws", "tf", "wotmud.tf")]: main, [p("ws", "tf", "mapping.tf")]: "" });
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    index.setSettings(p("ws"), { entryFiles: ["tf/wotmud.tf"], pathMappings: [{ tf: "/wotmud", local: "." }] });
+    const [link] = index.documentLinks(p("ws", "tf", "wotmud.tf"), main);
+    expect(link?.target).toBe(p("ws", "tf", "mapping.tf"));
+    const written = "%{wotmud_repo_dir}/tf/mapping.tf";
+    const at = (main.split("\n")[1] as string).indexOf(written);
+    expect(link?.range).toEqual({ start: { line: 1, character: at }, end: { line: 1, character: at + written.length } });
+    expect(index.loadPathDiagnostics(p("ws", "tf", "wotmud.tf"), main)).toEqual([]);
+  });
+
+  it("maps tf's absolute paths and the TFPATH and HOME a tfrc sets", () => {
+    const tfrc = "/set TFPATH=/srv/lib\n/load a.tf\n/load /srv/b.tf\n/set HOME=/root\n/load ~/c.tf\n";
+    const fs = memoryFs({ [p("ws", "tfrc")]: tfrc, [p("host", "lib", "a.tf")]: "", [p("host", "b.tf")]: "", [p("roothome", "c.tf")]: "" });
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    index.setSettings(p("ws"), {
+      entryFiles: ["tfrc"],
+      pathMappings: [
+        { tf: "/srv", local: p("host") },
+        { tf: "/root", local: p("roothome") },
+      ],
+    });
+    expect(index.documentLinks(p("ws", "tfrc"), tfrc).map((l) => l.target)).toEqual([p("host", "lib", "a.tf"), p("host", "b.tf"), p("roothome", "c.tf")]);
+  });
 });

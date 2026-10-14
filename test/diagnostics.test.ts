@@ -389,10 +389,10 @@ describe("structural rules (structure.ts)", () => {
     expect(found("/def tfsc_a = /if (1) /let v=1 /endif\n")).toEqual(["let-swallows-endif@0:31"]);
   });
 
-  it("unclosed-substitution in a body, but not in a plain top-level command, which substitutes nothing", () => {
-    expect(found("/def go = /echo $[1+2\n")).toEqual(["unclosed-substitution@0:16"]);
+  it("expression-syntax in a body, but not in a plain top-level command, which substitutes nothing", () => {
+    expect(found("/def go = /echo $[1+2\n")).toEqual(["expression-syntax@0:16"]);
     expect(found("/echo $[1+2\n")).toEqual([]);
-    expect(found("/if (1 /echo a%; /endif\n")).toEqual(["unclosed-substitution@0:4"]);
+    expect(found("/if (1 /echo a%; /endif\n")).toEqual(["expression-syntax@0:4"]);
   });
 
   it("separator-sends-blank-line warns, and nothing else fires", () => {
@@ -401,15 +401,15 @@ describe("structural rules (structure.ts)", () => {
   });
 
   it("checks /alias bodies", () => {
-    expect(found("/alias tt tell %{target %{*}\n")).toEqual(["unclosed-substitution@0:15"]);
+    expect(found("/alias tt tell %{target %{*}\n")).toEqual(["substitution-syntax@0:15"]);
   });
 });
 
 describe("structural rules and the rules they overlap", () => {
   const found = (text: string) => getDiagnostics(text).map((d) => d.code);
 
-  it("reports %{foo%; once, as bad-substitution-selector", () => {
-    expect(found("/def foo = /echo %{foo%; /echo x\n")).toEqual(["bad-substitution-selector"]);
+  it("reports %{foo%; once, as substitution-syntax", () => {
+    expect(found("/def foo = /echo %{foo%; /echo x\n")).toEqual(["substitution-syntax"]);
   });
 
   it("finds the body of a /def whose trigger pattern holds an =", () => {
@@ -450,7 +450,10 @@ describe("messages", () => {
       "/echo a %\\ \n",
       "This %\\ doesn't continue the line, with or without the whitespace after it: to continue, end the line with a \\ that has no % before it.",
     ],
-    ["bad-substitution-selector", "/def f = /echo %{foo%{bar}}\n", "%{foo needs a } or a - after the name: another substitution can't follow it directly."],
+    ["substitution-syntax", "/def f = /echo %{foo%{bar}}\n", "%{foo needs a } or a - after the name: another substitution can't follow it directly."],
+    ["substitution-syntax", "/def f = /echo 50%-off\n", "%- starts a substitution, but no parameter follows it. Write %%- for a literal %-."],
+    ["expression-syntax", "/test $[1+2\n", "This $[ is never closed: add ]."],
+    ["expression-syntax", '/test "abc\n', 'This string is never closed: add the closing ".'],
     ["reserved-macro-name", "/def if = /echo\n", '"if" is a reserved word, so tf refuses this /def and defines nothing: pick another name.'],
     ["not-a-command", "hello\n", "This line isn't a command, so tf stops loading the file here: comment it out, or start it with /."],
     [

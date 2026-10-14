@@ -56,21 +56,23 @@ view of the file gets truncated, since tf never reads past the line it aborts on
 | 6 | `dollar-bracket-in-if` | redundant `$[...]` inside an `/if`/`/elseif`/`/while` condition |
 | — | `indented-line-after-command` | an indented line starting a new command right after one that didn't end in `\` — tf's own "possibly missing trailing \\" warning |
 | — | `backslash-not-last` | a final `\` followed by whitespace (including a CRLF file's trailing `\r`) — not a continuation, tf warns and runs the line as-is |
-| — | `bad-substitution-selector` | `%{selector}` followed directly by another `%`/`$` substitution (`%{foo%{bar}}`) — tf errors "unmatched { or illegal character"; nesting only works through the default value, `%{foo-%{bar}}` |
 | — | `reserved-macro-name` | `/def` of a keyword (`if`, `then`, `let`, `set`, `test`, ...) or `eval`, in any case — tf refuses it ("is a reserved word") and defines nothing. Other builtins can be redefined, so they aren't flagged |
 | — | `not-a-command` | a line that is not blank, a comment, or a `/command` — tf aborts the rest of the file's load; everything after it is suppressed from the other rules, since tf never reads it either |
 | 10 | `block-structure` | an `/if` or `/while` with no `/endif`, `/done`, `/then` or `/do`; a keyword with no block to belong to; text after `/endif` or `/done` with no `%;`; a `/break` inside `$(...)` that would end a loop outside it, or has no loop inside it to end. Points at a keyword stuck mid-statement (`/echo a /endif`) when that is the cause, since tf only reads keywords at the start of a statement |
-| 11 | `unclosed-substitution` | a `$[`, `${`, `$(`, `%{`, string or `(` that never closes, and a `%-` naming no selector (`50%-off`), where tf substitutes: in a macro body, a top-level condition, `/test` |
+| 11 | `substitution-syntax` | a substitution tf can't read: a `%{` that never closes, or with another substitution glued onto its selector (`%{foo%{bar}}`; nesting only works through the default, `%{foo-%{bar}}`), a `%-` naming no parameter (`50%-off`), and a `${` or `$(` that never closes. Only where tf substitutes: a macro body, `/eval`, `/repeat`, `/at`, `/quote` or `/for` text, an expression; a plain top-level line prints it as it is |
+| 11 | `expression-syntax` | an expression tf can't read: a `$[` that never closes, a string or `(` left open, a `)` with no `(`, an `/if` or `/while` condition with no `)`. In a condition and a top-level `/test` too, which tf compiles as written |
 | 12 | `separator-sends-blank-line` | (warning) a `%;` straight after `/if (...)` or `/else`, which sends a blank line to the world |
 | — | `incomplete-continuation` | (warning) the file's last command ends in `\`: tf says "last command is incomplete because of trailing \\" and drops it, so a macro it would define isn't defined. A final newline doesn't complete it (tf reads no line after it); a real blank line does. The fix removes the `\` |
 | — | `body-continues-without-backslash` | (information) a macro body whose last line ends in `%;` but not `\`, with an unindented command on the next line: that line is a command of its own, run when the file loads. Not when the body ends at a blank line, nor when the next line runs the macro just defined |
 | — | `nesting-too-deep` | (information) not a problem in tf: a command nesting more than 400 levels deep (each nested `/if`, `/while`, `$(...)`, `$[...]` or `%{name-...}` default is a level), past which the structural check stops; what it read before that still counts |
 
-`missing-continuation`, `block-structure`, `unclosed-substitution` and
+`missing-continuation`, `block-structure`, `substitution-syntax`, `expression-syntax` and
 `separator-sends-blank-line` share one model of tf's compiler, `src/structure.ts` (`list()`,
 `statement()` and the substitution scanners in `expand.c`): it reads keywords only at the start of
 a statement, follows nesting, and knows that a top-level line substitutes nothing while a macro
-body does. It reports only the first error in a body, as tf stops compiling there.
+body does. It reports only the first error in a body, as tf stops compiling there. The
+substitution and expression rules run it over every text `src/substitution.ts` finds tf reading,
+so they see `/eval` and `/repeat` text too.
 
 Every diagnostic has a one-sentence message for the Problems pane, saying the problem and, where
 there is one, the fix, and a hover in the style of Rust's compiler errors: the source lines with

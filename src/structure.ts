@@ -932,16 +932,21 @@ class Parser {
     }
   }
 
-  /** `/test`, `/return`, `/result`: the text is substituted, then (if it's fixed) compiled as an expression. */
+  /**
+   * `/test`, `/return`, `/result`: the text is substituted at the statement's level, then compiled
+   * as an expression. On a plain top-level line nothing is substituted, so it is compiled as
+   * written (q04: `/test $[1+2` gives "unmatched $["); on an `/if` line only a run of `%`s changes.
+   * In a macro body its substitutions (read by `statement()`) make the text, known only when it runs.
+   */
   private expressionStatement(subs: number, keyword: string): void {
     const start = this.i;
     this.statement(subs, keyword);
     this.expressions.push({ start, end: this.i, kind: "statement", level: levelOf(subs) });
     const text = this.s.slice(start, this.i);
-    if (/[%$\\]/.test(text)) return; // generated at runtime: compiled then
+    if (subs >= FULL ? /[%$\\]/.test(text) : subs >= NEWLINE && text.includes("%%")) return;
     const sub = new Parser(text, this.mode);
     try {
-      sub.expression(undefined, 0);
+      sub.expression(undefined, 0, `/${keyword}`);
     } catch (e) {
       if (!(e instanceof Stop)) throw e;
     }
@@ -1129,25 +1134,43 @@ class Parser {
         this.spans.push({ start: percent, end: this.i, kind: "substitution", inner: { start: inner, end: this.i - 1 } });
         return;
       }
-      // bad-substitution-selector already explains a substitution glued onto the selector.
-      if (!hasDefault && (s[this.i] === "%" || s[this.i] === "$")) throw new Stop();
       const ch = s[this.i] as string;
+      // `%{` written as such, or `{` (an operand of an expression, without the %).
+      const opener = s[percent] === "%" ? "%{" : "{";
+      const openerEnd = percent + opener.length;
+      const ended = this.i >= s.length || this.isStatEnd(this.i) || (ch === "\r" && this.i === s.length - 1);
+      if (!ended && !hasDefault && (ch === "%" || ch === "$")) {
+        // Another substitution glued onto the selector (`%{foo%{bar}}`): tf says "unmatched { or
+        // illegal character '%'" and stops; a substitution only nests in the default (`%{foo-%{bar}}`).
+        const selector = s.slice(inner, this.i);
+        const other = ch === "%" ? "%{...}" : "$[...]";
+        this.fail("substitution", this.i, this.i + 1, {
+          message: `${opener}${selector} needs a } or a - after the name: another substitution can't follow it directly.`,
+          label: "needs } or - here",
+          explanation:
+            `After the name in ${code(`${opener}${selector}`)}, tf only accepts ${code("}")}, which ends the substitution, or ` +
+            `${code("-")}, which starts a default value. To use another substitution as the default, write ` +
+            `${code(`${opener}${selector}-${other}}`)}; to put two values side by side, close the first one: ` +
+            `${code(`${opener}${selector}}${other}`)}.`,
+          related: [{ start: percent, end: openerEnd, message: `this ${opener}` }],
+        });
+      }
       const close: IssueFix = { title: "Close it with }", edits: [this.insertAtEnd(this.i, "}")] };
       this.fail(
         "substitution",
         percent,
-        percent + 2,
-        this.i < s.length && !this.isStatEnd(this.i) && !(ch === "\r" && this.i === s.length - 1)
+        openerEnd,
+        !ended
           ? {
-              message: `This %{ needs its } before the ${charName(ch)}.`,
+              message: `This ${opener} needs its } before the ${charName(ch)}.`,
               label: "not closed",
               explanation:
-                `${code("%{...}")} holds the name of a variable or parameter, and a name can't contain a ${charName(ch)}. ` +
-                `To put text after the substitution, close it first: ${code("%{name} text")}.`,
+                `${code(`${opener}...}`)} holds the name of a variable or parameter, and a name can't contain a ${charName(ch)}. ` +
+                `To put text after the substitution, close it first: ${code(`${opener}name} text`)}.`,
               related: [{ start: this.i, end: this.i + 1, message: `the name stops at this ${charName(ch)}` }],
               fix: { title: `Close it with } before the ${charName(ch)}`, edits: [{ start: this.i, end: this.i, newText: "}" }] },
             }
-          : { message: "This %{ is never closed: add }.", label: "never closed", fix: close },
+          : { message: `This ${opener} is never closed: add }.`, label: "never closed", fix: close },
       );
     }
   }

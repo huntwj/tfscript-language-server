@@ -416,7 +416,7 @@ describe("range filtering", () => {
 
   it("offers nothing for diagnostics without a mechanical fix", () => {
     const unfixable = "/def f = /echo %{foo%{bar}}\n";
-    expect(codes(unfixable)).toContain("bad-substitution-selector");
+    expect(codes(unfixable)).toContain("substitution-syntax");
     expect(getCodeActions(unfixable, WHOLE_FILE)).toEqual([]);
   });
 });

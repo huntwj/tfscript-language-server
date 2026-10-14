@@ -4,10 +4,10 @@ import { letSwallowsEndif } from "./letSwallowsEndif";
 import { dollarBracketInIf } from "./dollarBracketInIf";
 import { indentedLineAfterCommand } from "./indentedLineAfterCommand";
 import { backslashNotLast } from "./backslashNotLast";
-import { badSubstitutionSelector } from "./badSubstitutionSelector";
+import { substitutionSyntax } from "./substitutionSyntax";
 import { reservedMacroName } from "./reservedMacroName";
 import { blockStructure } from "./blockStructure";
-import { unclosedSubstitution } from "./unclosedSubstitution";
+import { expressionSyntax } from "./expressionSyntax";
 import { separatorSendsBlankLine } from "./separatorSendsBlankLine";
 import { nestingTooDeep } from "./nestingTooDeep";
 import { incompleteContinuation } from "./incompleteContinuation";
@@ -24,10 +24,10 @@ export const RULES: Rule[] = [
   dollarBracketInIf,
   indentedLineAfterCommand,
   backslashNotLast,
-  badSubstitutionSelector,
+  substitutionSyntax,
   reservedMacroName,
   blockStructure,
-  unclosedSubstitution,
+  expressionSyntax,
   separatorSendsBlankLine,
   nestingTooDeep,
   incompleteContinuation,

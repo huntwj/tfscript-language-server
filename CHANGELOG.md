@@ -30,6 +30,15 @@
   `-son` when a command follows. A `%;` in a `/set`, `/let` or `/setenv` value is noted without a
   fix, since a value can hold one on purpose.
 - `/@def`, `/@bind` and `/@hook` are read as the builtins they are, with a macro body.
+- `unclosed-substitution` is split in two, by what tf can't read:
+  - `substitution-syntax` covers a `%{`, `%-`, `${` or `$(`, and absorbs
+    `bad-substitution-selector` (a substitution glued onto a `%{` selector).
+  - `expression-syntax` covers a `$[`, a string, a parenthesis or a condition.
+
+  Both now look wherever tf substitutes, `/eval`, `/repeat`, `/at`, `/quote` and `/for` text
+  included. `bad-substitution-selector` no longer flags a plain top-level line, which prints
+  `%{foo%{bar}}` as it is. A top-level `/test` whose text holds a `$`, `%` or `\` is checked too:
+  tf compiles it as written, so `/test $[1+2` is "unmatched $[".
 - "Inline /foo" (`refactor.inline`): replaces a `/foo` call in a macro body with foo's body, and
   "Inline all calls to /foo and remove it" does that for every call in the file and deletes the
   `/def`. It is shown disabled, with the reason, when the body wouldn't run the same in the caller:

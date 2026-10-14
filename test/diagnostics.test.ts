@@ -235,6 +235,14 @@ describe("not-substituted-here (rule 4)", () => {
     expect(Date.now() - start).toBeLessThan(3000);
   });
 
+  // Review rev-s2d perf.js: each `%; /if` read the rest of the statement, 8000 of them in 20 s.
+  it("checks only so many %; /if splits of one statement, offering no more", () => {
+    const start = Date.now();
+    const diags = getDiagnostics(`/echo a${"%; /if (1) /echo b%; /endif".repeat(8000)}\n`);
+    expect(Date.now() - start).toBeLessThan(3000);
+    expect(diags.filter((d) => d.fix?.title === "Put the next command on a line of its own")).toHaveLength(64);
+  });
+
   // Review probe p2 (B5): a value holding %; can be meant, for a later /eval.
   it("says a /set, /let or /setenv value includes the %;, and offers no fix", () => {
     const [d, ...rest] = getDiagnostics("/set cmd=/echo a%; /echo b\n");

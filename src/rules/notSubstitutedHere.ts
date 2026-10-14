@@ -27,6 +27,8 @@ const PERCENT_NAME_RE = /%[A-Za-z_][A-Za-z0-9_]*/g;
 const SEPARATOR_RE = /%;/g;
 const BLOCK_KEYWORDS = new Set(["then", "else", "elseif", "endif", "do", "done"]);
 const VALUE_COMMANDS = new Set(["set", "let", "setenv"]);
+/** How many `%; /if` splits of one statement are checked for leaving a block open (see blockChecksLeft). */
+const MAX_BLOCK_CHECKS = 64;
 /**
  * Where the substitution opened at `at` (`%{`, `${`, `$[` or `$(`) ends, as tf ends it: after the
  * first closer a nested substitution doesn't take (expand.c `varsub()`: `%{foo-a}b}` prints `ab}`),
@@ -244,6 +246,15 @@ export const notSubstitutedHere: EntryRule = {
     /** Whether `s`, read as `mode`, leaves a block open or stray (for the %; fixes below). */
     const blockError = (s: string, mode: StructureMode): boolean =>
       parseRegions(s, mode).issues.some((i) => i.kind === "block" || i.kind === "continuation");
+    // Each block check reads the rest of the statement, so a statement with thousands of `%; /if`
+    // would be read thousands of times (review rev-s2d: 8000 took 20 s). Past this many, a split
+    // before an /if or /while goes unchecked, so unoffered.
+    const blockChecks = new Map<ContextStatement, number>();
+    const blockChecksLeft = (st: ContextStatement): boolean => {
+      const used = blockChecks.get(st) ?? 0;
+      blockChecks.set(st, used + 1);
+      return used < MAX_BLOCK_CHECKS;
+    };
     // Read with -son, once per statement: an /eval's text can hold thousands of %;.
     const openWithSon = new Map<ContextStatement, boolean>();
     const blockErrorOnce = (st: ContextStatement): boolean => {
@@ -391,9 +402,10 @@ export const notSubstitutedHere: EntryRule = {
       // Nor where the commands it would split off open a block they don't close (review rev-s2c
       // h.tf: `/echo a%; /if (1) /echo b` on lines of their own is an /if with no /endif).
       // A line split off can only leave a block open if it starts one; -son reads the whole text.
+      const opensBlock = nextWord === "if" || nextWord === "while";
       const splits = st.viaEval
         ? !blockErrorOnce(st)
-        : (nextWord !== "if" && nextWord !== "while") || !blockError(text.slice(next, st.end), "top");
+        : !opensBlock || (blockChecksLeft(st) && !blockError(text.slice(next, st.end), "top"));
       if (command && !value && splits) {
         if (st.viaEval) {
           const last = st.viaEval.options.at(-1)!;

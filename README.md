@@ -429,20 +429,25 @@ folders, whether or not a load path reaches it. Rename changes a macro you defin
 lines included) or names inside strings or built at runtime (`/undef name`, `ismacro("name")`).
 A script outside the load path that calls the macro is not updated either.
 
-Variables get go-to-definition, find-references, rename and highlights too. A variable is named
-by `/set`, `/setenv`, `/let`, `/unset` and `/export`, read as `%name`, `%{name}` or
-`%{name-default}`, and, in an expression (`$[...]`, an `/if`, `/elseif` or `/while` condition,
-`/test`, `/result`, `/return`), as `{name}` or a bare `name`, which `name := ...`, `+=` and `++name`
-assign. Names are case-sensitive, as in tf. `/set`, `/setenv`, `/unset` and `/export` always
-mean the global; `/let`, and the `opt_` variables `getopts()` sets, belong to the macro body
-they're in, and a read in that body after its `/let` means the local. So renaming a global
-leaves a body's own `/let x` alone, and renaming that local changes only its body. Definitions
-include tf's library; rename refuses tf's special variables, variables the library sets, and
-`getopts()` variables, and a new name tf would read as a selector (`L`, `R`, `P1`). tf's scoping
-is dynamic (a macro also sees its caller's locals) and `$(...)` and `/eval` text get scopes of
-their own; neither is followed, so a body without its own `/let` reads the global here.
-Positional selectors (`%1`, `%*`, `{#}`) aren't variables, and names built at run time
-(`cylon%i`) or in strings, and `/listvar` patterns, aren't followed.
+Variables get go-to-definition, find-references, rename and highlights too, read only where tf
+reads them. A variable is named by a `/set`, `/setenv`, `/let`, `/unset` or `/export` at the start
+of a statement (not in `/echo type /set x`), and read as `%name`, `%{name}` or `%{name-default}`
+where tf substitutes: in a macro body or `/eval` text, not in a plain top-level command or a
+`/def`'s trigger pattern. An expression (`$[...]`, an `/if`, `/elseif` or `/while` condition,
+`/test`, `/result`, `/return`, `/def -E`) also reads `{name}` and a bare `name`, which
+`name := ...`, `+=` and `++name` assign, but not the strings in it (`ftime("%Y")`), except in a
+body's `/test`, `/return` and `/result`, which tf substitutes first. Names are case-sensitive, as
+in tf. `/set`, `/setenv`, `/unset` and `/export` always mean the global; `/let`, and the `opt_`
+variables `getopts()` sets, belong to the macro body they're in, and a read in that body once its
+`/let` statement has run means the local (`/let x=%{x}-copy` reads the global). So renaming a
+global leaves a body's own `/let x` alone, and renaming that local changes only its body.
+Definitions include tf's library. Rename refuses tf's special variables, variables the library
+uses, `getopts()` variables, a new name tf would read as a selector (`L`, `R`, `P1`), and a new
+name that is already taken where the rename would merge two variables or let a body's `/let`
+capture the renamed one. tf's scoping is dynamic (a macro also sees its caller's locals) and
+`$(...)` and `/eval` text get scopes of their own; neither is followed, so a body without its own
+`/let` reads the global here. Positional selectors (`%1`, `%*`, `{#}`) aren't variables, and
+names built at run time (`cylon%i`, `%%{stack_%{n}}`) and `/listvar` patterns aren't followed.
 
 Highlighting the name under the cursor marks every use of that variable or macro in the file,
 with `/set`s, `/let`s, assignments and `/def` names shown as writes.

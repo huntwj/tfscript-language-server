@@ -1,19 +1,23 @@
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildLoadGraph } from "../src/workspace/loadGraph";
-import { loadPathDiagnostics, type LoadPathDiagnosticOptions } from "../src/workspace/loadPathDiagnostics";
+import { loadPathDiagnostics, macroNames, nearestName, type LoadPathDiagnosticOptions } from "../src/workspace/loadPathDiagnostics";
 
 const ROOT = path.resolve("/fake");
 const p = (...parts: string[]) => path.join(ROOT, ...parts);
 
-function check(files: Record<string, string>, file: string, options: Partial<LoadPathDiagnosticOptions> = {}, home?: string) {
+function graphOf(files: Record<string, string>, home?: string) {
   const byKey = new Map(Object.entries(files).map(([k, v]) => [path.resolve(k).toLowerCase(), v]));
-  const graph = buildLoadGraph({
+  return buildLoadGraph({
     entryFiles: [p("tfrc")],
     workingDir: p("cwd"),
     readFile: (f) => byKey.get(path.resolve(f).toLowerCase()),
     ...(home ? { home } : {}),
   });
+}
+
+function check(files: Record<string, string>, file: string, options: Partial<LoadPathDiagnosticOptions> = {}, home?: string) {
+  const graph = graphOf(files, home);
   return loadPathDiagnostics(file, files[file] as string, graph, {
     unresolvedLoads: true,
     undefinedMacros: true,
@@ -120,11 +124,59 @@ describe("unresolved-load", () => {
 describe("undefined-macro", () => {
   const codes = (files: Record<string, string>, file: string) => check(files, file).map((d) => d.code);
 
-  it("notes a call to a name defined nowhere on the path, at information level", () => {
-    const files = { [p("tfrc")]: "/load a.tf\n", [p("cwd", "a.tf")]: "/def go = /wot_mount x%; /echo ok\n" };
-    const [d] = check(files, p("cwd", "a.tf"));
+  it("warns about a call to a name defined nowhere, offering the one visible name it's a typo of", () => {
+    const files = {
+      [p("tfrc")]: "/load a.tf\n",
+      [p("cwd", "a.tf")]: "/def go = /wot_mount x%; /echo ok\n/def wot_mount_setMount = /echo\n/def rh = /wot_mount_setmout x\n",
+    };
+    const [none, typo] = check(files, p("cwd", "a.tf"));
+    expect(none).toMatchObject({ code: "undefined-macro", severity: "warning", range: { start: { line: 0, character: 11 } } });
+    expect(none?.message).toBe("There's no macro or command /wot_mount anywhere tf can see: check the name.");
+    expect(none?.fix).toBeUndefined();
+    // Suggested as its /def spells it.
+    expect(typo?.message).toBe("There's no macro or command /wot_mount_setmout: did you mean /wot_mount_setMount?");
+    expect(typo?.fix).toEqual({
+      title: "Change to /wot_mount_setMount",
+      edits: [{ range: { start: { line: 2, character: 11 }, end: { line: 2, character: 28 } }, newText: "wot_mount_setMount" }],
+    });
+  });
+
+  it("only counts a /name at the start of a statement tf runs, with /!name a call and /@name the builtin", () => {
+    const files = { [p("tfrc")]: "/def a = /echo try /nosuch1%; /@nosuch2%; /!nosuch3%; /if /nosuch4%; /then /endif\n" };
+    expect(check(files, p("tfrc")).map((d) => /\/(\w+)/.exec(d.message)?.[1])).toEqual(["nosuch3", "nosuch4"]);
+  });
+
+  it("checks a file no load path reaches against everything it can see", () => {
+    const files = { [p("tfrc")]: "/echo\n", [p("stray.tf")]: "/def a = /nowhere%; /echo\n" };
+    expect(check(files, p("stray.tf"))).toMatchObject([{ code: "undefined-macro", severity: "warning" }]);
+  });
+
+  it("notes a name defined in a file this one doesn't load, with a fix that requires it", () => {
+    const files = { [p("tfrc")]: ";; my tfrc\n/loaded my_tfrc\n/def a = /helper\n" };
+    const elsewhere = [{ label: "sub/helpers.tf", requirePath: "sub/helpers.tf", library: false, defs: macroNames("/def -i helper = /echo\n") }];
+    const [d] = loadPathDiagnostics(p("tfrc"), files[p("tfrc")] as string, graphOf(files), { unresolvedLoads: true, undefinedMacros: true }, { elsewhere });
     expect(d).toMatchObject({ code: "undefined-macro", severity: "information" });
-    expect(d?.message).toContain("/wot_mount");
+    expect(d?.message).toBe("/helper is defined in sub/helpers.tf, which isn't on this file's load path: add /require sub/helpers.tf.");
+    expect(d?.fix).toEqual({
+      title: "Add /require sub/helpers.tf",
+      edits: [{ range: { start: { line: 2, character: 0 }, end: { line: 2, character: 0 } }, newText: "/require sub/helpers.tf\n" }],
+    });
+  });
+
+  it("only notes, naming the load, when a load on the path can't be followed", () => {
+    const files = { [p("tfrc")]: "/eval /load %{somewhere}/lib.tf\n/def a = /from_lib\n" };
+    const d = check(files, p("tfrc")).find((x) => x.code === "undefined-macro");
+    expect(d).toMatchObject({ severity: "information" });
+    expect(d?.message).toBe(
+      "/from_lib isn't defined in any file this check can read, but the load of %{somewhere}/lib.tf (tfrc line 1) can't be followed: make that load resolve, or check the name.",
+    );
+  });
+
+  it("leaves names on the ignore list alone, with * matching any run of characters", () => {
+    const files = { [p("tfrc")]: "/def a = /made_later%; /gen_x%; /other\n" };
+    expect(check(files, p("tfrc"), { ignoreMacros: ["MADE_LATER", "gen_*"] }).map((d) => d.message)).toEqual([
+      "There's no macro or command /other anywhere tf can see: check the name.",
+    ]);
   });
 
   it("accepts tf commands and macros defined anywhere on the path, in any order and nesting", () => {
@@ -159,5 +211,22 @@ describe("undefined-macro", () => {
   it("is off unless asked for", () => {
     const files = { [p("tfrc")]: "/def go = /nowhere\n" };
     expect(check(files, p("tfrc"), { undefinedMacros: false })).toEqual([]);
+  });
+});
+
+describe("nearestName", () => {
+  const names = ["wot_mount_setmount", "echo", "endif", "kb_push", "kb_pop"];
+
+  it("allows one edit in a short name and two in a longer one", () => {
+    expect(nearestName("ecoh", names)).toBe("echo");
+    expect(nearestName("eco", names)).toBe("echo");
+    expect(nearestName("ehco", ["echo"])).toBe("echo");
+    expect(nearestName("ec", names)).toBeUndefined();
+    expect(nearestName("wot_mount_stmont", names)).toBe("wot_mount_setmount");
+  });
+
+  it("gives no suggestion when two names are as close", () => {
+    expect(nearestName("kb_po", names)).toBe("kb_pop");
+    expect(nearestName("key_c", ["key_a", "key_b"])).toBeUndefined();
   });
 });

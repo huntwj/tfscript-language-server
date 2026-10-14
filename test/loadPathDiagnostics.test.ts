@@ -40,8 +40,15 @@ describe("unresolved-load", () => {
 
   it("gives working-directory advice only for a relative path, which is the only kind tf searches", () => {
     const [abs] = check({ [p("tfrc")]: `/load ${p("lib", "gone.tf")}\n` }, p("tfrc"));
-    expect(abs?.message).toBe(`tf won't find "${p("lib", "gone.tf")}": fix the path.`);
-    expect(abs?.explanation).toBe(`The path is absolute, so tf looks only at \`${p("lib", "gone.tf")}\`.`);
+    expect(abs?.message).toMatch(new RegExp(`^tf won't find "${p("lib", "gone.tf").replace(/\\/g, "\\\\")}": fix the path`));
+    expect(abs?.message).not.toContain("workingDirectory");
+    expect(abs?.explanation).toContain(`The path is absolute, so tf looks only at \`${p("lib", "gone.tf")}\`.`);
+  });
+
+  it("suggests a path mapping for a Unix path nothing maps, which tf may see somewhere else", () => {
+    const [d] = check({ [p("tfrc")]: "/load /wotmud/tf/gone.tf\n" }, p("tfrc"));
+    expect(d?.message).toBe('tf won\'t find "/wotmud/tf/gone.tf": fix the path, or if tf runs where that path exists, map it with tfscript.pathMappings.');
+    expect(d?.explanation).toContain("tfscript.pathMappings");
   });
 
   it("says a ~/ path is under HOME, and that HOME isn't known when it isn't, rather than show a made-up path", () => {
@@ -83,7 +90,7 @@ describe("unresolved-load", () => {
   });
 
   it("says when a path's variable is unknown because a /set inside an /if or /while may change it", () => {
-    const text = "/set d=/x\n/if (d =~ \"\") /set d=/y%; /endif\n/eval /load %{d}/a.tf\n/while (0) /set TFPATH=/z%; /done\n/load b.tf\n";
+    const text = "/set d=/x\n/if (d =~ \"q\") /set d=/y%; /endif\n/eval /load %{d}/a.tf\n/while (0) /set TFPATH=/z%; /done\n/load b.tf\n";
     const [d, tfpath] = check({ [p("tfrc")]: text }, p("tfrc"));
     expect(d).toMatchObject({ severity: "information", range: { start: { line: 2 } } });
     expect(d?.message).toBe("This load can't be followed here: %{d} is set inside an /if or /while on the load path.");

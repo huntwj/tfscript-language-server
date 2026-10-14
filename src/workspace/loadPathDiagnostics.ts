@@ -231,10 +231,19 @@ function unresolvedDetail(u: UnresolvedLoad): Pick<TfDiagnostic, "message" | "la
     };
   }
   if (u.file.startsWith("~") || path.isAbsolute(u.file)) {
+    // A Unix path no mapping covered: tf may run somewhere it exists (a container, WSL, another host).
+    const unmapped = u.file.startsWith("/") && path.normalize(u.file) === path.normalize(u.searched[0] ?? "");
     return {
-      message: `tf won't find ${shown}: fix the path.`,
+      message: unmapped
+        ? `tf won't find ${shown}: fix the path, or if tf runs where that path exists, map it with tfscript.pathMappings.`
+        : `tf won't find ${shown}: fix the path.`,
       label: "not found",
-      explanation: `The path is absolute, so tf looks only at ${u.searched.map((s) => code(s)).join(", ")}.`,
+      explanation:
+        `The path is absolute, so tf looks only at ${u.searched.map((s) => code(s)).join(", ")}.` +
+        (unmapped
+          ? ` If tf runs in a container or on another machine, ${code("tfscript.pathMappings")} says where its paths are here, ` +
+            `for example ${code('[{ "tf": "/wotmud", "local": "C:/Users/me/wotmud" }]')}.`
+          : ""),
     };
   }
   return {

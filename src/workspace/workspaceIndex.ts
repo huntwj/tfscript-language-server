@@ -1,5 +1,6 @@
 import * as path from "node:path";
-import { splitRawLines } from "../logicalEntries";
+import { splitLogicalEntries, splitRawLines } from "../logicalEntries";
+import { entryLoads, literalText } from "../loadCommands";
 import type { ExternalMacro, NavContext } from "../navigation";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
 import { findLoadPaths, type LoadPath } from "../documentLinks";
@@ -7,7 +8,15 @@ import type { Range } from "../symbols";
 import { buildLoadGraph, fileKey as keyOf, resolveLoadPath, type LoadGraph, type LoadedFile } from "./loadGraph";
 import { resolveSettings, type Environment, type RawSettings, type ResolvedSettings } from "./settings";
 import { parseTfHelp, type HelpEntry } from "./tfHelp";
-import { loadPathDiagnostics } from "./loadPathDiagnostics";
+import {
+  loadPathDiagnostics,
+  macroNames,
+  unfollowedOnPath,
+  type DefinedElsewhere,
+  type MacroContext,
+  type MacroNames,
+  type UnfollowedLoad,
+} from "./loadPathDiagnostics";
 import type { TfDiagnostic } from "../diagnostics";
 
 export interface FileSystem {
@@ -208,12 +217,148 @@ export class WorkspaceIndex {
 
   /** unresolved-load and (if enabled) undefined-macro diagnostics for `file`, from its context's graph. */
   loadPathDiagnostics(file: string, text: string): TfDiagnostic[] {
-    const { folder, graph } = this.contextFor(file);
+    const { folder, graph, settings } = this.contextFor(file);
     const options = this.raw.get(keyOf(folder))?.diagnostics;
-    return loadPathDiagnostics(file, text, graph, {
-      unresolvedLoads: options?.unresolvedLoads ?? true,
-      undefinedMacros: options?.undefinedMacros ?? false,
-    });
+    // tf's own library calls hook points a user may define (kbbind.tf: key_meta_f1 = /key_esc_f1).
+    // A library file opened on its own is in a folder of its own, so ask every folder's settings.
+    const library = [settings, ...this.folders.map((f) => this.settingsFor(f))].some((s) => s.libraryDir !== undefined && isInside(file, s.libraryDir));
+    const undefinedMacros = (options?.undefinedMacros ?? true) && !library;
+    return loadPathDiagnostics(
+      file,
+      text,
+      graph,
+      { unresolvedLoads: options?.unresolvedLoads ?? true, undefinedMacros, ignoreMacros: options?.ignoreMacros ?? [] },
+      undefinedMacros ? this.macroContext(file, folder, graph, settings) : {},
+    );
+  }
+
+  private macroNameCache = new Map<string, { text: string; names: MacroNames }>();
+  private macroContexts = new WeakMap<
+    LoadGraph,
+    { elsewhere: (DefinedElsewhere & { key: string })[]; unfollowed: UnfollowedLoad[]; loads: Map<string, { written: string[]; unfollowed: UnfollowedLoad[] }> }
+  >();
+
+  /**
+   * What the undefined-macro check needs to know about the rest of the workspace, for `file`:
+   * the files its load path doesn't reach, and the loads that can't be followed. Worked out
+   * once per load graph (which is rebuilt after any change).
+   */
+  private macroContext(file: string, folder: string, graph: LoadGraph, settings: ResolvedSettings): MacroContext {
+    let shared = this.macroContexts.get(graph);
+    if (!shared) {
+      const reached = new Set(graph.files.map((f) => keyOf(f.path)));
+      const elsewhere = this.definedElsewhere(folder, reached, settings);
+      // On the path, the graph knows which loads it couldn't follow; a not-found one loads nothing.
+      const unfollowed = unfollowedOnPath(graph, (f) => this.label(f, folder, settings.libraryDir));
+      // Off it, nothing is known about how tf is started: every file's loads, and which of them
+      // don't resolve with the settings, so an off-path file can look at the files that load it.
+      const loads = new Map<string, { written: string[]; unfollowed: UnfollowedLoad[] }>();
+      const env = { home: settings.home, tfPath: settings.tfPath, libraryDir: settings.libraryDir, workingDir: settings.workingDir, readFile: this.read };
+      for (const f of this.fs.walkTfFiles(folder)) {
+        const text = this.read(f);
+        if (text === undefined) continue;
+        const mine = { written: [] as string[], unfollowed: [] as UnfollowedLoad[] };
+        for (const entry of splitLogicalEntries(text)) {
+          if (entry.incomplete) continue;
+          for (const load of entryLoads(entry)) {
+            const literal = literalText(load.file, load.pending)?.trim();
+            if (literal !== undefined) mine.written.push(literal);
+            if (literal !== undefined && resolveLoadPath(literal, env).found !== undefined) continue;
+            mine.unfollowed.push({ raw: entry.text.slice(load.start, load.end), label: this.label(f, folder, settings.libraryDir), line: entry.startLine });
+          }
+        }
+        loads.set(keyOf(f), mine);
+      }
+      shared = { elsewhere, unfollowed, loads };
+      this.macroContexts.set(graph, shared);
+    }
+    const self = keyOf(file);
+    const onPath = graph.files.some((f) => keyOf(f.path) === self);
+    // A file is never "elsewhere" to itself.
+    const elsewhere = shared.elsewhere.filter((e) => e.key !== self);
+    return { elsewhere, unfollowed: onPath ? shared.unfollowed : this.offPathUnfollowed(self, shared.loads) };
+  }
+
+  /**
+   * For a file no load path reaches: the loads that can't be followed in it and in the files that
+   * may load it, directly or not. A file may load it when one of its loads ends with this file's
+   * name and the folders before it (`/require tf-wotmud/score.tf` for `.../tf-wotmud/score.tf`):
+   * how tf finds it isn't known, so only the name can be compared.
+   */
+  private offPathUnfollowed(self: string, loads: Map<string, { written: string[]; unfollowed: UnfollowedLoad[] }>): UnfollowedLoad[] {
+    const segments = (p: string): string[] => p.replace(/\\/g, "/").split("/").filter((s) => s !== "" && s !== ".");
+    const names = (target: string, written: string): boolean => {
+      const t = segments(target);
+      const w = segments(written).filter((s) => s !== ".." && s !== "~" && !s.startsWith("~"));
+      if (w.length === 0) return false;
+      const n = Math.min(t.length, w.length);
+      for (let i = 1; i <= n; i += 1) if (t[t.length - i] !== w[w.length - i]) return false;
+      return true;
+    };
+    // Keys are case-folded where the filesystem is (keyOf); fold what's written the same way.
+    const fold = (s: string): string => (process.platform === "win32" ? s.toLowerCase() : s);
+    const out: UnfollowedLoad[] = [];
+    const seen = new Set<string>();
+    const queue = [self];
+    while (queue.length > 0) {
+      const key = queue.shift() as string;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(...(loads.get(key)?.unfollowed ?? []));
+      for (const [other, info] of loads) {
+        if (!seen.has(other) && info.written.some((w) => names(key, fold(w)))) queue.push(other);
+      }
+    }
+    return out;
+  }
+
+  private macroNamesOf(file: string, text: string): MacroNames {
+    const key = keyOf(file);
+    const cached = this.macroNameCache.get(key);
+    if (cached && cached.text === text) return cached.names;
+    const names = macroNames(text);
+    this.macroNameCache.set(key, { text, names });
+    return names;
+  }
+
+  /** The workspace's and tf library's files the load path doesn't reach, and the macros each defines. */
+  private definedElsewhere(folder: string, reached: Set<string>, settings: ResolvedSettings): (DefinedElsewhere & { key: string })[] {
+    const seen = new Set(reached);
+    const lib = settings.libraryDir;
+    const out: (DefinedElsewhere & { key: string })[] = [];
+    const add = (f: string, text: string, library: boolean): void => {
+      const key = keyOf(f);
+      if (seen.has(key)) return;
+      seen.add(key);
+      const requirePath = this.requirePath(f, settings);
+      out.push({ key, label: this.label(f, folder, lib), library, defs: this.macroNamesOf(f, text), ...(requirePath === undefined ? {} : { requirePath }) });
+    };
+    for (const f of this.fs.walkTfFiles(folder)) {
+      const text = this.read(f);
+      if (text !== undefined) add(f, text, Boolean(lib && isInside(f, lib)));
+    }
+    if (lib) for (const f of this.library(lib)) add(f.path, f.text, true);
+    return out;
+  }
+
+  /**
+   * What to write after `/require` for tf to load `target`: its path from tf's current directory,
+   * or from a TFPATH directory (TFLIBDIR when TFPATH is empty), checked by resolving it the way tf
+   * would. Undefined when none of them reaches it.
+   */
+  private requirePath(target: string, settings: ResolvedSettings): string | undefined {
+    const env = { home: settings.home, tfPath: settings.tfPath, libraryDir: settings.libraryDir, workingDir: settings.workingDir, readFile: this.read };
+    const dirs = [settings.workingDir, ...(settings.tfPath.length > 0 ? settings.tfPath : settings.libraryDir ? [settings.libraryDir] : [])];
+    for (const dir of dirs) {
+      const rel = path.relative(dir, target);
+      if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) continue;
+      const written = rel.replace(/\\/g, "/");
+      // /require joins its words with single blanks, so a name with a run of them can't be written.
+      if (/\s\s/.test(written)) continue;
+      const found = resolveLoadPath(written, env).found;
+      if (found !== undefined && keyOf(found) === keyOf(target)) return written;
+    }
+    return undefined;
   }
 
   /**

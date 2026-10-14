@@ -271,3 +271,48 @@ describe("variables through the workspace index", () => {
     expect(prepareRename(text, pos(0, 34), ctx())).toEqual({ error: "libwidth is used by tf's library, which a rename here can't change, so it can't be renamed." });
   });
 });
+
+describe("undefined macros through the workspace index", () => {
+  const diagnose = (files: Record<string, string>, file: string, settings: Record<string, unknown> = {}) => {
+    const fs = memoryFs(files);
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    index.setSettings(p("ws"), { libraryPath: p("lib"), ...settings });
+    return index.loadPathDiagnostics(file, files[file] as string).filter((d) => d.code === "undefined-macro");
+  };
+
+  it("is on by default, and can be turned off", () => {
+    const files = { [p("lib", "stdlib.tf")]: "", [p("ws", "tfrc")]: "/def a = /nowhere\n" };
+    expect(diagnose(files, p("ws", "tfrc"))).toHaveLength(1);
+    expect(diagnose(files, p("ws", "tfrc"), { diagnostics: { undefinedMacros: false } })).toEqual([]);
+  });
+
+  it("offers to /require a workspace or library file that defines the name, by a path tf resolves", () => {
+    const files = {
+      [p("lib", "stdlib.tf")]: "",
+      [p("lib", "textutil.tf")]: "/def -i lcase_all = /echo\n",
+      [p("ws", "tfrc")]: "/def a = /helper%; /lcase_all\n",
+      [p("ws", "sub", "helpers.tf")]: "/def -i helper = /echo\n",
+    };
+    expect(diagnose(files, p("ws", "tfrc")).map((d) => d.fix?.title)).toEqual(["Add /require sub/helpers.tf", "Add /require textutil.tf"]);
+  });
+
+  it("leaves tf's own library alone, which calls hook points a user may define", () => {
+    const files = { [p("lib", "stdlib.tf")]: "", [p("lib", "kbbind.tf")]: "/def -i key_meta_f1 = /key_esc_f1\n", [p("ws", "tfrc")]: "" };
+    expect(diagnose(files, p("lib", "kbbind.tf"))).toEqual([]);
+  });
+
+  it("only notes a name in a file off the load path when a file that loads it has a load it can't follow", () => {
+    const files = {
+      [p("lib", "stdlib.tf")]: "",
+      [p("ws", "tfrc")]: "",
+      [p("ws", "main.tf")]: "/require dep/main.tf\n/require ws/score.tf\n",
+      [p("ws", "score.tf")]: "/def s = /from_dep\n",
+      [p("ws", "alone.tf")]: "/def s = /from_dep\n",
+    };
+    const [score] = diagnose(files, p("ws", "score.tf"));
+    expect(score).toMatchObject({ severity: "information" });
+    expect(score?.message).toContain("the load of dep/main.tf (main.tf line 1) can't be followed");
+    expect(diagnose(files, p("ws", "alone.tf"))).toMatchObject([{ severity: "warning" }]);
+  });
+});

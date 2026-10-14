@@ -26,8 +26,10 @@ export interface RawSettings {
   diagnostics?: {
     /** `/load`/`/require` paths tf wouldn't find. Default on. */
     unresolvedLoads?: boolean;
-    /** Calls to names defined nowhere on the load path. Default off. */
+    /** Calls to macros defined nowhere tf can see. Default off. */
     undefinedMacros?: boolean;
+    /** Macro names the undefined-macro check leaves alone (made while tf runs, say); `*` is a wildcard. */
+    ignoreMacros?: string[];
   };
   format?: {
     /** Split macro bodies into one `%;`-separated statement per line. Default on. */

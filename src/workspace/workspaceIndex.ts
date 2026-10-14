@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { splitLogicalEntries, splitRawLines } from "../logicalEntries";
 import { entryLoads, literalText } from "../loadCommands";
-import type { ExternalMacro, NavContext } from "../navigation";
+import type { ContextFile, ExternalMacro, NavContext } from "../navigation";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
 import { findLoadPaths, type LoadPath } from "../documentLinks";
 import type { Range } from "../symbols";
@@ -648,6 +648,31 @@ export class WorkspaceIndex {
       libraryFiles: loaded.filter((f) => isLibrary(f.path)).map((f) => ({ uri: uriOf(f.path), text: f.text })),
       help: lib ? this.help(lib) : undefined,
     };
+  }
+
+  /**
+   * Every file a call to a macro defined in `file` may come from: `file` itself, the files on
+   * its load path (tf's library among them), and every tf script in its workspace folder,
+   * reached by a load path or not.
+   */
+  callerFiles(file: string, uriOf: (file: string) => string): ContextFile[] {
+    const { folder, graph } = this.contextFor(file);
+    const out = new Map<string, ContextFile>();
+    const add = (p: string, text?: string): void => {
+      const key = keyOf(p);
+      if (out.has(key)) return;
+      const t = text ?? this.read(p);
+      if (t !== undefined) out.set(key, { uri: uriOf(path.resolve(p)), text: t });
+    };
+    add(file);
+    for (const f of graph.files) add(f.path, f.text);
+    for (const f of this.walk(folder).files) add(f);
+    return [...out.values()];
+  }
+
+  /** Whether `file`'s folder shows "N references" above each /def. Default on. */
+  referenceLenses(file: string): boolean {
+    return this.raw.get(keyOf(this.folderFor(file)))?.codeLens?.references ?? true;
   }
 
   private help(dir: string): ReadonlyMap<string, HelpEntry> | undefined {

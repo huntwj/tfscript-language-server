@@ -42,6 +42,10 @@ export interface RawSettings {
     /** Macro names the undefined-macro check leaves alone (made while tf runs, say); `*` is a wildcard. */
     ignoreMacros?: string[];
   };
+  codeLens?: {
+    /** "N references" above each /def. Default on. */
+    references?: boolean;
+  };
   format?: {
     /** Split macro bodies into one `%;`-separated statement per line. Default on. */
     splitStatements?: boolean;

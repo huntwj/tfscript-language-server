@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `invalid-macro-name` replaces `reserved-macro-name`, and adds tf's "illegal macro name": a
+  name starting with `#`, `@`, `!` or `/`, or holding a space or tab. tf reads the name up to the
+  first `=`, so a `/def` whose `=` was left out (`/def greet /echo hi`) is one of these, and the fix
+  puts the `=` after the first word. `/@def` and `/!def` are checked too.
 - `empty-statement` replaces `separator-sends-blank-line`, and covers every statement with
   nothing in it, which tf sends to the world as a blank line: a `%;` after another separator,
   after `/then` or `/do`, before a body's first command, before the `)` of a `$(...)`, and in an

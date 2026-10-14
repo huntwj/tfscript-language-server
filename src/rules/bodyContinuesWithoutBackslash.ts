@@ -34,6 +34,9 @@ function check(text: string): LineMatch[] {
     // Another definition (/def, /bind, /hook, /trig..., /alias) is a new macro, not more of this one.
     const following = entries[index + 1];
     if (following && following.startLine === entry.endLine + 1 && (following.isDefBody || following.isOtherMacroBody)) return;
+    // A block keyword (/endif, /else...) is block-structure's: joined into the body it would be a
+    // different error, or end a block the body never opened.
+    if (/^\/(?:then|else|elseif|endif|do|done)(?![^ \t\r\f\v%])/i.test(next)) return;
     // Running the macro just defined is a line meant to run at load.
     const name = /^\/def\b/i.test(entry.text) ? entry.text.slice(defOptionsEnd(entry.text, 4)).split("=")[0]?.trim().toLowerCase() : undefined;
     if (name && /^\/[@!]*(\S*)/.exec(next)?.[1]?.toLowerCase() === name) return;

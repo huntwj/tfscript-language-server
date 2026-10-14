@@ -41,6 +41,8 @@ describe("body-continues-without-backslash", () => {
     for (const next of ["/def p08 = /echo two", "/bind ^A = /echo a", "/hook CONNECT = /echo c", "/trig x = /echo t", "/alias aa /echo a"]) {
       expect(diags(["/def p07 = /echo one%;", next])).toEqual([]);
     }
+    // w03, w04: a block keyword is block-structure's (tf dev, 2026-10-14: "unexpected /ENDIF").
+    for (const next of ["/endif", "/else", "/done"]) expect(diags(["/def foo = /echo % a%;", next, "/foo"])).toEqual([]);
   });
 
   it("strips trailing blanks in the fix, so the \\ is last", () => {

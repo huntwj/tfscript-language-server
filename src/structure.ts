@@ -235,7 +235,8 @@ class Parser {
   private appendStatement(p: number, word: string): IssueEdit {
     const q = this.pullBack(p);
     // A lone %; already ends the statement (in %%; the run of %s is text).
-    if (q >= 2 && this.isStatEnd(q - 2) && this.s[q - 3] !== "%") return { start: q, end: q, newText: ` /${word}` };
+    // (Not %| or %\: only a %; separates without doing something else.)
+    if (this.s[q - 1] === ";" && this.s[q - 2] === "%" && this.s[q - 3] !== "%") return { start: q, end: q, newText: ` /${word}` };
     // Glued onto a % (or a \) the %; would be text.
     const pad = this.s[q - 1] === "%" || this.s[q - 1] === "\\" ? " " : "";
     return { start: q, end: q, newText: `${pad}%; /${word}` };
@@ -282,7 +283,7 @@ class Parser {
       if (m.word !== "endif" && m.word !== "done") continue;
       let k = m.end;
       while (isTfSpace(this.s[k])) k += 1;
-      if (k < this.s.length && !this.isStatEnd(k) && this.s[k] !== ")") at.add(k);
+      if (k < this.s.length && !this.isStatEnd(k) && !this.isCmdsubEnd(k)) at.add(k);
     }
     return [...at].sort((a, b) => a - b).map((p) => this.separatorBefore(p));
   }
@@ -513,6 +514,9 @@ class Parser {
         `read as the first statement of the body, where tf doesn't expect it. ${code(`/${word}`)} only follows a ` +
         `condition list: ${code(`${list} /test x%; /${word} ...`)}`;
       problem.fix = drop;
+    } else if ((word === "then" && outer === "then") || (word === "do" && outer === "do")) {
+      problem.message = `This /${word} is inside the /${opener}'s body, where it doesn't belong: /${word} only ends a condition list.`;
+      problem.label = `inside the /${opener}'s body`;
     } else if (word === "else" && outer === "else") {
       problem.message = "This is a second /else in the same /if.";
       problem.label = "second /else";

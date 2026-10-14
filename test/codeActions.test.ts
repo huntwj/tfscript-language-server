@@ -129,9 +129,16 @@ describe("structural fixes", () => {
     });
   }
 
+  it("doesn't take a trailing %| for a separator, or a stray ) for the end of a $(...)", () => {
+    const pipe = "/def a = /if (1) /echo b%|\n";
+    expect(applyEdits(pipe, getCodeActions(pipe, WHOLE_FILE)[0]!.edits)).toBe("/def a = /if (1) /echo b%|%; /endif\n");
+    const paren = "/def a = /if (1) /echo x /endif)\n";
+    expect(applyEdits(paren, getCodeActions(paren, WHOLE_FILE)[0]!.edits)).toBe("/def a = /if (1) /echo x%; /endif%; )\n");
+  });
+
   it("blames a second /then on the (condition) only when one comes straight before it", () => {
     const [list] = getDiagnostics("/def a = /if /test a%; /then /echo a%; /then /echo b%; /endif\n");
-    expect(list?.message).toBe("This /then has no /if to belong to: it is in an /if body.");
+    expect(list?.message).toBe("This /then is inside the /if's body, where it doesn't belong: /then only ends a condition list.");
     expect(list?.fix).toBeUndefined();
     const [elseif] = getDiagnostics("/def a = /if (1) /echo a%; /elseif (2) /then /echo b%; /endif\n");
     expect(elseif?.message).toBe("This /then is not needed: the (condition) after /elseif already ends it.");

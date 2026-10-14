@@ -182,6 +182,12 @@ export const notSubstitutedHere: EntryRule = {
       while (to < s.length && !isTfSpace(s[to])) to += 1;
       return written.slice(map[from], to > from ? (map[to - 1] as number) + 1 : map[from]);
     };
+    // Once per statement: a line can hold thousands of %{...}, each asking about the same statement.
+    const judged = new Map<ContextStatement | undefined, string | undefined>();
+    const unreadableOnce = (st: ContextStatement | undefined): string | undefined => {
+      if (!judged.has(st)) judged.set(st, unreadable(st));
+      return judged.get(st);
+    };
     const rejected = (bad: string): string =>
       `It also holds ${code(bad)}, which tf can't read as a substitution or an expression. Substituting the ` +
       `command as written would make tf reject it, where today it runs with the text as it is, so fix that first.`;
@@ -194,7 +200,7 @@ export const notSubstitutedHere: EntryRule = {
         end: start + written.length,
         label: "not substituted",
       };
-      const bad = unreadable(st);
+      const bad = unreadableOnce(st);
       if (st?.viaEval) {
         const name = evalName(st.viaEval);
         const runs =

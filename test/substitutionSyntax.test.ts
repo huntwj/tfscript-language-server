@@ -182,6 +182,13 @@ describe("not-substituted-here and nested or malformed %{", () => {
     expect(named("/echo %{foo%{bar}x} %{y}\n")).toEqual(["%{y}"]);
   });
 
+  it("stays near-linear on a line with thousands of %{...}", () => {
+    const text = `/echo ${"%{x} ".repeat(5000)}%{x%{y}} ${"%{x-%{y}} ".repeat(5000)}\n`;
+    const start = Date.now();
+    expect(getDiagnostics(text).filter((d) => d.code === "not-substituted-here")).toHaveLength(10000);
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
+
   // Proven live (s2/r/v.tf): /eval /echo %{x-} %{x%{y}} is "unmatched { or illegal character '%'",
   // where the line without /eval prints as it is.
   it("offers no substituting fix for a command /eval couldn't read", () => {

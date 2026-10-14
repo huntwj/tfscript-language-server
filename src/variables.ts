@@ -1,4 +1,5 @@
 import { ALL_COMMANDS } from "./data/commands";
+import { FUNCTIONS } from "./data/functions.generated";
 import { SPECIAL_VARIABLES } from "./data/variables.generated";
 import { evalMode, shortened, type Source } from "./loadCommands";
 import { isTfSpace, splitLogicalEntries, type LogicalEntry } from "./logicalEntries";
@@ -83,6 +84,9 @@ export interface VariableOccurrence {
 export const SPECIAL_VARIABLE_NAMES: ReadonlySet<string> = new Set(SPECIAL_VARIABLES.map((v) => v.name));
 
 const COMMAND_NAMES: ReadonlySet<string> = new Set(ALL_COMMANDS.map((c) => c.name.toLowerCase()));
+
+/** tf's builtin expression functions, as tf spells them (its search is case-sensitive). */
+const FUNCTION_NAMES: ReadonlySet<string> = new Set(FUNCTIONS.map((f) => f.name));
 
 const isDigit = (c: string | undefined): boolean => c !== undefined && c >= "0" && c <= "9";
 
@@ -268,6 +272,8 @@ interface Shared {
   next: number;
   /** Every `/name` statement run, with the scopes it runs in and where it is in the entry. */
   calls: Call[];
+  /** Every `name(...)` in an expression that calls a macro rather than a builtin function. */
+  functionCalls: Call[];
   /** The bodies of `/def`s inside a body, read once every call that runs them is known. */
   nested: { name: string; src: Source; definer: string[]; at: number; depth: number }[];
 }
@@ -412,7 +418,21 @@ function expression(w: Walk, from: number, to: number): void {
       while (isTfSpace(s[k])) k += 1;
       if (s[k] === "(") {
         // A function call (expr.c unary_expr()). getopts("ab:", ...) sets a local opt_a and opt_b.
-        if (s.slice(start, i) === "getopts") getopts(w, k + 1, to);
+        const fn = s.slice(start, i);
+        if (fn === "getopts") getopts(w, k + 1, to);
+        // tf tries its builtin functions first (find_builtin_func(), a case-sensitive search),
+        // then a command, which a macro of that name shadows, then a macro (do_function()).
+        else if (!FUNCTION_NAMES.has(fn)) {
+          w.scopes.functionCalls.push({
+            name: fn.toLowerCase(),
+            written: fn,
+            chain: w.chainAt?.(start) ?? w.chain,
+            at: w.src.map[start] as number,
+            nameStart: w.src.map[start] as number,
+            nameEnd: (w.src.map[i - 1] as number) + 1,
+            dynamic: false,
+          });
+        }
         continue;
       }
       let b = start - 1;
@@ -835,12 +855,12 @@ function entryCalls(entry: LogicalEntry, calls: Call[]): MacroCall[] {
   return out.sort((a, b) => a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character);
 }
 
-function entryVariables(entry: LogicalEntry, index: number): { variables: VariableOccurrence[]; calls: MacroCall[] } {
+function entryVariables(entry: LogicalEntry, index: number): Scanned {
   const s = entry.text;
   const found: Found[] = [];
   const src: Source = { text: s, map: Array.from({ length: s.length + 1 }, (_, i) => i) };
   const local = `local:${index}`;
-  const scopes: Shared = { prefix: local, next: 0, calls: [], nested: [] };
+  const scopes: Shared = { prefix: local, next: 0, calls: [], functionCalls: [], nested: [] };
   // A top-level /let is "illegal at top level" in tf; it still gets a scope of its own here.
   walk({ src, found, depth: 0, chain: [`${local}:top`], scopes }, "top");
   const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(s) : -1;
@@ -882,16 +902,26 @@ function entryVariables(entry: LogicalEntry, index: number): { variables: Variab
       range: { start: { line: first.line, character: first.character }, end: { line: last.line, character: last.character + 1 } },
     });
   }
-  return { variables: out, calls: entryCalls(entry, scopes.calls) };
+  return { variables: out, calls: entryCalls(entry, scopes.calls), functionCalls: entryCalls(entry, scopes.functionCalls) };
 }
 
-const cache = new Map<string, { variables: VariableOccurrence[]; calls: MacroCall[] }>();
+interface Scanned {
+  variables: VariableOccurrence[];
+  calls: MacroCall[];
+  functionCalls: MacroCall[];
+}
 
-function scan(text: string): { variables: VariableOccurrence[]; calls: MacroCall[] } {
+const cache = new Map<string, Scanned>();
+
+function scan(text: string): Scanned {
   let result = cache.get(text);
   if (!result) {
     const entries = splitLogicalEntries(text).flatMap((entry, i) => (entry.incomplete ? [] : [entryVariables(entry, i)]));
-    result = { variables: entries.flatMap((e) => e.variables), calls: entries.flatMap((e) => e.calls) };
+    result = {
+      variables: entries.flatMap((e) => e.variables),
+      calls: entries.flatMap((e) => e.calls),
+      functionCalls: entries.flatMap((e) => e.functionCalls),
+    };
     if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
     cache.set(text, result);
   }
@@ -912,4 +942,16 @@ export function findVariables(text: string): VariableOccurrence[] {
  */
 export function findMacroCalls(text: string): MacroCall[] {
   return scan(text).calls;
+}
+
+/**
+ * Every `name(...)` in an expression that calls a macro, in document order. tf tries its builtin
+ * functions first, so `strlen(x)` is never a call to a macro named strlen; any other name calls
+ * the macro (or the command it shadows) of that name, ignoring case (expr.c do_function()).
+ * Proven in real tf (2026-10-14): `$[sq(3)]`, `/if (sq(2) == 4)`, `/test v := sq(5)` and
+ * `$[sq (4)]` all ran the macro sq, `$[squp(1)]` ran `SqUp`, and `$[strlen("ab")]` gave 2 with a
+ * macro named strlen defined.
+ */
+export function findFunctionCalls(text: string): MacroCall[] {
+  return scan(text).functionCalls;
 }

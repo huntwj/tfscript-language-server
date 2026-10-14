@@ -1,6 +1,6 @@
 import { isTfSpace, type LogicalEntry } from "./logicalEntries";
 import { evalMode, shortened, type Source } from "./loadCommands";
-import { macroBodyStart, parseRegions, type StructureMode, type SubLevel } from "./structure";
+import { macroBodyStart, parseRegions, type ExpressionRegion, type StructureMode, type SubLevel } from "./structure";
 
 /**
  * Which text of a top-level entry tf substitutes, and how: one table the rules ask, rather than
@@ -21,13 +21,20 @@ import { macroBodyStart, parseRegions, type StructureMode, type SubLevel } from 
  *  - An expression is evaluated at any level: an `/if` or `/while` condition, the text of a
  *    `/test`, `/return` or `/result`, and `$[...]` where it is substituted. There `%x` and `%{x}`
  *    are operands, so a top-level `/if (%{x} == 5)` does read x.
+ *  - A string in an expression is not substituted by the expression. In a condition or `$[...]`
+ *    nothing substitutes it, even in a macro body: `/if (echo("%{x}"))` prints `%{x}`. The text
+ *    of a `/test`, `/return` or `/result` is substituted at its statement's level first, so a
+ *    string there is substituted in a macro body but not at the top level (review probe p1).
  *
  * Each level reads the text the one outside it produced: inside an `/if` line `%%{x}` reaches an
  * `/eval` as `%{x}`, which it substitutes.
  */
 
-/** How the text at an offset is finally read: a level, or as an expression. */
-export type SubContext = SubLevel | "expression";
+/**
+ * How the text at an offset is finally read: a level, as an expression, or as a string in a
+ * condition or `$[...]`, which nothing substitutes.
+ */
+export type SubContext = SubLevel | "expression" | "string";
 
 /** A statement read at the top level, or by an `/eval -soff`/`-son` there, as offsets into `entry.text`. */
 export interface ContextStatement {
@@ -45,6 +52,11 @@ export interface ContextStatement {
 export interface SubstitutionModel {
   /** How each character of `entry.text` is finally read. */
   contexts: SubContext[];
+  /**
+   * Whether each character of `entry.text` is read as part of an expression, its strings included
+   * (a string in a top-level `/test` keeps the `keyword` context, but is still no command text).
+   */
+  inExpression: boolean[];
   /** The statements read without substitution, outermost first. */
   statements: ContextStatement[];
 }
@@ -115,30 +127,59 @@ export function evalArguments(s: string, from: number, to: number): { text: numb
   return { text: word ? word.start : to, mode };
 }
 
+/** The strings in `s[from, to)`, read as an expression reads them (tf's `is_quote()`, `\` escaping). */
+function stringsIn(s: string, from: number, to: number): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = [];
+  for (let k = from; k < to; k += 1) {
+    const quote = s[k];
+    if (quote !== '"' && quote !== "'" && quote !== "`") continue;
+    let end = k + 1;
+    while (end < to && s[end] !== quote) end += s[end] === "\\" ? 2 : 1;
+    out.push({ start: k, end: Math.min(end + 1, to) });
+    k = end;
+  }
+  return out;
+}
+
 const cache = new WeakMap<LogicalEntry, SubstitutionModel>();
 
 export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
   let model = cache.get(entry);
   if (model) return model;
   const contexts: SubContext[] = new Array<SubContext>(entry.text.length).fill("keyword");
+  const inExpression: boolean[] = new Array<boolean>(entry.text.length).fill(false);
   const statements: ContextStatement[] = [];
-  model = { contexts, statements };
+  model = { contexts, inExpression, statements };
 
-  const mark = (src: Source, from: number, to: number, context: SubContext): void => {
+  const mark = (src: Source, from: number, to: number, context: SubContext, expression = false): void => {
     for (let k = from; k < to; k += 1) {
       const at = src.map[k];
-      if (at !== undefined && at < contexts.length) contexts[at] = context;
+      if (at !== undefined && at < contexts.length) {
+        contexts[at] = context;
+        inExpression[at] = expression;
+      }
+    }
+  };
+
+  /** Expressions, then the strings in them: a string in a condition or `$[...]` is never substituted. */
+  const expressions = (src: Source, list: ExpressionRegion[]): void => {
+    for (const ex of list) mark(src, ex.start, ex.end, "expression", true);
+    for (const ex of list) {
+      for (const str of stringsIn(src.text, ex.start, ex.end)) {
+        mark(src, str.start, str.end, ex.kind === "statement" ? (ex.level ?? "keyword") : "string", true);
+      }
     }
   };
 
   /** `src.text`, read as `mode` reads it; later (inner) reads overwrite earlier ones. */
   const read = (src: Source, mode: StructureMode, depth: number, viaEval: boolean): void => {
     const s = src.text;
+    const regions = parseRegions(s, mode);
     if (mode === "body") {
       mark(src, 0, s.length, "full");
+      expressions(src, regions.expressions);
       return;
     }
-    const regions = parseRegions(s, mode);
     // Where the text is split into statements, `%;` separates: it is read at the newline level.
     const split = mode === "newline" || regions.blocks.length > 0 || regions.statements.length > 1;
     mark(src, 0, s.length, split ? "newline" : "keyword");
@@ -176,8 +217,22 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
         if (e) read({ text: h.text.slice(e.text), map: h.map.slice(e.text) }, e.mode, depth + 1, true);
       }
     }
+    // A /test, /return or /result is a statement too, though its text is an expression.
+    for (const ex of regions.expressions) {
+      if (ex.kind !== "statement") continue;
+      let start = ex.start;
+      while (start > 0 && isTfSpace(s[start - 1])) start -= 1;
+      while (start > 0 && s[start] !== "/") start -= 1;
+      statements.push({
+        start: src.map[start] as number,
+        end: ex.end > start ? (src.map[ex.end - 1] as number) + 1 : (src.map[start] as number),
+        level: ex.level ?? "keyword",
+        word: commandWord(s, start),
+        viaEval,
+      });
+    }
     // Expressions last: what is evaluated as an expression is read so wherever it sits.
-    for (const ex of regions.expressions) mark(src, ex.start, ex.end, "expression");
+    expressions(src, regions.expressions);
   };
 
   read({ text: entry.text, map: Array.from({ length: entry.text.length + 1 }, (_, i) => i) }, "top", 0, false);

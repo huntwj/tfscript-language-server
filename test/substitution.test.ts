@@ -81,4 +81,13 @@ describe("separators and strings", () => {
     expect(contextOf("/eval -soff /if (1) /echo a%; /echo b%; /endif", "%;")).toBe("newline");
     expect(contextOf("/eval -soff /echo a%; /echo b", "%;")).toBe("keyword");
   });
+
+  it("never substitutes a string in a condition or $[...], and a /test's string at its level", () => {
+    expect(contextOf('/if (echo("%{x}")) /endif', "%{x}")).toBe("string");
+    expect(contextOf('/def a = /if (echo("%{x}")) /endif', "%{x}")).toBe("string");
+    expect(contextOf('/def a = /echo $["%{x}"]', "%{x}")).toBe("string");
+    expect(contextOf('/def a = /test echo("%{x}")', "%{x}")).toBe("full");
+    expect(contextOf('/test echo("%{x}")', "%{x}")).toBe("keyword");
+    expect(contextOf('/if (1) /test echo("%{x}")%; /endif', "%{x}")).toBe("newline");
+  });
 });

@@ -11,7 +11,8 @@ import type { EntryRule, EntryMatch } from "./types";
  *
  *  - `%{name}` there stays as it is: `/load %{d}/a.tf` looks for a file called `%{d}/a.tf`.
  *    Not in a macro body, an `/eval` (unless `-soff`/`-son`), a `/repeat`'s command or a `/for`,
- *    which are substituted, nor in an expression, which reads `%{x}` as an operand.
+ *    which are substituted, nor as an operand in an expression, which reads it as a variable.
+ *  - Nor in a string in a condition or `$[...]`, even in a macro body: nothing substitutes it.
  *  - `%name` is only flagged in a `/load` or `/require` path, where it can only be meant as a
  *    variable: elsewhere a top-level `%name` is usually meant as text (`/set
  *    std_clock_format=%H:%M` in tfstatus.tf).
@@ -38,7 +39,7 @@ export const notSubstitutedHere: EntryRule = {
   scope: "entry",
   check(entry): EntryMatch[] {
     const text = entry.text;
-    const { contexts, statements } = entrySubstitution(entry);
+    const { contexts, inExpression, statements } = entrySubstitution(entry);
     const unsubstituted = (at: number): boolean => {
       const c = contexts[at];
       if (c !== "keyword" && c !== "newline") return false;
@@ -73,7 +74,22 @@ export const notSubstitutedHere: EntryRule = {
 
     for (const m of text.matchAll(PERCENT_BRACE_RE)) {
       const at = m.index as number;
-      if (text[at - 1] !== "%" && unsubstituted(at)) variable(at, m[0]);
+      if (text[at - 1] === "%") continue;
+      if (unsubstituted(at)) {
+        variable(at, m[0]);
+      } else if (contexts[at] === "string") {
+        const name = /^%\{([^}-]*)/.exec(m[0])?.[1] ?? "";
+        out.push({
+          start: at,
+          end: at + m[0].length,
+          message: `${m[0]} stays as it is inside a string in an expression: take it out of the quotes and write {${name}}, as in strcat("...", {${name}}).`,
+          label: "not substituted",
+          explanation:
+            `An expression doesn't substitute inside its strings, and nothing else does in a condition or ${code("$[...]")}, ` +
+            `even in a macro body, so the string holds the text ${code(m[0])}. Outside the quotes, ${code(`{${name}}`)} reads ` +
+            `the variable: ${code(`strcat("a", {${name}}, "b")`)}.`,
+        });
+      }
     }
     for (const load of entryLoads(entry)) {
       if (load.pending.includes("full")) continue;
@@ -85,7 +101,7 @@ export const notSubstitutedHere: EntryRule = {
 
     for (const m of text.matchAll(SEPARATOR_RE)) {
       const at = m.index as number;
-      if (text[at - 1] === "%" || contexts[at] !== "keyword") continue;
+      if (text[at - 1] === "%" || contexts[at] !== "keyword" || inExpression[at]) continue;
       const st = statementAt(statements, at);
       // A macro definition's options (an -E expression) and body are read later, their own way.
       if (!st || st.body !== undefined) continue;

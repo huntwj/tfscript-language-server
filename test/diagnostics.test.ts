@@ -110,6 +110,21 @@ describe("not-substituted-here (rule 4)", () => {
       "%{x} stays as it is in a top-level /if or /while line: put /eval in front of the command to substitute it.",
     );
     expect(message("/eval -soff /echo %{x}")).toBe("%{x} stays as it is in /eval -soff text: put /eval in front of the command to substitute it.");
+    expect(message("/if (1) /test echo(\"%{x}\")%; /endif")).toBe(
+      "%{x} stays as it is in a top-level /if or /while line: put /eval in front of the command to substitute it.",
+    );
+  });
+
+  // Review probe p1 (A6-A9): tf prints %{x} for each, in a /def body too, but substitutes the /test's string in a body.
+  it("flags a %{...} in a string, where nothing substitutes it", () => {
+    const message = (line: string) => getDiagnostics(`${line}\n`).filter((x) => x.code === "not-substituted-here").map((x) => x.message);
+    const inString = '%{x} stays as it is inside a string in an expression: take it out of the quotes and write {x}, as in strcat("...", {x}).';
+    expect(message('/if (echo("%{x}")) /endif')).toEqual([inString]);
+    expect(message('/def body9 = /if (echo("%{x}")) /endif%; /test echo("%{x}")')).toEqual([inString]);
+    expect(message('/def b = /echo $["%{x}"]')).toEqual([inString]);
+    expect(message('/test echo("%{x}")')).toEqual([
+      "%{x} stays as it is in a command at the top level of a file: put /eval in front of the command to substitute it.",
+    ]);
   });
 
   it("leaves %name alone outside a load path, and a % in a run", () => {
@@ -139,6 +154,8 @@ describe("not-substituted-here (rule 4)", () => {
       "/eval -soff /if (1) /echo a%; /echo b%; /endif",
       "/eval -s1 /set a=1%; /echo a=%a",
       "/@def pd2 = /echo a%; /echo b",
+      // tests/cases/52_lua_sample_percent.tf: a %; in a /test's string is meant as text.
+      '/test trigger("Bob says hi %; /echo second-command")',
     ]) {
       expect(codes(`${line}\n`)).not.toContain("not-substituted-here");
     }

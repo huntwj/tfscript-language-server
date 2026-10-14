@@ -23,6 +23,11 @@ export interface RawSettings {
   workingDirectory?: string;
   /** What `~` (tf's HOME) means. Defaults to the user's home directory. */
   homeDirectory?: string;
+  /**
+   * Where tf's paths are on this machine, for a tf that runs somewhere else (a container, WSL, a
+   * remote host): each maps an absolute path as tf sees it (`/wotmud`) to a folder here.
+   */
+  pathMappings?: { tf: string; local: string }[];
   diagnostics?: {
     /** `/load`/`/require` paths tf wouldn't find. Default on. */
     unresolvedLoads?: boolean;
@@ -54,6 +59,47 @@ export interface ResolvedSettings {
   tfPath: string[];
   workingDir: string;
   home: string;
+  /** Longest `tf` prefix first, `tf` with forward slashes and no trailing one, `local` absolute. */
+  pathMappings: PathMapping[];
+}
+
+export interface PathMapping {
+  tf: string;
+  local: string;
+}
+
+/**
+ * The file here that tf's absolute path `p` names, through the first mapping whose `tf` prefix
+ * it starts with (a whole path segment), or `p` itself. Either separator is accepted, so a path
+ * built with path.join() still maps.
+ */
+export function toLocalPath(p: string, mappings: readonly PathMapping[]): string {
+  const forward = p.replace(/\\/g, "/");
+  for (const m of mappings) {
+    if (forward === m.tf || forward.startsWith(m.tf === "/" ? "/" : `${m.tf}/`)) {
+      return path.join(m.local, forward.slice(m.tf === "/" ? 1 : m.tf.length));
+    }
+  }
+  return p;
+}
+
+/** tf's absolute path for the file here `p`, through the first mapping whose folder holds it, if any. */
+export function toTfPath(p: string, mappings: readonly PathMapping[]): string | undefined {
+  for (const m of mappings) {
+    const rel = path.relative(m.local, p);
+    if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
+      const tail = rel.replace(/\\/g, "/");
+      return tail === "" ? m.tf : `${m.tf === "/" ? "" : m.tf}/${tail}`;
+    }
+  }
+  return undefined;
+}
+
+function mappingsOf(raw: RawSettings, folder: string, home: string): PathMapping[] {
+  return (raw.pathMappings ?? [])
+    .filter((m) => typeof m?.tf === "string" && typeof m?.local === "string" && m.tf.startsWith("/") && m.local.trim() !== "")
+    .map((m) => ({ tf: m.tf.replace(/\\/g, "/").replace(/\/+$/, "") || "/", local: absolute(m.local, folder, home, []) }))
+    .sort((a, b) => b.tf.length - a.tf.length);
 }
 
 export interface Environment {
@@ -62,9 +108,10 @@ export interface Environment {
   exists(file: string): boolean;
 }
 
-function absolute(p: string, folder: string, home: string): string {
+/** A setting's path, here: `~` is home, a path under a mapping's `tf` prefix is mapped, the rest is relative to the folder. */
+function absolute(p: string, folder: string, home: string, mappings: readonly PathMapping[]): string {
   const expanded = p === "~" || p.startsWith("~/") || p.startsWith("~\\") ? home + p.slice(1) : p;
-  return path.resolve(folder, expanded);
+  return path.resolve(folder, toLocalPath(expanded, mappings));
 }
 
 /**
@@ -73,8 +120,10 @@ function absolute(p: string, folder: string, home: string): string {
  * (tinyfugue/src/main.c read_configuration()); TFLIBDIR and TFPATH from the environment.
  */
 export function resolveSettings(raw: RawSettings, folder: string, environment: Environment): ResolvedSettings {
-  const home = raw.homeDirectory ? path.resolve(folder, raw.homeDirectory) : environment.homedir;
-  const abs = (p: string) => absolute(p, folder, home);
+  const userHome = environment.homedir;
+  const pathMappings = mappingsOf(raw, folder, userHome);
+  const home = raw.homeDirectory ? absolute(raw.homeDirectory, folder, userHome, pathMappings) : userHome;
+  const abs = (p: string) => absolute(p, folder, home, pathMappings);
 
   let entryFiles = (raw.entryFiles ?? []).filter((f) => f.trim() !== "").map(abs);
   if (entryFiles.length === 0) {
@@ -109,5 +158,6 @@ export function resolveSettings(raw: RawSettings, folder: string, environment: E
     tfPath,
     workingDir: raw.workingDirectory ? abs(raw.workingDirectory) : folder,
     home,
+    pathMappings,
   };
 }

@@ -49,7 +49,29 @@ describe("resolveSettings", () => {
       tfPath: [p("home", "tf")],
       workingDir: p("ws", "run"),
       home: p("home"),
+      pathMappings: [],
     });
+  });
+
+  it("maps a tf path in the settings through pathMappings, longest prefix first", () => {
+    const s = resolveSettings(
+      {
+        pathMappings: [
+          { tf: "/wotmud/", local: "repo" },
+          { tf: "/wotmud/lib", local: "~/tflib" },
+        ],
+        workingDirectory: "/wotmud",
+        tfPath: ["/wotmud/lib/extra"],
+      },
+      p("ws"),
+      env(memoryFs({})),
+    );
+    expect(s.pathMappings).toEqual([
+      { tf: "/wotmud/lib", local: p("home", "tflib") },
+      { tf: "/wotmud", local: p("ws", "repo") },
+    ]);
+    expect(s.workingDir).toBe(p("ws", "repo"));
+    expect(s.tfPath).toEqual([p("home", "tflib", "extra")]);
   });
 
   it("takes TFLIBDIR and TFPATH from the environment when unset", () => {

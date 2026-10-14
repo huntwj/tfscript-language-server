@@ -189,6 +189,12 @@ describe("not-substituted-here (rule 4)", () => {
     );
     expect(d?.fix?.title).toBe("Give the /eval -son");
     expect(d?.fix?.edits.map((e) => [e.range.start.character, e.range.end.character, e.newText])).toEqual([[6, 11, "-son"]]);
+    // Second review's probes k1 and f1: with -son, a keyword after the %; is "unexpected /ELSE".
+    for (const line of ["/eval -soff /echo a%; /else", "/eval -soff /echo a%; /endif"]) {
+      const [n] = getDiagnostics(`${line}\n`).filter((x) => x.code === "not-substituted-here");
+      expect(n?.severity).toBe("information");
+      expect(n?.fix).toBeUndefined();
+    }
   });
 
   // Review probes p3 (C5) and p4 (D1, D2): these %;s separate.

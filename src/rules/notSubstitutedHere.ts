@@ -158,13 +158,15 @@ export const notSubstitutedHere: EntryRule = {
           `${code("/eval")} text, and on a line that starts with ${code("/if")} or ${code("/while")}.` +
           (value ? ` A value holding ${code("%;")} can be meant, for a later ${code("/eval")} to run.` : ""),
       };
-      if (st.viaEval && !value) {
-        const last = st.viaEval.options.at(-1)!;
-        match.fix = { title: "Give the /eval -son", edits: [{ start: last.start, end: last.end, newText: "-son" }] };
-      } else if (!value) {
-        // Not before a keyword: /endif on a line of its own is no command (keyword-mid-statement's case).
-        const nextWord = /^\/([A-Za-z]*)/.exec(text.slice(next))?.[1]?.toLowerCase();
-        if (nextWord !== undefined && !BLOCK_KEYWORDS.has(nextWord)) {
+      // Not before a keyword: split off, /endif or /else is no command but a stray keyword
+      // (keyword-mid-statement's case; second review's probe k1: -son made "unexpected /ELSE").
+      const nextWord = /^\/([A-Za-z]*)/.exec(text.slice(next))?.[1]?.toLowerCase();
+      const command = nextWord !== undefined && !BLOCK_KEYWORDS.has(nextWord);
+      if (command && !value) {
+        if (st.viaEval) {
+          const last = st.viaEval.options.at(-1)!;
+          match.fix = { title: "Give the /eval -son", edits: [{ start: last.start, end: last.end, newText: "-son" }] };
+        } else {
           match.fix = { title: "Put the next command on a line of its own", edits: [{ start: at, end: next, newText: "\n" }] };
         }
       }

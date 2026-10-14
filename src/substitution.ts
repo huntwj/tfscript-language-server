@@ -362,7 +362,8 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
 
   /**
    * A `/for`'s END, compiled where stdlib puts it: `/while ( VAR <= END )` (stdlib.tf). A problem
-   * the parser finds in END itself is kept as it is; one in VAR was already said of the `/let`. One
+   * the parser finds in END itself is kept as it is. VAR is checked as a name, as the `/let` stdlib
+   * runs first reads one, and one the parser finds inside VAR isn't said again here. One
    * it reports at the text around them (a `)` of stdlib's that END's own `(` or `$[` takes, say) is
    * no character the file holds, so it is said of the word that leaves the condition open: END if
    * END alone isn't a whole expression, else VAR if VAR alone isn't (review rev-s2d f2.tf: tf
@@ -394,6 +395,18 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
     };
     const kept: StructureIssue[] = [];
     let said = false;
+    // tf's /let takes a name as spanvar() reads one (variable.c): `/for j) 1 2` is "illegal variable
+    // name: j)" (proven, review rev-s2e). A VAR with a substitution in it may make a name at run time.
+    const varName = h.text.slice(name.start, name.end);
+    if (!/[%$\\{]/.test(varName) && !/^[A-Za-z_\u0080-￿][A-Za-z0-9_\u0080-￿]*$/.test(varName)) {
+      kept.push({
+        ...blame(nameStart, nameEnd, "variable", "write a name, such as i"),
+        explanation:
+          `stdlib's ${code("/for")} sets the loop variable with ${code("/let VAR=START")}, and tf takes only a name ` +
+          `there: letters, digits and ${code("_")}, not starting with a digit.`,
+      });
+      said = true;
+    }
     for (const issue of parseRegions(wrapped.text, "body").issues) {
       if (issue.start >= endStart && issue.start < endEnd) kept.push(issue);
       else if (issue.start >= nameStart && issue.start < nameEnd) continue;

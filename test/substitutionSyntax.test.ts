@@ -103,6 +103,17 @@ describe("substitution-syntax only where tf substitutes", () => {
     expect([d?.range.start.character, d?.range.end.character]).toEqual([5, 7]);
   });
 
+  // Proven live (s2/r/fv.tf): tf rejects j) ("LET: illegal variable name") and 1x, and runs é and
+  // i_2; a VAR with a substitution in it may make a name when the loop runs.
+  it("reports a /for VAR that isn't a name, as tf's /let reads one", () => {
+    const messages = (text: string) => getDiagnostics(text).filter((x) => x.severity === "error").map((x) => x.message);
+    expect(messages("/for j) 1 2 /echo G3\n")).toEqual(["This /for's variable, j), isn't a complete variable name: write a name, such as i."]);
+    expect(messages("/for 1x 1 2 /echo G4\n")).toHaveLength(1);
+    for (const text of ["/for é 1 2 /echo V5\n", "/for i_2 1 2 /echo V6\n", "/for %{v} 1 2 /echo V4\n"]) {
+      expect(messages(text)).toEqual([]);
+    }
+  });
+
   // Proven live (review rev-s2 p3): tf runs these clean. Read as one body, the whole of /for's
   // text has its COMMAND mid-statement, where the /if's (...) would be no condition.
   it("reads a /for's COMMAND as a command list, not its whole text", () => {

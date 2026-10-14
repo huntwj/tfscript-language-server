@@ -1,6 +1,7 @@
 import { getRefactorActions } from "./bodyLayout";
 import { getDiagnostics, type Position, type Range, type TfDiagnostic, type TfTextEdit } from "./diagnostics";
 import { getExtractActions } from "./extractMacro";
+import { getInlineActions } from "./inlineMacro";
 
 /**
  * Quick fixes: the `fix` a diagnostic carries, the same one its hover shows. Diagnostics are
@@ -51,6 +52,7 @@ export function getCodeActions(text: string, range: Range, diagnostics: TfDiagno
 export const QUICK_FIX = "quickfix";
 export const REFACTOR_REWRITE = "refactor.rewrite";
 export const REFACTOR_EXTRACT = "refactor.extract";
+export const REFACTOR_INLINE = "refactor.inline";
 /** LSP's CodeActionTriggerKind: the user asked (a menu, a shortcut), or the editor asked on its own (the lightbulb). */
 export const TRIGGER_INVOKED = 1;
 export const TRIGGER_AUTOMATIC = 2;
@@ -64,13 +66,19 @@ export interface CodeActionRequest {
   diagnostics?: TfDiagnostic[];
   /** Whether a macro name (lower case) is already taken where the file runs, for a new macro's name. */
   isTaken?: (name: string) => boolean;
+  /** Whether a macro (lower case) may also be defined outside this file, for inlining. */
+  definedOutside?: (name: string) => boolean;
+  /** Whether a file other than this one names a macro (lower case), before its /def is removed. */
+  mentionedOutside?: (name: string) => boolean;
+  /** The file is in tf's library, whose macros aren't inlined. */
+  library?: boolean;
   /** The client shows an action greyed out with the reason it can't run (LSP `disabled`). */
   disabledSupport?: boolean;
 }
 
 export interface RoutedCodeAction {
   title: string;
-  kind: typeof QUICK_FIX | typeof REFACTOR_REWRITE | typeof REFACTOR_EXTRACT;
+  kind: typeof QUICK_FIX | typeof REFACTOR_REWRITE | typeof REFACTOR_EXTRACT | typeof REFACTOR_INLINE;
   edits: TfTextEdit[];
   diagnostic?: TfDiagnostic;
   /** Why it can't run: shown greyed out, with this reason. */
@@ -101,6 +109,17 @@ export function routeCodeActions(text: string, request: CodeActionRequest): Rout
     for (const a of getExtractActions(text, request.range, request.isTaken ? { isTaken: request.isTaken } : {})) {
       if (a.disabled === undefined) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: a.edits });
       else if (request.disabledSupport) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: [], disabled: a.disabled });
+    }
+  }
+  if (asked && wants(request.only, REFACTOR_INLINE)) {
+    const options = {
+      ...(request.definedOutside ? { definedOutside: request.definedOutside } : {}),
+      ...(request.mentionedOutside ? { mentionedOutside: request.mentionedOutside } : {}),
+      ...(request.library ? { library: true } : {}),
+    };
+    for (const a of getInlineActions(text, request.range, options)) {
+      if (a.disabled === undefined) out.push({ title: a.title, kind: REFACTOR_INLINE, edits: a.edits });
+      else if (request.disabledSupport) out.push({ title: a.title, kind: REFACTOR_INLINE, edits: [], disabled: a.disabled });
     }
   }
   return out;

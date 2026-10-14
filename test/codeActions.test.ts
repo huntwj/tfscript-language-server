@@ -162,6 +162,15 @@ describe("rule fixes", () => {
     ["let-swallows-endif", ["/def -i a = /if (1) /set x=1 /endif /echo b"], ["/def -i a = /if (1) /set x=1%; /endif%; /echo b"]],
     ["let-swallows-endif", ["/def -i a = /let x=50% /if (1) /echo%; /endif"], ["/def -i a = /let x=50% %; /if (1) /echo%; /endif"]],
     ["let-swallows-endif", ["/if (1) /let x=1 /endif"], ["/if (1) /let x=1%; /endif"]],
+    // No second %; where the statement ends anyway: the ) of a $(...), or %\ (proven live: one sends a blank line).
+    ["let-swallows-endif", ["/def -i lf = /echo [$(/if (1) /let x=7 /endif)] x=%x"], ["/def -i lf = /echo [$(/if (1) /let x=7%; /endif)] x=%x"]],
+    ["let-swallows-endif", ["/def -i lh = /if (1) /let x=8 /endif%\\ /echo lh x=%x"], ["/def -i lh = /if (1) /let x=8%; /endif%\\ /echo lh x=%x"]],
+    // Only the first swallowed /endif can close the /if, so only it gets a fix.
+    [
+      "let-swallows-endif",
+      ["/def -i ld = /if (1) /let x=4 /endif%; /let z=5 /endif%; /echo ld x=%x z=%z"],
+      ["/def -i ld = /if (1) /let x=4%; /endif%; /let z=5 /endif%; /echo ld x=%x z=%z"],
+    ],
     ["bare-line-after-command", ["hello world", "/echo x"], ["; hello world", "/echo x"]],
     ["bare-line-after-command", ["hello \\", "  world", "/echo x"], ["; hello \\", "  ; world", "/echo x"]],
     // Proven live: tf aborts at a line starting with a byte order mark, even before a /.
@@ -235,6 +244,18 @@ describe("rule fixes", () => {
       expect(getCodeActions(body, WHOLE_FILE).filter((a) => a.title.startsWith("Add %; /"))).toEqual([]);
     }
     expect(getCodeActions("/def a = /while (1) /echo x\n", WHOLE_FILE).map((a) => a.title)).toEqual(["Add %; /done at the end of the body"]);
+  });
+
+  it("leaves a macro clean with every let-swallows-endif fix applied at once", () => {
+    for (const text of [
+      "/def -i ld = /if (1) /let x=4 /endif%; /let z=5 /endif%; /echo ld x=%x z=%z\n",
+      "/def -i lb = /set y=2 /let x=1 /endif /if (1) /echo%; /endif\n",
+      "/def -i lc = /let a=1 /let b=2 /if (1) /echo%; /endif\n",
+      "/def -i le = /if (1) /let x=1 /endif%; /if (2) /set y=2 /endif%; /echo\n",
+    ]) {
+      const fixed = applyEdits(text, getCodeActions(text, WHOLE_FILE).flatMap((a) => a.edits));
+      expect(codes(fixed), fixed).toEqual([]);
+    }
   });
 
   it("gives every line of an indented run the same fix", () => {

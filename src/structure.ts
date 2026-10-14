@@ -83,11 +83,17 @@ export interface StructureIssue extends IssueDetail {
   end: number;
 }
 
-/** An /endif inside a /let or /set value, with offsets into the checked text: the keyword, and where its statement starts. */
-export interface SwallowedEndif {
+/**
+ * An `/if` or `/endif` inside a /let or /set value, with offsets into the checked text: the
+ * keyword, where its statement starts, and the `%;`s that would make it a statement of its own
+ * (none where `%;` doesn't separate, on a plain top-level line).
+ */
+export interface Swallowed {
   start: number;
   end: number;
+  word: string;
   stmt: number;
+  edits: IssueEdit[];
 }
 
 /** `issue` with every offset moved by `by`. */
@@ -157,6 +163,8 @@ interface Open {
   end: number;
   /** Where the current part of its body (after a condition, /then, /do or /else) starts. */
   body?: number;
+  /** An /endif that would have closed it has been found in a /let or /set value. */
+  swallowed?: boolean;
 }
 
 function isNameChar(ch: string | undefined): boolean {
@@ -204,8 +212,8 @@ class Parser {
   readonly statements: Statement[] = [];
   /** Compiling stopped at an error, so tf runs none of this text. */
   stopped = false;
-  /** /endifs swallowed by a /let or /set value while their /if is open (for let-swallows-endif). */
-  readonly swallowed: SwallowedEndif[] = [];
+  /** /ifs and /endifs swallowed by a /let or /set value (for let-swallows-endif). */
+  readonly swallowed: Swallowed[] = [];
   constructor(private readonly s: string, private readonly mode: StructureMode) {}
 
   run(): void {
@@ -694,6 +702,10 @@ class Parser {
       const m = /^\/[@!]*([^\s%]*)/.exec(s.slice(this.i));
       command = (m?.[1] ?? "").toLowerCase();
     }
+    // Whether the statement is a /let or /set assignment (worked out at its first /if or /endif),
+    // and whether a keyword in its value has been recorded as swallowed: only the first counts.
+    let assignment: boolean | undefined;
+    let swallowedHere = false;
     while (this.i < s.length) {
       const ch = s[this.i];
       if (subs >= NEWLINE && ch === "%") {
@@ -721,17 +733,30 @@ class Parser {
       if (ch === "/" && this.i > stmtStart && isTfSpace(s[this.i - 1])) {
         const kw = this.keywordAt(this.i + 1);
         if (kw && INNER_KEYWORDS.has(kw.word)) this.mids.push({ start: this.i, end: kw.end, word: kw.word, command, stmt: stmtStart });
-        // An /endif that would close the /if it is in, but sits in a /let or /set value instead.
-        if (
-          kw?.word === "endif" &&
-          (this.block === "then" || this.block === "else") &&
-          LET_ASSIGNMENT_RE.test(s.slice(stmtStart, this.i))
-        ) {
-          this.swallowed.push({ start: this.i, end: kw.end, stmt: stmtStart });
+        if (kw && (kw.word === "if" || kw.word === "endif") && !swallowedHere) {
+          assignment ??= LET_ASSIGNMENT_RE.test(s.slice(stmtStart, this.i));
+          if (assignment) swallowedHere = this.swallow(kw.word, this.i, kw.end, command, stmtStart, subs >= NEWLINE);
         }
       }
       this.i += 1;
     }
+  }
+
+  /**
+   * Records an `/if` or `/endif` in a /let or /set value (for let-swallows-endif), with the `%;`s
+   * that make it a statement of its own, placed as separateSwallowed() places them. An `/endif`
+   * counts only while its `/if` is open, and only the first one per `/if`: at most one can close
+   * it, so fixing a later one too would leave that one stray.
+   */
+  private swallow(word: string, start: number, end: number, command: string, stmt: number, separates: boolean): boolean {
+    if (word === "endif") {
+      const open = this.open[this.open.length - 1];
+      if (!open || (this.block !== "then" && this.block !== "else") || open.swallowed) return false;
+      open.swallowed = true;
+    }
+    const edits = separates ? this.separateSwallowed([{ start, end, word, command, stmt }]) : [];
+    this.swallowed.push({ start, end, word, stmt, edits });
+    return true;
   }
 
   /** `%{...}` or `%name`, with `this.i` just after the `%` at `percent` (`varsub()`). */
@@ -1080,7 +1105,7 @@ export function entryStatements(entry: LogicalEntry): Statement[] {
 
 interface EntryModel {
   issues: StructureIssue[];
-  swallowed: SwallowedEndif[];
+  swallowed: Swallowed[];
 }
 
 const cache = new WeakMap<LogicalEntry, EntryModel>();
@@ -1096,7 +1121,10 @@ function entryModel(entry: LogicalEntry): EntryModel {
       const parser = new Parser(entry.text.slice(body), "body");
       parser.run();
       for (const issue of parser.issues) model.issues.push(shiftIssue(issue, body));
-      for (const w of parser.swallowed) model.swallowed.push({ start: w.start + body, end: w.end + body, stmt: w.stmt + body });
+      for (const w of parser.swallowed) {
+        const edits = w.edits.map((e) => ({ ...e, start: e.start + body, end: e.end + body }));
+        model.swallowed.push({ ...w, start: w.start + body, end: w.end + body, stmt: w.stmt + body, edits });
+      }
     }
     cache.set(entry, model);
   }
@@ -1111,7 +1139,7 @@ export function entryStructure(entry: LogicalEntry): StructureIssue[] {
   return entryModel(entry).issues;
 }
 
-/** The /endifs in `entry` that a /let or /set value swallows while their /if is open, offsets into `entry.text`. */
-export function entrySwallowedEndifs(entry: LogicalEntry): SwallowedEndif[] {
+/** The /ifs and /endifs in `entry` that a /let or /set value swallows, offsets into `entry.text`. */
+export function entrySwallowed(entry: LogicalEntry): Swallowed[] {
   return entryModel(entry).swallowed;
 }

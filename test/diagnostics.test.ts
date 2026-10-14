@@ -107,9 +107,18 @@ describe("let-swallows-endif (rule 5)", () => {
     expect(codes("/def -i a = /if(x) /let v=1 /endif\n")).not.toContain("let-swallows-endif");
   });
 
-  it("flags every /endif swallowed while the /if is open", () => {
+  // At most one /endif can close the /if, so fixing a later one too would leave it stray (proven live).
+  it("flags only the first /endif swallowed while the /if is open", () => {
     const found = getDiagnostics("/def a = /if (1) /let x=1 /endif%; /let y=2 /endif\n").filter((d) => d.code === "let-swallows-endif");
-    expect(found.map((d) => d.range.start.character)).toEqual([26, 44]);
+    expect(found.map((d) => d.range.start.character)).toEqual([26]);
+  });
+
+  // Proven live: the statement's first command takes the rest, so the /if is in /set y's value.
+  it("blames the statement's first /let or /set, once", () => {
+    const [set, ...rest] = getDiagnostics("/def -i b = /set y=2 /let x=1 /endif /if (1) /echo%; /endif\n").filter((d) => d.code === "let-swallows-endif");
+    expect(set?.message).toBe("This /if is part of the /set value, not a command: put %; before it.");
+    expect(rest).toEqual([]);
+    expect(codes("/def -i c = /let a=1 /let b=2 /if (1) /echo%; /endif\n").filter((c) => c === "let-swallows-endif")).toHaveLength(1);
   });
 
   it("stays linear on one long line", () => {

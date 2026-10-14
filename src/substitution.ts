@@ -83,7 +83,8 @@ export interface SubstitutionModel {
   statements: ContextStatement[];
 }
 
-const MACRO_DEFINER = /^(?:def|bind|hook|trig|trigc|trigp|trigpc|alias)$/;
+/** The commands that define a macro, whose body text tf reads as a macro body (without `/` or `@`). */
+export const MACRO_DEFINER = /^(?:def|bind|hook|trig|trigc|trigp|trigpc|alias)$/;
 const MAX_DEPTH = 8;
 
 const COMMAND_RE = /^\/[@!]*([^\s%)]*)/;

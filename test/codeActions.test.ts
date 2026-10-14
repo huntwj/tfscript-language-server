@@ -325,6 +325,9 @@ describe("rule fixes", () => {
     // e37: the second line's two commands become the body's; tf then prints a, b and c from /f.
     const e37 = ["/def f = /echo % a", "    /echo % b%; /echo % c", "/f", ""].join("\n");
     expect(getCodeActions(e37, WHOLE_FILE).map((a) => a.title)).toContain("End line 1 with \\");
+    // f10: an inner /def written with %%; for its own separator joins, and tf prints h1 and h2 from /g.
+    const f10 = ["/def f = /echo % f10a", "    /def g = /echo % h1%%; /echo % h2", "/f", "/g", ""].join("\n");
+    expect(getCodeActions(f10, WHOLE_FILE).map((a) => a.title)).toContain("End line 1 with \\");
   });
 
   it("writes no %; after a /do or /then that ends a line, which would send a blank line", () => {
@@ -353,6 +356,12 @@ describe("rule fixes", () => {
       ["/if (1)", "    /echo % a", "    say hello", "/echo % after"],
       ["/while (0)", "    /echo % a", "    north", "/done"],
       ["/def -i a = /echo one", "    two", "/echo x"],
+      // f09, f13, f14, f15: an inner /def's or /repeat's %; would end the outer body's statement,
+      // and the inner body would lose its second command.
+      ["/def f = /echo % f09a", "    /def g = /echo % g1%; /echo % g2", "/g"],
+      ["/def f = /echo % f13a", "    /repeat -0 1 /echo % f13r1%; /echo % f13r2", "/f"],
+      ["/def f = /echo % f14a", "    /def -i g = /echo % f14g1%; /echo % f14g2", "/g"],
+      ["/def f = \\", "    /echo % f15a", "        /def g = /echo % f15g1%; /echo % f15g2", "/g"],
       // e06: in a body \%%; separates (the \ takes one %), though the line reads as text; ambiguous.
       ["/def foo = /echo % x", "    /echo % a\\%%;/echo % b", "/foo"],
       // A %% joined into a top-level /if loses one %: k05, e03, e04, e08, e09, e40, e41.

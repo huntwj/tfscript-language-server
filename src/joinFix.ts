@@ -10,6 +10,7 @@ import {
   type LogicalEntry,
 } from "./logicalEntries";
 import { macroBodyStart, parseRegions } from "./structure";
+import { MACRO_DEFINER } from "./substitution";
 
 /**
  * Fixes that join physical lines into one command with trailing `\`s: for a top-level `/if` or
@@ -123,6 +124,20 @@ class SeparatorScanner {
   }
 }
 
+/**
+ * Commands whose text tf runs as a macro body of its own: the macro definers, and /repeat, /at,
+ * /quote (after its backquote), /eval and /for (stdlib's /for and /at run theirs with /eval or
+ * /repeat).
+ */
+function runsBody(word: string): boolean {
+  return MACRO_DEFINER.test(word) || /^(?:repeat|at|quote|eval|for)$/.test(word);
+}
+
+/** A line's command, lower case, without its `/` and any `@` or `!`; "" for text. */
+function commandOf(line: string): string {
+  return (/^\/[@!]*([^\s%]*)/.exec(line.slice(leadingWhitespaceLength(line)))?.[1] ?? "").toLowerCase();
+}
+
 /** A line's part of the command, as tf joins it: without its leading blanks or continuing `\`. */
 function partOf(line: string): string {
   const part = line.slice(leadingWhitespaceLength(line));
@@ -183,6 +198,10 @@ function joined(lines: string[], base: number, from: number, to: number, mode: S
     // In a body, a line whose separators turn on the body's \ processing (\%%; separates there,
     // \%; doesn't; read without it, the other way round) is ambiguous, so it isn't joined either.
     if (mode === "body" && own("body") !== own("top")) return undefined;
+    // Nor one that runs a macro body of its own (an inner /def, a /repeat): on its own line, its
+    // separator is part of that inner body; joined, the outer body's compile takes it first, and
+    // the inner body loses everything after it (proven in tf dev, 2026-10-14).
+    if (mode === "body" && own("body") > 0 && runsBody(commandOf(line))) return undefined;
     // A top-level /if or /while line gets one more round of % processing than the line had on its
     // own (proven in tf dev, 2026-10-14: an /echo or a /def -t pattern's %% becomes %), so a %%
     // would change what the line says, or make a %%; a separator.

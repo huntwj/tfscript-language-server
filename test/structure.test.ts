@@ -45,6 +45,8 @@ describe("checkStructure in a macro body", () => {
     expect(checkStructure('/echo $["abc]', "body")[0]?.message).toBe('This string is never closed: add the closing ".');
     expect(checkStructure("/echo $[1+2", "body")[0]?.message).toBe("This $[ is never closed: add ].");
     expect(checkStructure("/echo %{x y}", "body")[0]?.message).toBe("This %{ needs its } before the space.");
+    // A CRLF file's \r ends the line; it isn't a character in the name.
+    expect(checkStructure("/echo %{foo\r", "body")[0]?.message).toBe("This %{ is never closed: add }.");
   });
 
   it("knows a condition list needs %; before its /then", () => {
@@ -61,9 +63,10 @@ describe("checkStructure in a macro body", () => {
     expect(issue("/echo $(/echo x")).toBe("bracket@$("); // unmatched (
     expect(issue('/echo $["abc]')).toBe('bracket@"'); // unmatched " in string literal
     expect(issue("/if (1 /echo a%; /endif")).toBe("bracket@("); // condition syntax error
-    expect(issue("/test (1 + 2")).toBe("bracket@(1 + 2"); // expected ')' after '(...'
-    expect(issue('/result redisCmd("RPUSH", {1}, redisEscape({2})')).toBe('bracket@redisCmd("RPUSH", {1}, redisEscape({2})');
-    expect(issue('/test strlen("a"%; /echo after')).toBe('bracket@strlen("a"'); // reported, then runs on
+    expect(issue("/test (1 + 2")).toBe("bracket@("); // expected ')' after '(...'
+    expect(issue('/result redisCmd("RPUSH", {1}, redisEscape({2})')).toBe("bracket@(");
+    expect(checkStructure('/result redisCmd("RPUSH", {1}, redisEscape({2})', "body")[0]?.start).toBe(16); // the redisCmd( one
+    expect(issue('/test strlen("a"%; /echo after')).toBe("bracket@("); // reported, then runs on
     expect(issue("/echo $[1+(2]")).toBe("bracket@]"); // expected ')' after '(...', found ']'
     expect(issue("/echo %{x y}")).toBe("bracket@%{"); // unmatched { or illegal character ' '
     expect(issue("/echo %{x-a%;b}")).toBe("bracket@%{"); // unmatched { or illegal character '%'
@@ -181,7 +184,7 @@ describe("checkStructure on a top-level line", () => {
     expect(issue("/then", "top")).toBe("block@/then");
     expect(issue("/if (1 /echo top6%; /endif", "top")).toBe("bracket@(");
     expect(issue("/if (1) /echo top9%; /endif /echo y", "top")).toBe("block@/echo");
-    expect(issue("/test (1 + 2", "top")).toBe("bracket@(1 + 2");
+    expect(issue("/test (1 + 2", "top")).toBe("bracket@(");
   });
 });
 

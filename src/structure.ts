@@ -141,7 +141,10 @@ function code(text: string): string {
 }
 
 function charName(ch: string): string {
-  return ch === " " ? "space" : ch === "\t" ? "tab" : `'${ch}'`;
+  if (ch === " ") return "space";
+  if (ch === "\t") return "tab";
+  if (ch === "\r") return "carriage return";
+  return ch < " " ? `control character U+${ch.charCodeAt(0).toString(16).padStart(4, "0").toUpperCase()}` : `'${ch}'`;
 }
 
 function describeBlock(block: Block): string {
@@ -161,6 +164,8 @@ class Parser {
   private cmdsub = 0;
   private readonly open: Open[] = [];
   private readonly mids: MidKeyword[] = [];
+  /** Where the last `(condition)` ended (after its blanks), and the keyword it belongs to. */
+  private conditionEnd: { at: number; keyword: string } | undefined;
   readonly issues: StructureIssue[] = [];
   constructor(private readonly s: string, private readonly mode: StructureMode) {}
 
@@ -205,20 +210,35 @@ class Parser {
     throw new Stop();
   }
 
+  /** `p` pulled back over the blanks before it, but not over a blank escaped with `\`. */
+  private pullBack(p: number): number {
+    let q = p;
+    while (q > 0 && isTfSpace(this.s[q - 1]) && this.s[q - 2] !== "\\") q -= 1;
+    return q;
+  }
+
   /** Where to insert a `%;` so it ends the statement before `p`: after its last non-blank. */
   private separatorBefore(p: number): IssueEdit {
-    let q = p;
-    while (q > 0 && isTfSpace(this.s[q - 1])) q -= 1;
-    // Glued onto a % it would make %%;, which is text.
-    if (q === p || this.s[q - 1] === "%") return { start: p, end: p, newText: "%; " };
+    const q = this.pullBack(p);
+    // Glued onto a % it would make %%;, which is text; after a \ the % would be escaped.
+    if (q === p || this.s[q - 1] === "%" || this.s[q - 1] === "\\") return { start: p, end: p, newText: "%; " };
     return { start: q, end: q, newText: "%;" };
   }
 
   /** Insert `text` at `p`, pulled back over the blanks before it (the end of a statement). */
   private insertAtEnd(p: number, text: string): IssueEdit {
-    let q = p;
-    while (q > 0 && isTfSpace(this.s[q - 1])) q -= 1;
+    const q = this.pullBack(p);
     return { start: q, end: q, newText: text };
+  }
+
+  /** Add the statement `/word` at `p`, the end of the body: after a `%;` if one isn't there already. */
+  private appendStatement(p: number, word: string): IssueEdit {
+    const q = this.pullBack(p);
+    // A lone %; already ends the statement (in %%; the run of %s is text).
+    if (q >= 2 && this.isStatEnd(q - 2) && this.s[q - 3] !== "%") return { start: q, end: q, newText: ` /${word}` };
+    // Glued onto a % (or a \) the %; would be text.
+    const pad = this.s[q - 1] === "%" || this.s[q - 1] === "\\" ? " " : "";
+    return { start: q, end: q, newText: `${pad}%; /${word}` };
   }
 
   /** The innermost open /if or /while, as a related note. */
@@ -251,6 +271,22 @@ class Parser {
     this.fail(kind, start, end, problem);
   }
 
+  /**
+   * A `%;` before each swallowed keyword, and after a swallowed `/endif` or `/done` that has more
+   * text after it (which would otherwise be "text after /endif").
+   */
+  private separateSwallowed(swallowed: MidKeyword[]): IssueEdit[] {
+    const at = new Set<number>();
+    for (const m of swallowed) {
+      at.add(m.start);
+      if (m.word !== "endif" && m.word !== "done") continue;
+      let k = m.end;
+      while (isTfSpace(this.s[k])) k += 1;
+      if (k < this.s.length && !this.isStatEnd(k) && this.s[k] !== ")") at.add(k);
+    }
+    return [...at].sort((a, b) => a - b).map((p) => this.separatorBefore(p));
+  }
+
   /** A keyword swallowed by the statement it sits in, which leaves its block unfinished. */
   private midKeyword(mid: MidKeyword, fixer: MidKeyword, since: number): IssueDetail {
     const expression = ["test", "return", "result"].includes(mid.command);
@@ -279,7 +315,7 @@ class Parser {
         ...this.openNote(),
         ...(fixer !== mid ? [{ start: fixer.start, end: fixer.end, message: `/${fixer.word} is text too` }] : []),
       ],
-      fix: { title: `Put %; before ${list}`, edits: swallowed.map((m) => this.separatorBefore(m.start)) },
+      fix: { title: `Put %; before ${list}`, edits: this.separateSwallowed(swallowed) },
     };
   }
 
@@ -345,6 +381,7 @@ class Parser {
           const keyword = this.block === "while" ? "/while" : `/${this.block}`;
           this.condition(keyword);
           this.skipSpace();
+          this.conditionEnd = { at: this.i, keyword };
           if (this.isStatEnd(this.i)) this.blankLine(`${keyword} (...)`, this.i);
           this.block = this.block === "while" ? "do" : "then";
           continue;
@@ -384,7 +421,7 @@ class Parser {
     const to = this.i + 1;
     // Where a missing /endif or /done would go: the end of the body, or before the $(...)'s ).
     const where = this.cmdsub > 0 ? "before the )" : "at the end of the body";
-    const closer = (word: string): IssueFix => ({ title: `Add %; /${word} ${where}`, edits: [this.insertAtEnd(this.i, `%; /${word}`)] });
+    const closer = (word: string): IssueFix => ({ title: `Add %; /${word} ${where}`, edits: [this.appendStatement(this.i, word)] });
     const conditionList = (word: string, then: string): IssueDetail => ({
       message: `This /${word}'s condition list has no /${then}.`,
       label: `no /${then}`,
@@ -460,15 +497,21 @@ class Parser {
     // The keyword itself plus the blanks after it, for a fix that drops it.
     let next = end;
     while (isTfSpace(this.s[next])) next += 1;
+    // A %; straight after it goes too, or the fix would leave an empty statement (a blank line).
+    if (this.isStatEnd(next)) {
+      next += 2;
+      while (isTfSpace(this.s[next])) next += 1;
+    }
     const drop: IssueFix = { title: `Remove /${word}`, edits: [{ start, end: next, newText: "" }] };
-    if ((word === "then" && outer === "then") || (word === "do" && outer === "do")) {
-      const keyword = word === "then" ? "if" : "while";
-      problem.message = `This /${word} is not needed: the (condition) after /${keyword} already ends it.`;
+    const afterCondition = this.conditionEnd?.at === start ? this.conditionEnd.keyword : undefined;
+    if (afterCondition && ((word === "then" && outer === "then") || (word === "do" && outer === "do"))) {
+      const list = word === "then" ? "/if" : "/while";
+      problem.message = `This /${word} is not needed: the (condition) after ${afterCondition} already ends it.`;
       problem.label = "not needed";
       problem.explanation =
-        `${code(`/${keyword} (condition)`)} takes the next statement as its body, so this ${code(`/${word}`)} is read as ` +
-        `the first statement of the body, where tf doesn't expect it. ${code(`/${word}`)} only follows a condition list: ` +
-        `${code(`/${keyword} /test x%; /${word} ...`)}`;
+        `${code(`${afterCondition} (condition)`)} takes the next statement as its body, so this ${code(`/${word}`)} is ` +
+        `read as the first statement of the body, where tf doesn't expect it. ${code(`/${word}`)} only follows a ` +
+        `condition list: ${code(`${list} /test x%; /${word} ...`)}`;
       problem.fix = drop;
     } else if (word === "else" && outer === "else") {
       problem.message = "This is a second /else in the same /if.";
@@ -503,7 +546,8 @@ class Parser {
       explanation:
         `${code(after)} takes the next statement as its body. A ${code(sep)} straight after it ends an empty statement ` +
         "there, and tf sends an empty statement to the world as a blank line. Drop it.",
-      fix: { title: `Remove the ${sep}`, edits: [{ start: at, end: at + 2, newText: "" }] },
+      // A blank in its place keeps /else from running into the next command (/else/echo is one word).
+      fix: { title: `Remove the ${sep}`, edits: [{ start: at, end: at + 2, newText: isTfSpace(this.s[at + 2]) || at + 2 >= this.s.length ? "" : " " }] },
     });
   }
 
@@ -678,7 +722,7 @@ class Parser {
         "bracket",
         percent,
         percent + 2,
-        this.i < s.length && !this.isStatEnd(this.i)
+        this.i < s.length && !this.isStatEnd(this.i) && !(ch === "\r" && this.i === s.length - 1)
           ? {
               message: `This %{ needs its } before the ${charName(ch)}.`,
               label: "not closed",
@@ -794,7 +838,7 @@ class Parser {
             label: "never closed",
             explanation:
               `Inside an expression (${code("$[...]")}, a condition or ${code("/test")}), ${code(ch)} starts a string that ` +
-              `runs to the next ${code(ch)}. This one runs to the end of the body, taking any ${code("]")} or ${code(")")} with it.`,
+              `runs to the next ${code(ch)}. This one never finds its closing ${code(ch)}, so it takes everything after it, including any ${code("]")} or ${code(")")}.`,
           });
         }
         this.i += 1;
@@ -845,7 +889,7 @@ class Parser {
         message: "This $[ is never closed: add ].",
         label: "never closed",
         explanation: `A ${code("$[")} runs to its matching ${code("]")}, which has to come before the next ${code("%;")}.`,
-        fix: { title: "Close it with ] at the end of the statement", edits: [this.insertAtEnd(this.i, "]")] },
+        fix: { title: "Close it with ] at the end of the statement", edits: [this.insertAtEnd(this.i, `${")".repeat(parens.length)}]`)] },
       });
     } else if (close === ")") {
       this.fail("bracket", open, open + 1, {
@@ -854,10 +898,9 @@ class Parser {
       });
     } else if (parens.length > 0) {
       const paren = parens[parens.length - 1] as number;
-      this.fail("bracket", open, s.length, {
-        message: "A ( in this expression is never closed: add ).",
+      this.fail("bracket", paren, paren + 1, {
+        message: "This ( is never closed: add ).",
         label: "never closed",
-        related: [{ start: paren, end: paren + 1, message: "this ( is never closed" }],
         fix: { title: "Add ) at the end", edits: [this.insertAtEnd(s.length, ")".repeat(parens.length))] },
       });
     }

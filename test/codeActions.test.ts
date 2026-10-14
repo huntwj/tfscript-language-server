@@ -109,6 +109,15 @@ describe("structural fixes", () => {
     ["/def -i a = /echo %{foo", "/def -i a = /echo %{foo}"],
     ["/def -i a = /echo %{target %{*}", "/def -i a = /echo %{target} %{*}"],
     ["/def -i a = /echo 50%-off", "/def -i a = /echo 50%%-off"],
+    // Review findings: none of these may leave %%;, an empty statement, or a keyword glued on.
+    ["/def -i a = /if (1) /echo 50%", "/def -i a = /if (1) /echo 50% %; /endif"],
+    ["/def -i a = /if (1) /echo b%; ", "/def -i a = /if (1) /echo b%; /endif "],
+    ["/def -i a = /if (1) /echo a%; /else%;/echo b%; /endif", "/def -i a = /if (1) /echo a%; /else /echo b%; /endif"],
+    ["/def -i a = /if (1) /then%; /echo a%; /endif", "/def -i a = /if (1) /echo a%; /endif"],
+    ["/def -i a = /if (1) /echo a\\ /endif", "/def -i a = /if (1) /echo a\\ %; /endif"],
+    ["/def -i a = /if (1) /echo b /endif /echo c", "/def -i a = /if (1) /echo b%; /endif%; /echo c"],
+    ["/def -i a = /echo $[(1+2", "/def -i a = /echo $[(1+2)]"],
+    ["/def -i a = /if (1) /echo a%; /elseif (2) /then /echo b%; /endif", "/def -i a = /if (1) /echo a%; /elseif (2) /echo b%; /endif"],
   ];
   for (const [before, after] of cases) {
     it(`fixes ${before.slice(12)}`, () => {
@@ -119,6 +128,14 @@ describe("structural fixes", () => {
       expect(codes(fixed)).toEqual([]);
     });
   }
+
+  it("blames a second /then on the (condition) only when one comes straight before it", () => {
+    const [list] = getDiagnostics("/def a = /if /test a%; /then /echo a%; /then /echo b%; /endif\n");
+    expect(list?.message).toBe("This /then has no /if to belong to: it is in an /if body.");
+    expect(list?.fix).toBeUndefined();
+    const [elseif] = getDiagnostics("/def a = /if (1) /echo a%; /elseif (2) /then /echo b%; /endif\n");
+    expect(elseif?.message).toBe("This /then is not needed: the (condition) after /elseif already ends it.");
+  });
 
   it("puts the %; on the right physical line of a continued body", () => {
     const text = ["/def -i a = \\", "    /if (1) \\", "        /echo yes \\", "    /else \\", "        /echo no \\", "    /endif", ""].join("\n");

@@ -54,8 +54,9 @@ import { defOptionsEnd, type Range } from "./symbols";
  *  - tf's scoping is dynamic: a macro also sees the locals of the macro that called it (proven:
  *    a callee's `%y` read the caller's `/let y`). That isn't followed here: a read in a body
  *    without its own `/let` counts as global (rename refuses the cases it would get wrong). A
- *    `/def` inside a body is the one call that is followed: when the defining macro runs
- *    `/name`, the inner body is read inside its scopes (proven); otherwise in a scope of its own.
+ *    `/def` inside a body is the one call that is followed: when a `/name` statement runs inside
+ *    the defining macro's scopes after the `/def`, the inner body is read inside them (proven);
+ *    otherwise in a scope of its own (see nestedBodies()).
  *  - A `/let` in a branch that doesn't run still counts, and a `/repeat` while the `lpquote`
  *    variable is on (its first run is then at once) is read as one that runs later.
  *  - `/listvar` takes a pattern, so it isn't followed.
@@ -245,6 +246,16 @@ interface Found {
   chain: string[];
 }
 
+interface Shared {
+  /** Names the next scope opened in this entry. */
+  prefix: string;
+  next: number;
+  /** Every `/name` statement run, with the scopes it runs in and where it is in the entry. */
+  calls: { name: string; chain: string[]; at: number }[];
+  /** The bodies of `/def`s inside a body, read once every call that runs them is known. */
+  nested: { name: string; src: Source; definer: string[]; at: number; depth: number }[];
+}
+
 /** What one walk over a text needs: the text, where it came from, and where to put what it finds. */
 interface Walk {
   src: Source;
@@ -257,8 +268,8 @@ interface Walk {
    * `/repeat` command or a `/def`'s body inside a body, starts afresh.
    */
   chain: string[];
-  /** Names the next scope opened in this entry. */
-  scopes: { prefix: string; next: number };
+  /** What every walk over one entry shares. */
+  scopes: Shared;
   /** The scopes at each offset of the text, its `$(...)`s' added in front: set by walk(). */
   chainAt?: (offset: number) => string[];
 }
@@ -575,18 +586,29 @@ function forCommand(w: Walk, st: Statement, argStart: number): void {
 function repeatCommand(w: Walk, st: Statement, argStart: number): void {
   const src = handedOn(w, st, argStart);
   const s = src.text;
+  // procopt("-@PSw:n") through nextopt(): flags group in one word (-Sn); -w takes the rest of its
+  // word as the world (-wfoo; a bare -w means the current one, and the next word is the count);
+  // a digit or : after the - is the time; -- or - ends the options. Anything else is an error.
   let now = false;
   let word = nextWord(s, 0, s.length);
   while (word && s[word.start] === "-") {
     const opt = s.slice(word.start, word.end);
-    if (/^-[@SPn]+$/.test(opt)) {
-      for (const flag of opt.slice(1)) if (flag === "S" || flag === "P") now = true;
-    } else if (/^-[0-9.:]/.test(opt)) {
-      now = false;
-    }
     word = nextWord(s, word.end, s.length);
+    if (opt === "-" || opt === "--") break;
+    for (let k = 1; k < opt.length; k += 1) {
+      const flag = opt[k] as string;
+      if (isDigit(flag) || flag === ":") {
+        now = false;
+        break;
+      }
+      if (flag === "S" || flag === "P") now = true;
+      else if (flag === "w") break; // (a quoted world name with blanks in it isn't followed)
+      else if (flag !== "n") return; // an invalid option: nothing runs
+    }
   }
-  const command = word && nextWord(s, word.end, s.length);
+  // tf takes "i" (forever) or a positive number, and nothing else, as the count.
+  if (!word || !/^(?:[iI]|0*[1-9][0-9]*)$/.test(s.slice(word.start, word.end))) return;
+  const command = nextWord(s, word.end, s.length);
   if (!command) return;
   const chain = [newScope(w, "repeat"), ...(now ? callerChain(w, st) : [])];
   walk(inner(w, slice(src, command.start, s.length), chain), "body");
@@ -615,9 +637,14 @@ function slice(src: Source, start: number, end: number): Source {
   return { text: src.text.slice(start, end), map: src.map.slice(start, end + 1) };
 }
 
+const CALL_RE = /^\/(?!@)([^\s%;|]+)/;
+
 function statement(w: Walk, st: Statement, skip: Uint8Array): void {
   const s = w.src.text;
   if (st.level === "full") percents(w, st.start, st.end, skip);
+  // A /name statement that runs here, for the /defs inside a body that it may call.
+  const call = CALL_RE.exec(s.slice(st.start, Math.min(st.end, st.start + 200)));
+  if (call) w.scopes.calls.push({ name: (call[1] as string).toLowerCase(), chain: callerChain(w, st), at: w.src.map[st.start] as number });
   const m = COMMAND_RE.exec(s.slice(st.start, Math.min(st.end, st.start + 40)));
   if (!m) return;
   const word = (m[1] as string).toLowerCase();
@@ -641,21 +668,37 @@ function statement(w: Walk, st: Statement, skip: Uint8Array): void {
     repeatCommand(w, st, argStart);
   } else if (MACRO_DEFINER.test(word) && st.level === "full") {
     // A definition inside a substituted body: its own body is read again, as the macro will see
-    // it, in a scope of its own. It runs whenever it is called; when the macro defining it calls
-    // it, it sees that macro's locals too (proven), so then it is read inside those scopes.
+    // it, once the entry's other text has been read (see nestedBodies()).
     const text = s.slice(st.start, st.end);
     const body = macroBodyStart(text);
     if (body < 0) return;
     const name = word === "def" ? text.slice(defOptionsEnd(text, text.search(/def/i) + 3), body - 1).trim() : "";
-    const outer = name && callsMacro(s, name) ? callerChain(w, st) : [];
-    walk(inner(w, handOff(w.src, st.start + body, st.end, st.level), [newScope(w, "def"), ...outer]), "body");
+    w.scopes.nested.push({
+      name: name.toLowerCase(),
+      src: handOff(w.src, st.start + body, st.end, st.level),
+      definer: callerChain(w, st),
+      at: w.src.map[st.start] as number,
+      depth: w.depth,
+    });
   }
 }
 
-/** Whether `text` runs `/name` somewhere (not `/@name`, which runs the built-in). */
-function callsMacro(text: string, name: string): boolean {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?:^|[\\s;|(])/${escaped}(?=[\\s%)]|$)`, "i").test(text);
+/**
+ * The bodies of the `/def`s inside a body. Each runs whenever it is called, in a scope of its own;
+ * when the macro that defines it calls it, `/name` as a statement that runs inside that macro's
+ * scopes (not later, from a /repeat or a trigger) after the /def, the body also sees that macro's
+ * locals (proven: `/def o = /let x=L%; /def oi = ...%%x%; /oi` printed L, and with `/repeat -0 1
+ * /oi` the global), so then it is read inside those scopes. A call from the body itself doesn't count.
+ */
+function nestedBodies(found: Found[], scopes: Shared): void {
+  while (scopes.nested.length > 0) {
+    const d = scopes.nested.shift() as Shared["nested"][number];
+    const runsHere = (chain: string[]): boolean =>
+      chain.length >= d.definer.length && d.definer.every((c, i) => chain[chain.length - d.definer.length + i] === c);
+    const called = d.name !== "" && scopes.calls.some((c) => c.name === d.name && c.at > d.at && runsHere(c.chain));
+    const own = `${scopes.prefix}:def${(scopes.next += 1)}`;
+    walk({ src: d.src, found, depth: d.depth + 1, chain: [own, ...(called ? d.definer : [])], scopes }, "body");
+  }
 }
 
 /** The strings inside each `$[...]` and condition, which tf doesn't substitute (`$["%Y"]` stays `%Y`). */
@@ -737,11 +780,12 @@ function entryVariables(entry: LogicalEntry, index: number): VariableOccurrence[
   const found: Found[] = [];
   const src: Source = { text: s, map: Array.from({ length: s.length + 1 }, (_, i) => i) };
   const local = `local:${index}`;
-  const scopes = { prefix: local, next: 0 };
+  const scopes: Shared = { prefix: local, next: 0, calls: [], nested: [] };
   // A top-level /let is "illegal at top level" in tf; it still gets a scope of its own here.
   walk({ src, found, depth: 0, chain: [`${local}:top`], scopes }, "top");
   const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(s) : -1;
   if (body >= 0) walk({ src: slice(src, body, s.length), found, depth: 0, chain: [local], scopes }, "body");
+  nestedBodies(found, scopes);
 
   // A name can be read twice (an expression inside another one, or a level and the one below):
   // keep the first.

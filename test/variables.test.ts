@@ -237,6 +237,15 @@ describe("/for and /repeat", () => {
     expect(scoped("/def -i r = /let x=L%; /repeat -nS 1 /echo %%x\n")).toEqual(["let:x L", "read:x L"]);
   });
 
+  it("reads /repeat's options as tf does, -w's world included", () => {
+    // Real tf: -Swwx ran at once (the local); -w wx took wx as the count, so nothing ran.
+    expect(scoped("/def -i r = /let x=L%; /repeat -Swwx 1 /echo %%x\n")).toEqual(["let:x L", "read:x L"]);
+    expect(scoped("/def -i r = /let x=L%; /repeat -S -wwx 1 /echo %%x\n")).toEqual(["let:x L", "read:x L"]);
+    expect(scoped("/def -i r = /let x=L%; /repeat -w wx 1 /echo %%x\n")).toEqual(["let:x L"]);
+    expect(scoped("/def -i r = /let x=L%; /repeat -Sw wx 1 /echo %%x\n")).toEqual(["let:x L"]);
+    expect(scoped("/def -i r = /let x=L%; /repeat -Sq 1 /echo %%x\n")).toEqual(["let:x L"]);
+  });
+
   it("reads /for's START and END in the scopes around the loop", () => {
     // Real tf: /for i 1 n and /for i %%{lo} 3 used the body's /let n and /let lo.
     expect(scoped("/def -i t = /let n=3%; /for i 1 n /echo%; /for j %%{lo} 3 /echo\n")).toEqual([
@@ -252,6 +261,18 @@ describe("/for and /repeat", () => {
     // Real tf: /def outer = /let w=OUTER%; /def innerm = ... %%w%; /innerm printed OUTER.
     expect(scoped("/def -i outer = /let w=O%; /def -i innerm = /echo %%w%; /innerm\n")).toEqual(["let:w L", "read:w L"]);
     expect(scoped("/def -i outer = /let w=O%; /def -i innerm = /echo %%w\n")).toEqual(["let:w L", "read:w"]);
+  });
+
+  it("counts only a call that runs inside the definer, after the /def", () => {
+    // Real tf: with /repeat -0 1 /oi the nested macro printed the global; with /repeat -S 1 /oi the local.
+    expect(scoped("/def -i o = /let x=L%; /def -i oi = /echo %%x%; /repeat -0 1 /oi\n")).toEqual(["let:x L", "read:x"]);
+    expect(scoped("/def -i o = /let x=L%; /def -i oi = /echo %%x%; /repeat -S 1 /oi\n")).toEqual(["let:x L", "read:x L"]);
+    expect(scoped("/def -i o = /let x=L%; /def -i oi = /echo %%x%; /eval /oi\n")).toEqual(["let:x L", "read:x L"]);
+    // Not a call: echo text, a trigger's body, a call before the /def, the macro calling itself.
+    expect(scoped("/def -i o = /let x=L%; /def -i oi = /echo %%x%; /echo defined /oi\n")).toEqual(["let:x L", "read:x"]);
+    expect(scoped('/def -i o = /let x=L%; /def -i oi = /echo %%x%; /def -t"go" t = /oi\n')).toEqual(["let:x L", "read:x"]);
+    expect(scoped("/def -i o = /let x=L%; /oi%; /def -i oi = /echo %%x\n")).toEqual(["let:x L", "read:x"]);
+    expect(scoped("/def -i o = /let x=L%; /def -i oi = /echo %%x%%; /oi\n")).toEqual(["let:x L", "read:x"]);
   });
 
   it("takes a quote in a %{...} default or a $(...) as just a character", () => {

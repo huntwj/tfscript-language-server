@@ -611,6 +611,31 @@ export class WorkspaceIndex {
    */
   navContext(file: string, uriOf: (file: string) => string): NavContext {
     const { folder, settings, graph } = this.contextFor(file);
+    return this.buildNavContext(file, uriOf, folder, settings, graph);
+  }
+
+  /**
+   * navContext(), kept per load graph (which an edit or a changed file replaces), for call
+   * hierarchy, which needs one for every file that calls the macro. Its locations use the URIs
+   * `uriOf` gave when it was built, so it isn't for answers that open a file.
+   */
+  callerContext(file: string, uriOf: (file: string) => string): NavContext {
+    const { folder, settings, graph } = this.contextFor(file);
+    let byFile = this.navContexts.get(graph);
+    if (!byFile) {
+      byFile = new Map();
+      this.navContexts.set(graph, byFile);
+    }
+    const cached = byFile.get(keyOf(file));
+    if (cached && cached.uriOf === uriOf) return cached.ctx;
+    const ctx = this.buildNavContext(file, uriOf, folder, settings, graph);
+    byFile.set(keyOf(file), { uriOf, ctx });
+    return ctx;
+  }
+
+  private navContexts = new WeakMap<LoadGraph, Map<string, { uriOf: (file: string) => string; ctx: NavContext }>>();
+
+  private buildNavContext(file: string, uriOf: (file: string) => string, folder: string, settings: ResolvedSettings, graph: LoadGraph): NavContext {
     const self = keyOf(file);
     const onPath = graph.files.some((f) => keyOf(f.path) === self);
     const loaded = graph.files.filter((f) => keyOf(f.path) !== self && (onPath || f.stdlib));
@@ -653,7 +678,9 @@ export class WorkspaceIndex {
   /**
    * Every file a call to a macro defined in `file` may come from: `file` itself, the files on
    * its load path (tf's library among them), and every tf script in its workspace folder,
-   * reached by a load path or not.
+   * reached by a load path or not. A file outside every workspace folder (tf's library, say) is
+   * called from the scripts of all of them, so then every folder is searched, with what each
+   * folder's load path reaches.
    */
   callerFiles(file: string, uriOf: (file: string) => string): ContextFile[] {
     const { folder, graph } = this.contextFor(file);
@@ -666,7 +693,10 @@ export class WorkspaceIndex {
     };
     add(file);
     for (const f of graph.files) add(f.path, f.text);
-    for (const f of this.walk(folder).files) add(f);
+    for (const f of this.isWorkspaceFolder(folder) ? [folder] : this.folders) {
+      for (const loaded of this.graphFor(f).graph.files) add(loaded.path, loaded.text);
+      for (const walked of this.walk(f).files) add(walked);
+    }
     return [...out.values()];
   }
 

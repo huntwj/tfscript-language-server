@@ -83,11 +83,18 @@ interface DefOptions {
   trigger?: string;
   hook?: string;
   key?: string;
+  /** `-i`: the macro is left out of /list. */
+  invisible?: boolean;
 }
 
 /** Where a `/def`'s options end and its name (or `=`) begins, with `i` just after `/def`. */
 export function defOptionsEnd(text: string, i: number): number {
   return skipDefOptions(text, i).end;
+}
+
+/** Whether a `/def`, with `i` just after `/def`, has the `-i` option. */
+export function defIsInvisible(text: string, i: number): boolean {
+  return skipDefOptions(text, i).invisible === true;
 }
 
 function skipDefOptions(text: string, i: number): DefOptions {
@@ -104,6 +111,7 @@ function skipDefOptions(text: string, i: number): DefOptions {
     while (i < text.length && !isTfSpace(text[i]) && text[i] !== "=") {
       const opt = text[i] as string;
       i += 1;
+      if (opt === "i") result.invisible = true;
       if (!DEF_OPTS_WITH_ARG.has(opt)) continue;
       const argStart = i;
       i = isQuote(text[i]) ? skipQuoted(text, i) : skipWord(text, i);

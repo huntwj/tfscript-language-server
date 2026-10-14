@@ -85,9 +85,29 @@ describe("missing-continuation: lines that belong to something else", () => {
     expect(found(["/if (1) /echo a%;", "/if (2) /echo b%; /endif%; /endif"])).toEqual(["missing-continuation@0", "block-structure@1"]);
   });
 
-  it("keeps the opener's fixes when the lines aren't taken in", () => {
-    const [d] = getDiagnostics("/if (1) /echo forgot-endif\n\n/endif\n");
-    expect(d?.fix?.title).toBe("Add %; /endif at the end of the line");
+  it("offers no closer when a stray one of its kind follows, even out of reach", () => {
+    // Added, tf would still report the /endif below as unexpected (q02, q30; tf dev, 2026-10-14).
+    const [blank] = getDiagnostics("/if (1) /echo forgot-endif\n\n/endif\n");
+    expect(blank?.fix).toBeUndefined();
+    // The message names that /endif rather than say to add one.
+    expect(blank?.message).toBe(
+      "This /if ends at the end of line 1, which has no \\, so the /endif on line 3 is a separate command: end every line but the last with \\.",
+    );
+    expect(blank?.related).toBeUndefined();
+    const q02 = ["/if (0) /echo % in", ...Array.from({ length: 20 }, (_, k) => `/echo % l${k}`), "/endif", "/echo % after"];
+    expect(getDiagnostics(`${q02.join("\n")}\n`).find((d) => d.code === "missing-continuation")?.fix).toBeUndefined();
+    const q30 = ["/if (1) /echo % forgot-endif", "", "/echo % x", "/set foo=1", "    /echo % indented", "", "/endif"];
+    expect(getDiagnostics(`${q30.join("\n")}\n`).find((d) => d.code === "missing-continuation")?.fix).toBeUndefined();
+  });
+
+  it("keeps the closer fix when no stray closer of its kind follows", () => {
+    expect(getDiagnostics("/if (1) /echo forgot-endif\n\n/echo next\n")[0]?.fix?.title).toBe("Add %; /endif at the end of the line");
+    // A /done closes a /while, not this /if.
+    expect(getDiagnostics("/if (1) /echo forgot-endif\n\n/done\n")[0]?.fix?.title).toBe("Add %; /endif at the end of the line");
+    // A stray /endif above it was meant for something else.
+    expect(getDiagnostics("/endif\n/if (1) /echo forgot-endif\n").find((d) => d.code === "missing-continuation")?.fix?.title).toBe(
+      "Add %; /endif at the end of the line",
+    );
   });
 
   it("reaches a later block on the opener's line", () => {

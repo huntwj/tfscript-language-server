@@ -114,6 +114,8 @@ export function consolidateContinuations(text: string, entries: LogicalEntry[], 
   const openers: Opener[] = [];
   const open: Opener[] = [];
   const dropped = new Set<TfDiagnostic>();
+  /** Where a stray /endif or /done starts a top-level command, by the block it would close. */
+  const closers: { if: number[]; while: number[] } = { if: [], while: [] };
 
   for (const d of candidates) {
     const index = entryIndexAt(entries, d.range.start.line);
@@ -133,6 +135,7 @@ export function consolidateContinuations(text: string, entries: LogicalEntry[], 
     if (!first || first.line !== d.range.start.line || first.character !== d.range.start.character) continue;
     const word = (STRAY_RE.exec(d.message) as RegExpExecArray)[1] as string;
     const block = word === "do" || word === "done" ? "while" : "if";
+    if (word === "endif" || word === "done") closers[block].push(d.range.start.line);
     // Openers whose reach ends before this line can't take it, or anything after it.
     for (let k = open.length - 1; k >= 0; k -= 1) if ((open[k] as Opener).spanEnd < d.range.start.line) open.splice(k, 1);
     let k = open.length - 1;
@@ -173,14 +176,21 @@ export function consolidateContinuations(text: string, entries: LogicalEntry[], 
     }
     const how = cutOff(lines[opener.endLine] ?? "");
     // The \ is there: backslash-not-last's fix (or LF line endings) is what's needed, not a closer here.
-    if (how !== "none" && opener.d.fix?.title.startsWith("Add %; /")) delete opener.d.fix;
-    if (related.length === 0) continue;
+    // A stray closer of its kind further down was meant for it, past a join's reach or not: adding
+    // one here would leave that one an error, so the fix is to join the lines, by hand.
+    const meant = closers[opener.word].find((line) => line > opener.endLine);
+    if ((how !== "none" || meant !== undefined) && opener.d.fix?.title.startsWith("Add %; /")) delete opener.d.fix;
+    // Its message then names that closer, even though it isn't taken in, rather than say to add one.
+    if (related.length === 0 && meant === undefined) continue;
     related.sort(byPosition);
-    opener.d.related = [...(opener.d.related ?? []), ...related];
+    if (related.length > 0) opener.d.related = [...(opener.d.related ?? []), ...related];
     const closer = opener.strays.find((s) => s.word === "endif" || s.word === "done") ?? opener.strays[0];
+    const closes = opener.word === "while" ? "done" : "endif";
     const what = closer
       ? `the /${closer.word} on line ${closer.d.range.start.line + 1} is a separate command`
-      : `line ${(related[0] as Related).range.start.line + 1} starts a separate command`;
+      : meant !== undefined
+        ? `the /${closes} on line ${meant + 1} is a separate command`
+        : `line ${(related[0] as Related).range.start.line + 1} starts a separate command`;
     const n = opener.endLine + 1;
     opener.d.message =
       how === "percent"

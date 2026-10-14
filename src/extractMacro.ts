@@ -68,8 +68,8 @@ const COMMAND_NAMES: ReadonlySet<string> = new Set(ALL_COMMANDS.map((c) => c.nam
  * tf's commands that run code findMacroCalls() doesn't read: `/trigger` runs whichever trigger
  * bodies match, and `/not` and `/quote` run their text (`/eval`, `/for` and `/repeat` text is read).
  */
-const RUNS_OTHER_CODE = new Set(["trigger", "not", "quote"]);
-const ENDS_MACRO = new Set(["return", "result", "exit"]);
+export const RUNS_OTHER_CODE = new Set(["trigger", "not", "quote"]);
+export const ENDS_MACRO = new Set(["return", "result", "exit"]);
 const ALIAS_RE = /^\s*\/alias\b/i;
 
 function compare(a: Position, b: Position): number {
@@ -77,7 +77,7 @@ function compare(a: Position, b: Position): number {
 }
 
 /** `end` pulled back over the blanks before it, but not over one escaped with `\`. */
-function trimEnd(s: string, start: number, end: number): number {
+export function trimEnd(s: string, start: number, end: number): number {
   let e = end;
   while (e > start && isTfSpace(s[e - 1]) && s[e - 2] !== "\\") e -= 1;
   return e;
@@ -101,12 +101,12 @@ function selected(entry: LogicalEntry, range: Range): { from: number; to: number
  * an expression, and with a longer run of `%`s or a `\` before it, which `/eval` text reads one
  * level down.
  */
-function readsMacroName(s: string): boolean {
+export function readsMacroName(s: string): boolean {
   return /%+\{?0+(?![0-9])|\{0+\}/.test(s);
 }
 
 /** Whether `name` appears in `text` as a whole name (not part of a longer one). */
-function mentions(text: string, name: string): boolean {
+export function mentions(text: string, name: string): boolean {
   let at = text.indexOf(name);
   while (at >= 0) {
     if (!isNameChar(text[at - 1]) && !isNameChar(text[at + name.length])) return true;
@@ -119,7 +119,7 @@ function mentions(text: string, name: string): boolean {
  * What the rest of the body runs that may read the caller's locals: a call to a macro, by name or as
  * a function in an expression, or a command that runs code of its own.
  */
-function readerOutside(calls: MacroCall[]): string | undefined {
+export function readerOutside(calls: MacroCall[]): string | undefined {
   for (const c of calls) {
     const name = c.name.toLowerCase();
     if (!COMMAND_NAMES.has(name) || RUNS_OTHER_CODE.has(name)) return `/${c.name}`;
@@ -128,18 +128,18 @@ function readerOutside(calls: MacroCall[]): string | undefined {
 }
 
 /** The variable a `/let` statement sets, as written, or "" when its name is built when it runs. */
-function letName(text: string): string {
+export function letName(text: string): string {
   const m = /^\/[@!]*let\s+([^\s=]*)/i.exec(text);
   const name = m?.[1] ?? "";
   return /[%$\\{]/.test(name) ? "" : name;
 }
 
-function isDefEntry(entry: LogicalEntry): boolean {
+export function isDefEntry(entry: LogicalEntry): boolean {
   return (entry.isDefBody || entry.isOtherMacroBody) && !ALIAS_RE.test(entry.text);
 }
 
 /** Who the body belongs to, for messages: `/foo`, or "this trigger" and the like. */
-function ownerName(symbol: TfSymbol | undefined): string {
+export function ownerName(symbol: TfSymbol | undefined): string {
   if (symbol?.kind === "def") return `/${symbol.name}`;
   if (symbol?.kind === "trig") return "this trigger";
   if (symbol?.kind === "hook") return "this hook";
@@ -158,7 +158,7 @@ function newName(symbol: TfSymbol | undefined, taken: (name: string) => boolean)
 }
 
 /** Apply edits (non-overlapping) to text. */
-function applyEdits(text: string, edits: TfTextEdit[]): string {
+export function applyEdits(text: string, edits: TfTextEdit[]): string {
   const lines = splitRawLines(text);
   const starts: number[] = [];
   let at = 0;

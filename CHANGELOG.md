@@ -2,11 +2,17 @@
 
 ## Unreleased
 
+- "Inline /foo" (`refactor.inline`): replaces a `/foo` call in a macro body with foo's body, and
+  "Inline all calls to /foo and remove it" does that for every call in the file and deletes the
+  `/def`. It is shown disabled, with the reason, when the body wouldn't run the same in the caller:
+  `/return`, `/result`, `/exit`, `/shift`, `getopts()`, `%0`, a `/break` outside the body's own
+  loop, a `/let` or new local the caller would see, `regmatch()` with the caller's `%P`, arguments
+  other than `%*`, `/!foo`, a call in `$(...)` or a condition, a macro that may have another `/def`
+  (or is in tf's library, made to be redefined), and recursion.
 - `block-structure` reports a `/break` inside `$(...)` that would jump out of it: one that would
   end a loop opened outside the `$(...)`, which tf dev rejects when it compiles the macro, and one
   with no loop (or too few) to end inside it, which compiles but stops the macro with an internal
   error when it runs.
-
 - "Extract to a new macro" (`refactor.extract`): moves selected statements, or whole `/if` and
   `/while` blocks, of a macro body into a new `/def` above it and calls it, passing the arguments
   on with `%*`. It is shown disabled, with the reason, when the call wouldn't run the same: a

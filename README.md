@@ -12,7 +12,8 @@ go-to-definition and find-references for macros and variables across every file 
 highlighting every use of the name under the cursor, call hierarchy and "N references" lenses
 for macros, workspace-wide symbol search, rename, clickable `/load` and `/require` filenames, formatting that only
 changes whitespace tf ignores, and refactorings that split a macro body onto separate lines,
-join it onto one, or extract some of its statements to a new macro. There is a VS Code
+join it onto one, extract some of its statements to a new macro, or inline a macro's body
+where it is called. There is a VS Code
 extension (`editors/vscode/`) for syntax highlighting plus everything the server does; other editors can wire up the stdio server
 directly — see "Use".
 
@@ -344,6 +345,8 @@ src/
                         or join one onto a single line, when tf would run the same program
   extractMacro.ts      getExtractActions(text, range): move selected statements of a macro body
                         to a new /def and call it, when tf would run the same
+  inlineMacro.ts       getInlineActions(text, range): replace a call with the macro's body, or
+                        every call and the /def, when tf would run the same
   documentLinks.ts     the filename in each /load and /require, as tf parses the command
   joinFix.ts           the fixes that join lines with \, found by trying candidates
   explain.ts           a diagnostic's hover: the source excerpt with its spans marked, the
@@ -371,6 +374,7 @@ test/
                         the four above
   bodyLayout.test.ts    split and join: layouts, when they aren't offered, and round trips
   extractMacro.test.ts  extract to a new macro: what moves, the call left behind, and why not
+  inlineMacro.test.ts   inline a macro: the body in place of the call, the layout, and why not
   units.test.ts         the statements and blocks of a body, and the list each runs in
   codeActionRouting.test.ts  which kinds of code action a request gets, and when
   endOfFile.test.ts     a final newline, a command the file ends inside, incomplete-continuation
@@ -409,7 +413,7 @@ node dist/server.js     # run the server directly (speaks LSP over stdio)
 ```
 
 The server advertises `completionProvider` (triggered on `/` and `{`), `documentSymbolProvider`,
-`foldingRangeProvider`, `selectionRangeProvider`, `codeActionProvider` (quick fixes, `refactor.rewrite` and `refactor.extract`), `hoverProvider`,
+`foldingRangeProvider`, `selectionRangeProvider`, `codeActionProvider` (quick fixes, `refactor.rewrite`, `refactor.extract` and `refactor.inline`), `hoverProvider`,
 `definitionProvider`, `referencesProvider`, `documentHighlightProvider`, `signatureHelpProvider` (triggered on space, `(` and `,`), `semanticTokensProvider`
 (full documents), `documentFormattingProvider`, `documentRangeFormattingProvider`,
 `workspaceSymbolProvider`, `renameProvider` (with prepare), `documentLinkProvider`, `callHierarchyProvider` and
@@ -676,6 +680,52 @@ It isn't offered in an `/alias` or in a file with CRLF line endings. Over tf's l
 WoTMUD scripts, of the 3,763 runs of consecutive statements in a list, 1,480 can be extracted
 and the rest are disabled with a reason (most often a `/let` the rest of the macro uses, 870, or
 a `/return`, 640); none of the extractions adds a diagnostic.
+
+### Inlining a macro
+
+"Inline /foo" (a `refactor.inline` code action, on a `/foo` call in a macro body) replaces the
+call with foo's body, the reverse of extracting; "Inline all calls to /foo and remove it", on a
+call or on the `/def`'s name, does that for every call in the file and deletes the `/def` and its
+`;;;` doc comment. The body goes on the call's line, or one statement per line, indented, when
+the call starts a line of a macro written over several lines, its lines ending the way the
+caller's do. A `%;` that only ends the body is dropped, so no empty statement (which would send a
+blank line) is made. Where it can't be done safely it is offered disabled, with the reason.
+
+Why the body runs the same in the caller, from what extracting proved: tf's scoping is dynamic,
+so the body already reads and assigns the caller's `/let` locals, and its `%Pn` and `%?` are
+already the caller's; called as `/foo %*` it gets the caller's arguments word for word, and called
+as `/foo` it gets none, so then only a body that reads no argument runs the same; both are
+top-level `/def` bodies, substituted the same way. Fourteen macros inlined by the code (arguments
+through `%*`, a branch, the caller's locals read and assigned, a `/let` of the body's own, a
+trigger, `%?` and `%P` across the call, a `/while` with its own `/break`, a body over several
+lines, and every call of a macro) printed the same in tf (tf-script-check, 2026-10-14).
+
+When it is disabled, each checked in tf where the reason is a behaviour:
+
+- `/return`, `/result` and `/exit` (they would end the caller), `/shift` and `getopts()` (the
+  caller's arguments), `%0` (the caller's name);
+- a `/break` not inside a `/while` of the body: in a macro it ends the macro, inlined it would
+  end the loop the call is in;
+- a `/let`, or an assignment to a name with no local (which makes one when no variable of that
+  name exists), when the caller names the variable or runs a macro that might read it: inlined,
+  the local would be the caller's. An assignment to a name the caller has already `/let`, in its
+  own body rather than a branch, is fine;
+- `regmatch()` when the caller reads `%P` or runs another macro: a match made in a macro ends with
+  it (do_macro()'s new reg scope), inlined it would replace the caller's;
+- arguments other than `%*`, a body that reads arguments the call doesn't pass, `/!foo` (it
+  negates the result), a call inside a `$(...)` or a condition list, a `%|` or `%\` beside it;
+- a tab in the body, an empty body, recursion;
+- a macro that may have another `/def`: twice in the file, by a name built when it runs, in
+  another file on the load path or the workspace (a library macro redefined there included), or
+  `/undef`'d or edited in the file; and one defined after the caller with a command between them
+  that may run the caller first;
+- any macro of tf's library, whose macros are there to be redefined by your own files.
+
+Removing the `/def` also needs: no options but `-i` (a trigger, hook or key binding would be lost),
+no `name(...)` function calls, no calls the body can't replace (in `/eval`, `$(...)` or at the
+top level), no other mention of the name in the file outside comment lines, and none in another
+file. Not modelled: under `%mecho`, tf echoes an invisible macro's commands at a higher level
+than a visible one's, so an inlined `-i` body is echoed like its caller's.
 
 ## Contributing
 

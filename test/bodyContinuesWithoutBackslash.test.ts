@@ -37,6 +37,10 @@ describe("body-continues-without-backslash", () => {
     expect(diags(["/def a = /echo one", "/echo two"])).toEqual([]);
     expect(diags(["/echo one%;", "/echo two"])).toEqual([]); // not a body
     expect(diags(["/def -i go = /echo one%;", "/go"])).toEqual([]); // runs the macro just defined
+    // Another definition is a new macro, not more of this body.
+    for (const next of ["/def p08 = /echo two", "/bind ^A = /echo a", "/hook CONNECT = /echo c", "/trig x = /echo t", "/alias aa /echo a"]) {
+      expect(diags(["/def p07 = /echo one%;", next])).toEqual([]);
+    }
   });
 
   it("strips trailing blanks in the fix, so the \\ is last", () => {

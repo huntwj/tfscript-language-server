@@ -135,8 +135,9 @@ describe("not-substituted-here and /eval inside a joined /if", () => {
 
 describe("not-substituted-here and nested or malformed %{", () => {
   it("names a %{...} with a substitution in its default whole", () => {
+    // A substitution in a default is more than a plain variable, so the advice makes no promise.
     expect(getDiagnostics("/echo %{x-%{y}} z\n").find((d) => d.code === "not-substituted-here")?.message).toBe(
-      "%{x-%{y}} stays as it is in a command at the top level of a file: put /eval in front of the command to substitute it.",
+      "%{x-%{y}} stays as it is in a command at the top level of a file; /eval in front would substitute the rest of the command too, so check it before using /eval.",
     );
   });
 
@@ -221,8 +222,9 @@ describe("not-substituted-here and nested or malformed %{", () => {
     expect(message("/if (1) /echo %{x-} %{x y%; /endif\n")).toBe(
       "%{x-} stays as it is in a top-level /if or /while line, and /eval would reject this command as written: fix %{x first.",
     );
+    // An expression's grammar isn't modelled here, so no exact reason, and no promise either way.
     expect(message("/echo %{x-} $[1+\n")).toBe(
-      "%{x-} stays as it is in a command at the top level of a file, and /eval would reject this command as written: fix $[1+ first.",
+      "%{x-} stays as it is in a command at the top level of a file; /eval in front would substitute the rest of the command too, so check it before using /eval.",
     );
   });
 
@@ -236,16 +238,43 @@ describe("not-substituted-here and nested or malformed %{", () => {
     );
     expect(ifLine?.fix).toBeUndefined();
     expect(fixOf("/if (1) /eval -s0 /echo %% X2:%{x} %%{y%; /endif\n")?.fix).toBeUndefined();
-    expect(fixOf("/if (1) /echo %%%% X3:%{x} %%%{y%; /endif\n")?.fix?.title).toBe("Put /eval in front of the command");
+    // %%{y reaches /eval as text, but a run of %s is more than a plain variable: no fix offered.
+    expect(fixOf("/if (1) /echo %% X3:%{x} %%%{y%; /endif\n")?.fix).toBeUndefined();
   });
 
-  // Review rev-s2b q7: each of these is rejected under /eval (proven, s2/r/q7all.tf).
-  it("names what tf couldn't read from the opener of the substitution it is in", () => {
-    const named = (text: string) =>
-      /fix (.*) first\.$/.exec(getDiagnostics(text).find((d) => d.code === "not-substituted-here")?.message ?? "")?.[1];
-    expect(named("/echo T18:%{x} $[%y + (]\n")).toBe("$[%y + (]");
-    expect(named("/echo T16:%{x} $[(1]\n")).toBe("$[(1]");
-    expect(named("/echo T21:%{x} %{y-$[}\n")).toBe("%{y-$[}");
-    expect(named("/echo T13:%{x} ${y\n")).toBe("${y");
+  // Review rev-s2b q7 (proven, s2/r/q7all.tf): tf rejects each of these under /eval. Only a
+  // substitution it can't read is named; for the rest, no promise.
+  it("names a substitution tf can't read, and promises nothing about an expression", () => {
+    const message = (text: string) => getDiagnostics(text).find((d) => d.code === "not-substituted-here")?.message;
+    expect(message("/echo T13:%{x} ${y\n")).toBe(
+      "%{x} stays as it is in a command at the top level of a file, and /eval would reject this command as written: fix ${y first.",
+    );
+    for (const rest of ["$[%y + (]", "$[(1]", "%{y-$[}"]) {
+      expect(message(`/echo T:%{x} ${rest}\n`)).toBe(
+        "%{x} stays as it is in a command at the top level of a file; /eval in front would substitute the rest of the command too, so check it before using /eval.",
+      );
+    }
+  });
+
+  // Review rev-s2c g.tf and h.tf (proven there): /eval compiles a $[...], a $(...) and a %; too, in
+  // ways this check doesn't predict, so only a command of plain variables gets the fix.
+  it("offers the /eval fix only for a command of plain variable substitutions", () => {
+    const fixOf = (text: string) => getDiagnostics(text).find((d) => d.code === "not-substituted-here")?.fix?.title;
+    for (const text of [
+      "/echo G1:%{x} $[ 1 2 ]",
+      "/echo G2:%{x} %{y-$[}]}",
+      "/echo G3:%{x} $[ ]",
+      "/echo H2:%{x}%; /endif",
+      "/echo H5:%{x} $(/endif)",
+      "/echo H6:%{x} $(/if (1) /echo a)",
+      "/echo %{x} 100%%",
+      "/echo %{x} a\\b",
+      "/echo %{x-%{y}}",
+    ]) {
+      expect(fixOf(`${text}\n`)).toBeUndefined();
+    }
+    for (const text of ["/echo %{x} %{y-a b} %1 %* %-1 %{-L2} %L %#", "/echo H1:%{x} /endif", "/echo H4:%{x} %{x-/endif}"]) {
+      expect(fixOf(`${text}\n`)).toBe("Put /eval in front of the command");
+    }
   });
 });

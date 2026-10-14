@@ -114,8 +114,9 @@ describe("not-substituted-here (rule 4)", () => {
     expect(message("/eval -soff /if (1) /load %{x}/f.tf%; /endif")).toBe(
       "%{x} stays as it is in /eval -soff text: leave out the -s option to substitute it.",
     );
+    // /test compiles an expression, which /eval would compile too: no promise that it works.
     expect(message("/if (1) /test echo(\"%{x}\")%; /endif")).toBe(
-      "%{x} stays as it is in a top-level /if or /while line: put /eval in front of the command to substitute it.",
+      "%{x} stays as it is in a top-level /if or /while line; /eval in front would substitute the rest of the command too, so check it before using /eval.",
     );
   });
 
@@ -135,7 +136,7 @@ describe("not-substituted-here (rule 4)", () => {
     expect(message('/def body9 = /if (echo("%{x}")) /endif%; /test echo("%{x}")')).toEqual([inString]);
     expect(message('/def b = /echo $["%{x}"]')).toEqual([inString]);
     expect(message('/test echo("%{x}")')).toEqual([
-      "%{x} stays as it is in a command at the top level of a file: put /eval in front of the command to substitute it.",
+      "%{x} stays as it is in a command at the top level of a file; /eval in front would substitute the rest of the command too, so check it before using /eval.",
     ]);
     // Second review's probes e1 and e3: tf runs these $(...)s as macro bodies, substituting %{x}.
     expect(message('/def e1 = /if ($(/echo "%{x}") =~ "\\"XV\\"") /echo s%; /endif')).toEqual([]);

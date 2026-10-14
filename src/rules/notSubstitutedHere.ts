@@ -99,30 +99,43 @@ function percentBraces(text: string, limitOf: (at: number) => number): { index: 
   return found;
 }
 
+/** What `/eval` would make of a command (see `judge`). */
+type Judgement = { kind: "plain" } | { kind: "rejected"; bad: string } | { kind: "other" };
+
+/** A selector of a variable or parameter: `name`, `1`, `#`, `?`, `*`, `R`, `L`, `L2`, `-1`, `-L2`, `P1`. */
+const SELECTOR_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+|[#?*]|-L?[0-9]*|L[0-9]*|P[0-9]+)$/;
+/** What a default may hold to be plain text: nothing /eval would substitute, escape or end it with. */
+const PLAIN_DEFAULT_RE = /^[^%${}\\]*$/;
+/** The commands whose text /eval wouldn't run as a plain command with its text. */
+const NOT_PLAIN_COMMAND_RE = /^\/[@!]*(?:if|elseif|else|endif|while|do|done|then|break|test|return|result|exit)(?![^\s%])/i;
+
 /**
- * Where the outermost `%{`, `${`, `$[` or `$(` still open at `at` in `s` starts, or `at` when none
- * is: enough to name a problem by the substitution it is in.
+ * Whether `s`, a command as `/eval` would get it, holds nothing `/eval` would compile beyond plain
+ * variable substitutions: `%{name}` or `%{name-default}` with a default of plain text, `%name`
+ * (with or without a plain `-default`), and the positional forms. A `$` of any kind, a `\`, a run
+ * of `%`s, a separator, any other `%`, or a keyword command makes it more than that.
  */
-function openerOf(s: string, at: number): number {
-  const open: { at: number; close: string; opener: boolean }[] = [];
-  for (let i = 0; i < at; i += 1) {
+function plainSubstitutions(s: string): boolean {
+  if (NOT_PLAIN_COMMAND_RE.test(s.trimStart())) return false;
+  for (let i = 0; i < s.length; i += 1) {
     const ch = s[i];
-    const next = s[i + 1];
-    if ((ch === "%" || ch === "$") && next === ch) {
-      while (s[i + 1] === ch) i += 1;
-    } else if ((ch === "%" || ch === "$") && next === "{") {
-      open.push({ at: i, close: "}", opener: true });
-      i += 1;
-    } else if (ch === "$" && (next === "[" || next === "(")) {
-      open.push({ at: i, close: next === "[" ? "]" : ")", opener: true });
-      i += 1;
-    } else if (ch === "(" && open.length > 0) {
-      open.push({ at: i, close: ")", opener: false });
-    } else if (ch === open[open.length - 1]?.close) {
-      open.pop();
+    if (ch === "$" || ch === "\\") return false;
+    if (ch !== "%") continue;
+    if (s[i + 1] === "{") {
+      const close = s.indexOf("}", i + 2);
+      if (close < 0) return false;
+      const inner = s.slice(i + 2, close);
+      // The selector ends at the first - that isn't its own (-1, -L2): then comes the default.
+      const m = /^(-L?[0-9]*|[^-]*)(?:-(.*))?$/s.exec(inner);
+      if (!m || !SELECTOR_RE.test(m[1] as string) || (m[2] !== undefined && !PLAIN_DEFAULT_RE.test(m[2]))) return false;
+      i = close;
+      continue;
     }
+    const m = /^%(-L?[0-9]+|-L|[0-9]+|[#?*]|[A-Za-z_][A-Za-z0-9_]*)(-[^\s]*)?/.exec(s.slice(i));
+    if (!m || (m[2] !== undefined && !PLAIN_DEFAULT_RE.test(m[2].slice(1)))) return false;
+    i += m[0].length - 1;
   }
-  return open.find((o) => o.opener)?.at ?? at;
+  return true;
 }
 
 /** The innermost statement holding `offset`. */
@@ -164,49 +177,61 @@ export const notSubstitutedHere: EntryRule = {
         return { start: o.start, end, newText: "" };
       });
     const out: EntryMatch[] = [];
+    const index = {
+      at: (offset: number): ContextStatement | undefined => statementAt(statements, offset),
+      inIfLine: (st: ContextStatement): boolean =>
+        statements.some((o) => o.level === "newline" && o.start <= st.start && st.end <= o.end),
+    };
 
     /**
-     * What in `st` tf couldn't read if it substituted the command, as `/eval` does: the text of the
-     * first substitution or expression problem, or undefined when there is none. Where there is one,
-     * advice or a fix to substitute it would only make an error of a line that runs today (review
-     * rev-s2 p6: `/echo %{x-} %{x%{y}}`).
+     * What `/eval` would make of `st`, as it would get it (inside a top-level /if or /while line,
+     * with each run of %s one shorter: proven, `/if (1) /eval /echo %%{y%; /endif` is "unmatched {").
+     *
+     *  - "plain": nothing in it but plain variable substitutions, so substituting it only puts in
+     *    the values, and a fix can say so.
+     *  - "rejected": a `%{`, `${`, `$(` or `%-` tf can't read, which tf rejects whenever it
+     *    substitutes the text (proven for each: tests/tfscript/cases/unclosed-*.tf, golden 249,
+     *    s2/r/w.tf), named as written in the file.
+     *  - "other": anything else `/eval` would compile as well, such as a `$[...]`, a `%;` or a `\`,
+     *    whose grammar this check doesn't model (review rev-s2c g.tf, h.tf): no fix, and no promise.
      */
-    const unreadable = (st: ContextStatement | undefined): string | undefined => {
-      if (!st) return undefined;
-      // Inside a top-level /if or /while line, tf hands /eval the text with each run of %s one
-      // shorter (proven: `/if (1) /eval /echo %%{y%; /endif` is "unmatched {").
+    const judge = (st: ContextStatement | undefined): Judgement => {
+      if (!st) return { kind: "other" };
       const written = text.slice(st.start, st.end);
-      const inIfLine = statements.some((o) => o.level === "newline" && o.start <= st.start && st.end <= o.end);
       const identity = { text: written, map: Array.from({ length: written.length + 1 }, (_, k) => k) };
-      const { text: s, map } = inIfLine ? shortened(identity, 0, written.length) : identity;
-      const issue = parseRegions(s, "body").issues.find((i) => i.kind === "substitution" || i.kind === "expression");
-      if (!issue) return undefined;
-      // From the opener of the substitution it is in (`$[` for the `(` of `$[%y + (]`) to the end of
-      // the word, named as written in the file.
-      const from = openerOf(s, Math.min(issue.start, ...(issue.related ?? []).map((n) => n.start)));
-      let to = issue.end;
-      while (to < s.length && !isTfSpace(s[to])) to += 1;
-      return written.slice(map[from], to > from ? (map[to - 1] as number) + 1 : map[from]);
+      const { text: s, map } = index.inIfLine(st) ? shortened(identity, 0, written.length) : identity;
+      const issue = parseRegions(s, "body").issues.find((i) => i.kind === "substitution");
+      if (issue) {
+        // From its opener (a related location, for a selector with something glued on) to the end of the word.
+        const from = Math.min(issue.start, ...(issue.related ?? []).map((n) => n.start));
+        let to = issue.end;
+        while (to < s.length && !isTfSpace(s[to])) to += 1;
+        return { kind: "rejected", bad: written.slice(map[from], to > from ? (map[to - 1] as number) + 1 : map[from]) };
+      }
+      return plainSubstitutions(s) ? { kind: "plain" } : { kind: "other" };
     };
     // Once per statement: a line can hold thousands of %{...}, each asking about the same statement.
-    const judged = new Map<ContextStatement | undefined, string | undefined>();
-    const unreadableOnce = (st: ContextStatement | undefined): string | undefined => {
-      if (!judged.has(st)) judged.set(st, unreadable(st));
-      return judged.get(st);
+    const judged = new Map<ContextStatement | undefined, Judgement>();
+    const judgeOnce = (st: ContextStatement | undefined): Judgement => {
+      if (!judged.has(st)) judged.set(st, judge(st));
+      return judged.get(st) as Judgement;
     };
     const rejected = (bad: string): string =>
-      `It also holds ${code(bad)}, which tf can't read as a substitution or an expression. Substituting the ` +
-      `command as written would make tf reject it, where today it runs with the text as it is, so fix that first.`;
+      `It also holds ${code(bad)}, which tf can't read as a substitution. Substituting the command as written ` +
+      `would make tf reject it, where today it runs with the text as it is, so fix that first.`;
+    const compiled =
+      `It also holds more than variables to substitute, such as a ${code("$[...]")}, a ${code("%;")} or a ` +
+      `${code("\\")}, and substituting it would compile those too, so look at what that would do first.`;
 
     const variable = (start: number, written: string): void => {
-      const st = statementAt(statements, start);
+      const st = index.at(start);
       const at = st?.start ?? 0;
       const base = {
         start,
         end: start + written.length,
         label: "not substituted",
       };
-      const bad = unreadableOnce(st);
+      const judgement = judgeOnce(st);
       if (st?.viaEval) {
         const name = evalName(st.viaEval);
         const runs =
@@ -214,16 +239,24 @@ export const notSubstitutedHere: EntryRule = {
           `without substituting variables, so the command gets the text ${code(written)}.`;
         out.push({
           ...base,
-          message: bad
-            ? `${written} stays as it is in ${name} text, and without -s tf would reject this text as written: fix ${bad} first.`
-            : `${written} stays as it is in ${name} text: leave out the -s option to substitute it.`,
-          explanation: bad
-            ? `${runs} ${rejected(bad)}`
-            : `${runs} Without ${code("-s")}, ` +
-              (st.viaEval.command === "eval"
-                ? `${code("/eval")} substitutes its text once and then runs it.`
-                : `${code("/quote")} runs the command as a macro body is run, substituting it.`),
-          ...(bad ? {} : { fix: { title: `Leave out ${optionName(text, st.viaEval.options.at(-1)!)}`, edits: dropOptions(st.viaEval) } }),
+          message:
+            judgement.kind === "rejected"
+              ? `${written} stays as it is in ${name} text, and without -s tf would reject this text as written: fix ${judgement.bad} first.`
+              : judgement.kind === "other"
+                ? `${written} stays as it is in ${name} text; without -s the rest of the text would be substituted too, so check it before leaving out the -s.`
+                : `${written} stays as it is in ${name} text: leave out the -s option to substitute it.`,
+          explanation:
+            judgement.kind === "rejected"
+              ? `${runs} ${rejected(judgement.bad)}`
+              : judgement.kind === "other"
+                ? `${runs} ${compiled}`
+                : `${runs} Without ${code("-s")}, ` +
+                  (st.viaEval.command === "eval"
+                    ? `${code("/eval")} substitutes its text once and then runs it.`
+                    : `${code("/quote")} runs the command as a macro body is run, substituting it.`),
+          ...(judgement.kind === "plain"
+            ? { fix: { title: `Leave out ${optionName(text, st.viaEval.options.at(-1)!)}`, edits: dropOptions(st.viaEval) } }
+            : {}),
         });
         return;
       }
@@ -234,15 +267,23 @@ export const notSubstitutedHere: EntryRule = {
         `commands but still nothing is substituted.`;
       out.push({
         ...base,
-        message: bad
-          ? `${written} stays as it is ${where}, and /eval would reject this command as written: fix ${bad} first.`
-          : `${written} stays as it is ${where}: put /eval in front of the command to substitute it.`,
-        explanation: bad
-          ? `${runs} ${rejected(bad)}`
-          : `${runs} In a ${code("/def")} body it would be substituted when the macro ` +
-            `runs, and in a condition or ${code("/test")} it is read as a variable. ${code("/eval")} substitutes the rest ` +
-            `of the command once and then runs it: ${code(`/eval ${text.slice(at).split(/\s/, 1)[0]} ...`)}`,
-        ...(bad ? {} : { fix: { title: "Put /eval in front of the command", edits: [{ start: at, end: at, newText: "/eval " }] } }),
+        message:
+          judgement.kind === "rejected"
+            ? `${written} stays as it is ${where}, and /eval would reject this command as written: fix ${judgement.bad} first.`
+            : judgement.kind === "other"
+              ? `${written} stays as it is ${where}; /eval in front would substitute the rest of the command too, so check it before using /eval.`
+              : `${written} stays as it is ${where}: put /eval in front of the command to substitute it.`,
+        explanation:
+          judgement.kind === "rejected"
+            ? `${runs} ${rejected(judgement.bad)}`
+            : judgement.kind === "other"
+              ? `${runs} ${compiled}`
+              : `${runs} In a ${code("/def")} body it would be substituted when the macro ` +
+                `runs, and in a condition or ${code("/test")} it is read as a variable. ${code("/eval")} substitutes the rest ` +
+                `of the command once and then runs it: ${code(`/eval ${text.slice(at).split(/\s/, 1)[0]} ...`)}`,
+        ...(judgement.kind === "plain"
+          ? { fix: { title: "Put /eval in front of the command", edits: [{ start: at, end: at, newText: "/eval " }] } }
+          : {}),
       });
     };
 

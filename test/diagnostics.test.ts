@@ -112,6 +112,15 @@ describe("dollar-bracket-in-if (rule 6)", () => {
     const text = "/while ($[1]) /break%; /done\n";
     expect(codes(text)).toContain("dollar-bracket-in-if");
   });
+
+  // Proven live: there the $[...] is a substitution, and (...) would be text, so the fix would
+  // turn /if (%{nosuch-$[1+1]} == 2) from true to false.
+  it("leaves a $[...] alone inside a substitution's default, ${...} or $(...)", () => {
+    for (const cond of ["%{nosuch-$[1+1]} == 2", "{nosuch-$[1+1]} == 2", "$(/echo $[1+1]) == 2", "${a$[1]} == 2", "$$[1] == 2"]) {
+      expect(codes(`/def a = /if (${cond}) /echo yes%; /endif\n`)).not.toContain("dollar-bracket-in-if");
+    }
+    expect(codes("/def a = /if (%{x-1} + $[1] == 2) /echo yes%; /endif\n")).toContain("dollar-bracket-in-if");
+  });
 });
 
 describe("getDiagnostics ranges", () => {
@@ -189,7 +198,8 @@ describe("messages", () => {
     ["load-no-expansion", "/load %{d}/ok.tf\n", "%{d} stays as it is in a command at the top level of a file: put /eval in front to substitute it."],
     ["let-swallows-endif", "/def a = /if (1) /let v=1 /endif\n", "This /endif is part of the /let value, not a command: put %; before it."],
     ["let-swallows-endif", "/set v=1 /if (1) /echo%; /endif\n", "This /if is part of the /set value, not a command."],
-    ["dollar-bracket-in-if", "/def a = /if ($[1]) /echo%; /endif\n", "This $[...] is redundant: the condition is already an expression."],
+    ["dollar-bracket-in-if", "/def a = /if ($[1]) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: drop the $[ and ]."],
+    ["dollar-bracket-in-if", "/def a = /if ($[1] + 1) /echo%; /endif\n", "This $[...] is redundant, as the condition is already an expression: write (...) instead."],
     ["indented-line-after-command", "/echo a\n  /echo b\n", "Line 1 has no \\ at the end, so this indented line starts a new command."],
     ["trailing-space-after-backslash", "/echo a \\ \n", "This \\ doesn't continue the line, because whitespace follows it."],
     [

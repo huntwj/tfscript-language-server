@@ -11,6 +11,12 @@ import type { EntryRule, EntryMatch } from "./types";
  * compiles its contents inline with expr() (exprsub() with in_expr set, no OP_APPEND), the same
  * code `(` compiles with comma_expr(). So `$[x]` can always become `(x)` — tf's own warning says
  * "Try using (...) instead." — and when it is the whole condition, `($[x])` can become `(x)`.
+ *
+ * tf only warns for a `$[` that is itself an operand (expr.c's primary()). Inside the default of a
+ * `%{name-...}` or `{name-...}`, or inside `${...}` or `$(...)`, a `$[...]` is an ordinary
+ * substitution, and `(...)` there would be literal text: proven live, `/if (%{nosuch-$[1+1]} == 2)`
+ * is true and `/if (%{nosuch-(1+1)} == 2)` false, and the same for `$(/echo $[1+1])`. Those
+ * regions are skipped.
  */
 const IF_OPEN_RE = /\/(?:if|elseif|while)\b\s*\(/gi;
 
@@ -34,14 +40,34 @@ export const dollarBracketInIf: EntryRule = {
           i = skipString(text, i);
           continue;
         }
-        if (ch !== "$" || text[i + 1] !== "[") continue;
+        const next = text[i + 1];
+        // $$ and %% are escapes; a run of either is literal.
+        if ((ch === "$" || ch === "%") && next === ch) {
+          while (text[i + 1] === ch) i += 1;
+          continue;
+        }
+        // Not an operand of the expression: inside %{name-default}, {name-default}, ${...} or
+        // $(...), a $[...] is an ordinary substitution, and there (...) would be plain text.
+        const skipped =
+          (ch === "%" || ch === "$") && next === "{" ? findClose(text, i + 2, "{", "}")
+          : ch === "{" ? findClose(text, i + 1, "{", "}")
+          : ch === "$" && next === "(" ? findClose(text, i + 2, "(", ")")
+          : undefined;
+        if (skipped !== undefined) {
+          if (skipped === -1 || skipped > closeIndex) break;
+          i = skipped;
+          continue;
+        }
+        if (ch !== "$" || next !== "[") continue;
         const end = findClose(text, i + 2, "[", "]");
         if (end === -1 || end > closeIndex) break;
         const whole = text.slice(condStart, i).trim() === "" && text.slice(end + 1, closeIndex).trim() === "";
         matches.push({
           start: i,
           end: i + 2,
-          message: "This $[...] is redundant: the condition is already an expression.",
+          message: whole
+            ? "This $[...] is redundant, as the condition is already an expression: drop the $[ and ]."
+            : "This $[...] is redundant, as the condition is already an expression: write (...) instead.",
           label: "redundant",
           explanation:
             `The ${code("(...)")} after ${code("/if")}, ${code("/elseif")} or ${code("/while")} is an expression, and inside ` +

@@ -8,7 +8,13 @@
   command, or in an `/eval` inside a top-level `/if`. It now flags a `%{x}` under `/eval -soff` or
   `-son`, and a `%var` in a top-level `/load` or `/require` path, and notes (as information) a `%;`
   with more after it on a plain top-level line, where it doesn't separate. Information no longer
-  counts as a problem in the ground-truth test.
+  counts as a problem in the ground-truth test or the live corpus check.
+- `not-substituted-here` also flags a `%{x}` inside a string in a condition or `$[...]`, which
+  nothing substitutes, even in a macro body, and reads the command after `/quote`'s backquote and
+  `/at`'s command as a macro body. In `/eval -soff` or `-son` text its fix leaves out the `-s`. A
+  `%;` in a `/set`, `/let` or `/setenv` value is noted without a fix, since a value can hold one on
+  purpose.
+- `/@def`, `/@bind` and `/@hook` are read as the builtins they are, with a macro body.
 - "Inline /foo" (`refactor.inline`): replaces a `/foo` call in a macro body with foo's body, and
   "Inline all calls to /foo and remove it" does that for every call in the file and deletes the
   `/def`. It is shown disabled, with the reason, when the body wouldn't run the same in the caller:

@@ -32,6 +32,11 @@
 - `let-swallows-endif` flags one keyword per statement, blaming its first `/let` or `/set` (which
   takes the rest), and only the first swallowed `/endif` per `/if`, so its fixes can all be applied
   together; the fix adds no `%;` where the statement ends anyway (`%\`, `%|`, a `$(...)`'s `)`).
+  A swallowed `/endif` is flagged only when its `/if` is never closed: when a real `/endif` closes
+  it later, the swallowed one is just text, and tf runs the macro fine.
+- `let-swallows-endif` no longer flags an `/if` written straight after the `=` (`/set x=/if (1)
+  ...`): tf stores it as the value and runs on (a command kept for a later `/eval`, say), and when
+  it leaves an `/endif` stray, `block-structure` reports that.
 - Deeply nested blocks or substitutions (past 500 levels) no longer overflow the stack: the
   structural check stops there, and says so with an information diagnostic, `nesting-too-deep`.
 - `if-multiline-top-level` uses the same model, so it follows nesting and no longer counts an

@@ -4,7 +4,12 @@ import {
   ProposedFeatures,
   TextDocuments,
   TextDocumentSyncKind,
+  type CallHierarchyItem,
+  type CallHierarchyIncomingCall,
+  type CallHierarchyOutgoingCall,
   type CodeAction,
+  type CodeLens,
+  CodeLensRefreshRequest,
   CodeActionKind,
   type CodeActionParams,
   type CompletionItem,
@@ -39,6 +44,7 @@ import {
   ResponseError,
   ErrorCodes,
   type SymbolInformation,
+  SymbolKind,
   type TextEdit,
   type WorkspaceEdit,
   type WorkspaceSymbolParams,
@@ -55,6 +61,7 @@ import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
 import { getSelectionRanges } from "./selectionRange";
 import { routeCodeActions, type CodeActionRequest } from "./codeActions";
+import { incomingCalls, outgoingCalls, prepareCallHierarchy, type TfCallItem } from "./callHierarchy";
 import { explainDiagnostic, rangeContains } from "./explain";
 import {
   getDefinition,
@@ -136,6 +143,7 @@ const index = new WorkspaceIndex({ readFile, listTfFiles, walkTfFiles, mtime }, 
 let folders: string[] = [];
 let hasConfiguration = false;
 let canRefreshTokens = false;
+let canRefreshLenses = false;
 
 function toPath(uri: string): string | undefined {
   if (!uri.startsWith("file:")) return undefined;
@@ -218,6 +226,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
   index.setFolders(folders);
   hasConfiguration = Boolean(params.capabilities.workspace?.configuration);
   canRefreshTokens = Boolean(params.capabilities.workspace?.semanticTokens?.refreshSupport);
+  canRefreshLenses = Boolean(params.capabilities.workspace?.codeLens?.refreshSupport);
   canWatch = Boolean(params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration);
   canWatchOutside = canWatch && Boolean(params.capabilities.workspace?.didChangeWatchedFiles?.relativePatternSupport);
   return {
@@ -234,6 +243,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       definitionProvider: true,
       referencesProvider: true,
       documentHighlightProvider: true,
+      callHierarchyProvider: true,
+      codeLensProvider: { resolveProvider: true },
       workspaceSymbolProvider: true,
       renameProvider: { prepareProvider: true },
       semanticTokensProvider: { legend: { tokenTypes: [...TOKEN_TYPES], tokenModifiers: [...TOKEN_MODIFIERS] }, full: true },
@@ -284,6 +295,8 @@ function revalidateOpenDocuments(): void {
   for (const document of documents.all()) validate(document);
   // A macro defined or removed in one file changes how calls to it are coloured in the others.
   if (canRefreshTokens) connection.languages.semanticTokens.refresh();
+  // ...and how many references the "N references" lenses count (and the setting that shows them).
+  if (canRefreshLenses) void connection.sendRequest(CodeLensRefreshRequest.type).catch(() => undefined);
 }
 
 // Not onDidOpen too: TextDocuments fires onDidChangeContent for the initial open as well
@@ -441,6 +454,93 @@ connection.onReferences((params: ReferenceParams): Location[] => {
     uri: l.uri || document.uri,
     range: l.range,
   }));
+});
+
+/** A document's text: the editor's if it is open, else what is on disk. */
+function textOf(uri: string): string | undefined {
+  const open = documents.get(uri);
+  if (open) return open.getText();
+  const file = toPath(uri);
+  return file === undefined ? undefined : readFile(file);
+}
+
+function navContextOf(uri: string): NavContext | undefined {
+  const file = toPath(uri);
+  return file === undefined ? undefined : index.navContext(file, toUri);
+}
+
+const CALL_KIND: Record<TfCallItem["kind"], SymbolKind> = { macro: SymbolKind.Function, trigger: SymbolKind.Event, file: SymbolKind.File };
+
+function toCallItem(item: TfCallItem): CallHierarchyItem {
+  const { kind, ...rest } = item;
+  return { ...rest, kind: CALL_KIND[kind], data: { kind } };
+}
+
+function fromCallItem(item: CallHierarchyItem): TfCallItem {
+  const kind = (item.data as { kind?: TfCallItem["kind"] } | undefined)?.kind ?? "macro";
+  return { name: item.name, kind, uri: item.uri, range: item.range, selectionRange: item.selectionRange, detail: item.detail ?? "" };
+}
+
+connection.languages.callHierarchy.onPrepare((params): CallHierarchyItem[] | null => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return null;
+  const items = prepareCallHierarchy(document.getText(), params.position, contextFor(document));
+  return items.length > 0 ? items.map((i) => toCallItem({ ...i, uri: i.uri || document.uri })) : null;
+});
+
+connection.languages.callHierarchy.onIncomingCalls((params): CallHierarchyIncomingCall[] => {
+  const file = toPath(params.item.uri);
+  if (file === undefined) return [];
+  return incomingCalls(fromCallItem(params.item), index.callerFiles(file, toUri)).map((c) => ({
+    from: toCallItem(c.from),
+    fromRanges: c.fromRanges,
+  }));
+});
+
+connection.languages.callHierarchy.onOutgoingCalls((params): CallHierarchyOutgoingCall[] => {
+  const text = textOf(params.item.uri);
+  if (text === undefined) return [];
+  return outgoingCalls(fromCallItem(params.item), text, navContextOf(params.item.uri)).map((c) => ({
+    to: toCallItem({ ...c.to, uri: c.to.uri || params.item.uri }),
+    fromRanges: c.fromRanges,
+  }));
+});
+
+// "N references" above each /def, counted when the editor shows it (codeLens/resolve), so a
+// file with many /defs stays cheap. The command is the VS Code extension's own
+// tfscript.showReferences, which opens the references peek: VS Code's editor.action.showReferences
+// needs its Uri and Position objects, which JSON arguments can't carry.
+interface LensData {
+  uri: string;
+  position: { line: number; character: number };
+}
+
+connection.onCodeLens((params): CodeLens[] => {
+  const document = documents.get(params.textDocument.uri);
+  const file = document && toPath(document.uri);
+  if (!document || file === undefined || !index.referenceLenses(file)) return [];
+  return getDocumentSymbols(document.getText())
+    .filter((s) => s.kind === "def")
+    .map((s) => ({ range: s.selectionRange, data: { uri: document.uri, position: s.selectionRange.start } satisfies LensData }));
+});
+
+connection.onCodeLensResolve((lens): CodeLens => {
+  const data = lens.data as LensData;
+  const document = documents.get(data.uri);
+  if (!document) return { ...lens, command: { title: "references", command: "" } };
+  const locations = getReferences(document.getText(), data.position, false, contextFor(document)).map((l) => ({
+    uri: l.uri || document.uri,
+    range: l.range,
+  }));
+  const n = locations.length;
+  return {
+    ...lens,
+    command: {
+      title: n === 1 ? "1 reference" : `${n} references`,
+      command: "tfscript.showReferences",
+      arguments: [data.uri, data.position, locations],
+    },
+  };
 });
 
 connection.onDocumentHighlight((params: TextDocumentPositionParams): DocumentHighlight[] => {

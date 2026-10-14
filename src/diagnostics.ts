@@ -1,7 +1,7 @@
 import { splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { RULES, type Severity } from "./rules";
 import type { EntryMatch, LineMatch, LineSpan } from "./rules/types";
-import { findAbortEntry } from "./rules/bareLineAfterCommand";
+import { findAbortEntry } from "./rules/notACommand";
 import { addJoinFixes } from "./joinFix";
 
 export interface Position {
@@ -122,7 +122,7 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
     }
   }
 
-  if (abort) diagnostics.push(lineDiagnostic(abort, "bare-line-after-command", "error"));
+  if (abort) diagnostics.push(lineDiagnostic(abort, "not-a-command", "error"));
   if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false }));
 
   return diagnostics;

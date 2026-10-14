@@ -28,7 +28,7 @@ import { macroBodyStart } from "./structure";
  * `/if` or `/while`), a joint before a line starting with `/` gets `%; \` instead, since two
  * commands on separate lines were meant as two statements. A comment line in between needs
  * nothing: it is skipped even in the middle of a continuation. A blank line ends the search, as
- * does a CRLF line (`\<CR>` can't continue; see trailingSpaceAfterBackslash.ts).
+ * does a CRLF line (`\<CR>` can't continue; see backslashNotLast.ts).
  */
 
 type Diagnose = (text: string) => TfDiagnostic[];
@@ -387,7 +387,7 @@ function addJoins(text: string, diagnostics: TfDiagnostic[], diagnoseSlice: Diag
       for (const d of run) d.fix = enclosing;
       continue;
     }
-    // A \ with whitespace after it: trailing-space-after-backslash's fix is the one.
+    // A \ with whitespace after it: backslash-not-last's fix is the one.
     if (/\\[ \t\f\v]+$/.test(lines[previous] ?? "")) continue;
     const own = lines[head.range.start.line] ?? "";
     if (!separates(entry) && own[leadingWhitespaceLength(own)] === "/") {

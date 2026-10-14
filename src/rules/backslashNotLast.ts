@@ -72,8 +72,8 @@ function check(text: string): LineMatch[] {
   return matches;
 }
 
-export const trailingSpaceAfterBackslash: FileRule = {
-  id: "trailing-space-after-backslash",
+export const backslashNotLast: FileRule = {
+  id: "backslash-not-last",
   severity: "warning",
   scope: "file",
   check,

@@ -3,7 +3,7 @@ import { notSubstitutedHere } from "./notSubstitutedHere";
 import { letSwallowsEndif } from "./letSwallowsEndif";
 import { dollarBracketInIf } from "./dollarBracketInIf";
 import { indentedLineAfterCommand } from "./indentedLineAfterCommand";
-import { trailingSpaceAfterBackslash } from "./trailingSpaceAfterBackslash";
+import { backslashNotLast } from "./backslashNotLast";
 import { badSubstitutionSelector } from "./badSubstitutionSelector";
 import { reservedMacroName } from "./reservedMacroName";
 import { blockStructure } from "./blockStructure";
@@ -13,7 +13,7 @@ import { nestingTooDeep } from "./nestingTooDeep";
 import { incompleteContinuation } from "./incompleteContinuation";
 import type { Rule } from "./types";
 
-// bareLineAfterCommand.ts is deliberately not in this list: it doesn't just report a
+// notACommand.ts is deliberately not in this list: it doesn't just report a
 // diagnostic, it also decides where the other rules' view of the file gets truncated (tf
 // never reads past the line it aborts on), so diagnostics.ts drives it separately.
 export const RULES: Rule[] = [
@@ -22,7 +22,7 @@ export const RULES: Rule[] = [
   letSwallowsEndif,
   dollarBracketInIf,
   indentedLineAfterCommand,
-  trailingSpaceAfterBackslash,
+  backslashNotLast,
   badSubstitutionSelector,
   reservedMacroName,
   blockStructure,

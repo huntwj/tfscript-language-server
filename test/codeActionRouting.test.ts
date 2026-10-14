@@ -34,7 +34,7 @@ describe("routeCodeActions", () => {
 
   it("carries the diagnostic a quick fix belongs to, and none on a refactoring", () => {
     const [fix, refactor] = routeCodeActions(TEXT, { range: { start: { line: 0, character: 0 }, end: { line: 1, character: 10 } } });
-    expect(fix?.diagnostic?.code).toBe("trailing-space-after-backslash");
+    expect(fix?.diagnostic?.code).toBe("backslash-not-last");
     expect(refactor?.diagnostic).toBeUndefined();
   });
 

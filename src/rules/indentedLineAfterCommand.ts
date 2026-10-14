@@ -23,7 +23,7 @@ import type { FileRule, LineMatch } from "./types";
  * it afterwards; see joinFix.ts.
  *
  * Not modelled: tf's separate "whitespace following final '\'" warning is its own rule,
- * trailingSpaceAfterBackslash.ts.
+ * backslashNotLast.ts.
  */
 function check(text: string): LineMatch[] {
   const lines = splitRawLines(text);

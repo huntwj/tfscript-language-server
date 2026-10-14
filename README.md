@@ -43,8 +43,8 @@ Diagnostics for the proven rules, each a pure function in `src/rules/`, under on
 (`src/rules/types.ts`): an `EntryRule` scans one `LogicalEntry` and returns offset ranges into its
 joined text; a `FileRule` scans the whole file and returns positions directly, as the line-by-line
 state machines that mirror `load_file()`'s own `new_cmd`/`last_cmd_line` tracking do
-(`indented-line-after-command`, `trailing-space-after-backslash`). `diagnostics.ts` drives both
-kinds through one loop. `bare-line-after-command` is the one exception, wired by hand rather than
+(`indented-line-after-command`, `backslash-not-last`). `diagnostics.ts` drives both
+kinds through one loop. `not-a-command` is the one exception, wired by hand rather than
 through that loop: it doesn't just report a diagnostic, it also decides where every other rule's
 view of the file gets truncated, since tf never reads past the line it aborts on.
 
@@ -55,10 +55,10 @@ view of the file gets truncated, since tf never reads past the line it aborts on
 | 5 | `let-swallows-endif` | `/let`/`/set` swallowing a following `/if` or `/endif` into its value |
 | 6 | `dollar-bracket-in-if` | redundant `$[...]` inside an `/if`/`/elseif`/`/while` condition |
 | — | `indented-line-after-command` | an indented line starting a new command right after one that didn't end in `\` — tf's own "possibly missing trailing \\" warning |
-| — | `trailing-space-after-backslash` | a final `\` followed by whitespace (including a CRLF file's trailing `\r`) — not a continuation, tf warns and runs the line as-is |
+| — | `backslash-not-last` | a final `\` followed by whitespace (including a CRLF file's trailing `\r`) — not a continuation, tf warns and runs the line as-is |
 | — | `bad-substitution-selector` | `%{selector}` followed directly by another `%`/`$` substitution (`%{foo%{bar}}`) — tf errors "unmatched { or illegal character"; nesting only works through the default value, `%{foo-%{bar}}` |
 | — | `reserved-macro-name` | `/def` of a keyword (`if`, `then`, `let`, `set`, `test`, ...) or `eval`, in any case — tf refuses it ("is a reserved word") and defines nothing. Other builtins can be redefined, so they aren't flagged |
-| — | `bare-line-after-command` | a line that is not blank, a comment, or a `/command` — tf aborts the rest of the file's load; everything after it is suppressed from the other rules, since tf never reads it either |
+| — | `not-a-command` | a line that is not blank, a comment, or a `/command` — tf aborts the rest of the file's load; everything after it is suppressed from the other rules, since tf never reads it either |
 | 10 | `block-structure` | an `/if` or `/while` with no `/endif`, `/done`, `/then` or `/do`; a keyword with no block to belong to; text after `/endif` or `/done` with no `%;`; a `/break` inside `$(...)` that would end a loop outside it, or has no loop inside it to end. Points at a keyword stuck mid-statement (`/echo a /endif`) when that is the cause, since tf only reads keywords at the start of a statement |
 | 11 | `unclosed-substitution` | a `$[`, `${`, `$(`, `%{`, string or `(` that never closes, and a `%-` naming no selector (`50%-off`), where tf substitutes: in a macro body, a top-level condition, `/test` |
 | 12 | `separator-sends-blank-line` | (warning) a `%;` straight after `/if (...)` or `/else`, which sends a blank line to the world |
@@ -385,8 +385,8 @@ test/
   loadGraph.test.ts, workspace.test.ts  load order and path resolution (each rule proven
                         against real tf), settings defaults, cross-file navigation
   tokenize.test.ts       unit tests for extract-command-tables.js's shell-style tokenizer
-  indentedLineAfterCommand.test.ts, trailingSpaceAndAbort.test.ts  unit tests for the two
-                        whole-file rules plus bare-line-after-command's abort/truncation
+  indentedLineAfterCommand.test.ts, backslashAndAbort.test.ts  unit tests for the two
+                        whole-file rules plus not-a-command's abort/truncation
                         behaviour (the third FileRule-shaped case, hand-wired — see above)
   groundTruth.test.ts   runs every case in ~/ai/mud/tests/tfscript/cases/ through this
                         engine and checks it against that file's own ;; expect: header

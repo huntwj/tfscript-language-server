@@ -5,31 +5,31 @@ function codes(text: string): string[] {
   return getDiagnostics(text).map((d) => d.code);
 }
 
-describe("trailing-space-after-backslash", () => {
+describe("backslash-not-last", () => {
   it("flags whitespace after a final backslash", () => {
     const text = ["/echo before \\ ", "/echo after", ""].join("\n");
-    expect(codes(text)).toContain("trailing-space-after-backslash");
+    expect(codes(text)).toContain("backslash-not-last");
   });
 
   it("does not flag a real continuation (backslash is the literal last char)", () => {
     const text = ["/if (1) \\", "/echo yes%; \\", "/endif", ""].join("\n");
-    expect(codes(text)).not.toContain("trailing-space-after-backslash");
+    expect(codes(text)).not.toContain("backslash-not-last");
   });
 
   it("does not flag a line with no backslash at all", () => {
-    expect(codes("/echo hello\n")).not.toContain("trailing-space-after-backslash");
+    expect(codes("/echo hello\n")).not.toContain("backslash-not-last");
   });
 });
 
-describe("bare-line-after-command", () => {
+describe("not-a-command", () => {
   it("flags a line that is not blank, a comment, or a command", () => {
     const text = ["/echo first", "tfscw localhost 4000", "/echo never", ""].join("\n");
-    expect(codes(text)).toContain("bare-line-after-command");
+    expect(codes(text)).toContain("not-a-command");
   });
 
   it("does not flag ordinary commands, comments, and blank lines", () => {
     const text = ["/echo first", "", "; a comment", "/echo second", ""].join("\n");
-    expect(codes(text)).not.toContain("bare-line-after-command");
+    expect(codes(text)).not.toContain("not-a-command");
   });
 
   it("suppresses diagnostics for everything after the abort line, since tf never reads it", () => {
@@ -43,12 +43,12 @@ describe("bare-line-after-command", () => {
       "",
     ].join("\n");
     const found = codes(text);
-    expect(found).toContain("bare-line-after-command");
+    expect(found).toContain("not-a-command");
     expect(found).not.toContain("if-multiline-top-level");
   });
 
   it("does not flag a /def body, which starts with /", () => {
-    expect(codes("/def tfsc_f = /echo hi\n")).not.toContain("bare-line-after-command");
+    expect(codes("/def tfsc_f = /echo hi\n")).not.toContain("not-a-command");
   });
 
   // Regression: findAbortEntry used to look only at an entry's first physical part, so a
@@ -57,7 +57,7 @@ describe("bare-line-after-command", () => {
   // sees the same bare command.
   it("detects the abort even when the aborting entry's first physical line is just a backslash", () => {
     const text = ["\\", "tfscw localhost 4000", ""].join("\n");
-    expect(codes(text)).toContain("bare-line-after-command");
+    expect(codes(text)).toContain("not-a-command");
   });
 
   // Regression: tf reads every physical line of the aborting entry (joining any backslash
@@ -67,14 +67,14 @@ describe("bare-line-after-command", () => {
   it("still runs file-scoped rules on every physical line of the aborting entry itself", () => {
     const text = ["/echo first", "  tfscw localhost 4000", ""].join("\n");
     const found = codes(text);
-    expect(found).toContain("bare-line-after-command");
+    expect(found).toContain("not-a-command");
     expect(found).toContain("indented-line-after-command");
   });
 
   it("truncates after the aborting entry's last continued line, not its first", () => {
     const text = ["tfscw localhost 4000 \\", "/more", "/echo never", ""].join("\n");
     const found = codes(text);
-    expect(found).toContain("bare-line-after-command");
+    expect(found).toContain("not-a-command");
     // Nothing on or after the never-read third line should be flagged.
     expect(found).not.toContain("if-multiline-top-level");
   });
@@ -85,11 +85,11 @@ describe("bare-line-after-command", () => {
   // is incomplete because of trailing \" and drops it; it does not abort the file.
   it("does not abort on a trailing backslash with nothing left to join it to", () => {
     const text = "/echo a\nfoo \\";
-    expect(codes(text)).not.toContain("bare-line-after-command");
+    expect(codes(text)).not.toContain("not-a-command");
   });
 
   it("does still abort when a trailing backslash joins onto more invalid content", () => {
     const text = ["/echo a", "foo \\", "/echo b", ""].join("\n");
-    expect(codes(text)).toContain("bare-line-after-command");
+    expect(codes(text)).toContain("not-a-command");
   });
 });

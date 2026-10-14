@@ -25,7 +25,7 @@
  * any trailing `\r`, which has two consequences, both confirmed live against real tf:
  *  - a line ending `\<CR>` does not continue (its literal last character is `\r`, not `\`) —
  *    tf warns "whitespace following final '\'", same as `\` followed by a space (see
- *    trailingSpaceAfterBackslash.ts, and isTfSpace below);
+ *    backslashNotLast.ts, and isTfSpace below);
  *  - a line that *isn't* a failed continuation keeps its trailing `\r` as part of the command
  *    text tf actually runs. This module does the same: nothing strips it back out.
  */

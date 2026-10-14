@@ -106,7 +106,7 @@ describe("CRLF line endings", () => {
   it("does not treat a backslash followed by \\r as a continuation", () => {
     const text = ["/if (1) \\\r", "/echo yes%; \\\r", "/endif\r", ""].join("\n");
     expect(codes(text)).toContain("if-multiline-top-level"); // /if and /endif never join
-    expect(codes(text)).toContain("trailing-space-after-backslash"); // \<CR> warns, same as \<space>
+    expect(codes(text)).toContain("backslash-not-last"); // \<CR> warns, same as \<space>
   });
 
   it("still loads the equivalent LF script clean, for comparison", () => {
@@ -116,6 +116,6 @@ describe("CRLF line endings", () => {
 
   it("treats a lone trailing \\r as a blank line, same as tf's is_space()", () => {
     const text = ["/echo first", "\r", "/echo second", ""].join("\n");
-    expect(codes(text)).not.toContain("bare-line-after-command");
+    expect(codes(text)).not.toContain("not-a-command");
   });
 });

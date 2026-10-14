@@ -66,7 +66,7 @@ describe("incomplete-continuation", () => {
   });
 
   it("isn't reported past a line that aborts the load", () => {
-    expect(getDiagnostics("hello\n/def -i z = /echo a%;\\\n").map((d) => d.code)).toEqual(["bare-line-after-command"]);
+    expect(getDiagnostics("hello\n/def -i z = /echo a%;\\\n").map((d) => d.code)).toEqual(["not-a-command"]);
   });
 });
 

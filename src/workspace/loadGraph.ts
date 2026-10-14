@@ -2,7 +2,7 @@ import * as path from "node:path";
 import { entryCommands, shortenPercents, type LoadCommand } from "../loadCommands";
 import type { SubLevel } from "../structure";
 import { splitLogicalEntries, type LogicalEntry } from "../logicalEntries";
-import { findAbortEntry } from "../rules/bareLineAfterCommand";
+import { findAbortEntry } from "../rules/notACommand";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
 import { toLocalPath, type PathMapping } from "./settings";
 /**
@@ -30,7 +30,7 @@ import { toLocalPath, type PathMapping } from "./settings";
  *    after stdlib.tf; such a value stands through an `/if`'s or `/while`'s /set of it.
  *  - tf may run somewhere else (a container, WSL): its absolute paths go through the settings'
  *    path mappings to find the file here (resolveLoadPath()).
- *  - Reading stops where tf aborts the file (a bare line; see bareLineAfterCommand.ts).
+ *  - Reading stops where tf aborts the file (a bare line; see notACommand.ts).
  * Loads inside `/def` (and other macro) bodies run later, if ever, so they are not followed. A
  * load inside a joined top-level `/if` is followed as if its branch were taken.
  *

@@ -26,14 +26,14 @@ function codes(text: string): string[] {
   return getDiagnostics(text).map((d) => d.code);
 }
 
-describe("trailing-space-after-backslash", () => {
+describe("backslash-not-last", () => {
   const text = ["/def foo = \\ ", "  /echo one%; \\\t", "  /echo two", ""].join("\n");
 
   it("offers to strip the whitespace after each trailing backslash", () => {
     const actions = getCodeActions(text, WHOLE_FILE);
     expect(actions.map((a) => a.diagnostic.code)).toEqual([
-      "trailing-space-after-backslash",
-      "trailing-space-after-backslash",
+      "backslash-not-last",
+      "backslash-not-last",
     ]);
     expect(actions[0]?.title).toContain("whitespace");
   });
@@ -53,7 +53,7 @@ describe("trailing-space-after-backslash", () => {
 
   it("does not offer a fix when the only trailing whitespace is a CRLF's \\r", () => {
     const crlf = ["/if (1) \\\r", "/echo yes%; \\\r", "/endif\r", ""].join("\n");
-    expect(codes(crlf)).toContain("trailing-space-after-backslash");
+    expect(codes(crlf)).toContain("backslash-not-last");
     expect(getCodeActions(crlf, WHOLE_FILE)).toEqual([]);
   });
 });
@@ -171,13 +171,13 @@ describe("rule fixes", () => {
       ["/def -i ld = /if (1) /let x=4 /endif%; /let z=5 /endif%; /echo ld x=%x z=%z"],
       ["/def -i ld = /if (1) /let x=4%; /endif%; /let z=5 /endif%; /echo ld x=%x z=%z"],
     ],
-    ["bare-line-after-command", ["hello world", "/echo x"], ["; hello world", "/echo x"]],
-    ["bare-line-after-command", ["hello \\", "  world", "/echo x"], ["; hello \\", "  ; world", "/echo x"]],
+    ["not-a-command", ["hello world", "/echo x"], ["; hello world", "/echo x"]],
+    ["not-a-command", ["hello \\", "  world", "/echo x"], ["; hello \\", "  ; world", "/echo x"]],
     // Proven live: tf aborts at a line starting with a byte order mark, even before a /.
-    ["bare-line-after-command", ["/echo x", "\uFEFF/echo hi", "/echo y"], ["/echo x", "/echo hi", "/echo y"]],
-    ["bare-line-after-command", ["/echo x", "\uFEFF; a note", "/echo y"], ["/echo x", "; a note", "/echo y"]],
+    ["not-a-command", ["/echo x", "\uFEFF/echo hi", "/echo y"], ["/echo x", "/echo hi", "/echo y"]],
+    ["not-a-command", ["/echo x", "\uFEFF; a note", "/echo y"], ["/echo x", "; a note", "/echo y"]],
     // Without the mark the line still wouldn't be a command, so it is commented out, mark and all.
-    ["bare-line-after-command", ["/echo x", "\uFEFFhello", "/echo y"], ["/echo x", "; \uFEFFhello", "/echo y"]],
+    ["not-a-command", ["/echo x", "\uFEFFhello", "/echo y"], ["/echo x", "; \uFEFFhello", "/echo y"]],
     ["if-multiline-top-level", ["/if (1)", "  /echo yes", "/endif"], ["/if (1) \\", "  /echo yes%; \\", "/endif"]],
     [
       "if-multiline-top-level",
@@ -300,7 +300,7 @@ describe("rule fixes", () => {
 
   it("leaves a \\ followed by whitespace to the trailing-space fix", () => {
     const text = ["/def -i a = /echo one%; \\ ", "    /echo two", ""].join("\n");
-    expect(getCodeActions(text, WHOLE_FILE).map((a) => a.diagnostic.code)).toEqual(["trailing-space-after-backslash"]);
+    expect(getCodeActions(text, WHOLE_FILE).map((a) => a.diagnostic.code)).toEqual(["backslash-not-last"]);
   });
 });
 
@@ -310,7 +310,7 @@ describe("range filtering", () => {
   it("returns only the fixes overlapping the requested range", () => {
     expect(getCodeActions(text, at(0, 8)).map((a) => a.diagnostic.code)).toEqual(["not-substituted-here"]);
     expect(getCodeActions(text, at(2, 9)).map((a) => a.diagnostic.code)).toEqual([
-      "trailing-space-after-backslash",
+      "backslash-not-last",
     ]);
     expect(getCodeActions(text, at(1, 3))).toEqual([]);
   });

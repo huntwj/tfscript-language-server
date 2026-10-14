@@ -158,6 +158,48 @@ describe("checkStructure in a macro body", () => {
     expect(issue("/if (1)%; /echo ok%; /endif")).toBe("blank-line@%;");
     expect(issue("/if (1) /echo ok%; /else%; /endif")).toBe("blank-line@%;");
   });
+
+  // tf dev (tf-script-check, 2026-10-14): "/BREAK syntax error: expected a /break that stays
+  // inside this $(...)" for the rejected ones, and "expression stack underflow or dirty" plus
+  // "invalid frame" when the ones with no loop to end inside the $(...) run.
+  it("reports a /break that would jump out of a $(...)", () => {
+    // Rejected: the loop it ends is outside the $(...).
+    expect(issue("/while (1) /echo [$(/break)]%; /done")).toBe("block@/break");
+    expect(issue("/while (1) /echo [$(/while (1) /break 2%; /done)]%; /break%; /done")).toBe("block@/break 2");
+    expect(issue("/echo [$(/while (1) /echo $(/break)%; /done)]")).toBe("block@/break");
+    expect(issue("/while /echo $(/break)%; /do /break%; /done")).toBe("block@/break");
+    expect(issue("/while (1) /if (1) /echo [$(/break)]%; /endif%; /done")).toBe("block@/break");
+    // Compiles, but fails when it runs: no loop (or not enough loops) to end inside the $(...).
+    expect(issue("/echo [$(/echo x%; /break%; /echo y)]%; /echo after")).toBe("block@/break");
+    expect(issue("/echo [$(/break 1)]")).toBe("block@/break 1");
+    expect(issue("/echo [$(/while (1) /echo in%; /break 2%; /done)]")).toBe("block@/break 2");
+  });
+
+  it("leaves a /break alone when it only ends loops inside its $(...)", () => {
+    for (const body of [
+      "/echo [$(/while (1) /echo in%; /break%; /done)]",
+      "/echo [$(/while (1) /break 1%; /done)]%; /echo after",
+      "/while (1) /echo [$(/while (1) /break 1%; /done)]%; /break%; /done",
+      "/while (1) /echo [$(/echo $(/while (1) /break%; /done))]%; /break%; /done",
+      "/echo start%; /break%; /echo not-reached",
+    ]) {
+      expect(issue(body), body).toBe("");
+    }
+  });
+
+  it("explains a rejected /break and points at the $( and the loop", () => {
+    const text = "/while (1) /echo [$(/break)]%; /done";
+    const [found] = checkStructure(text, "body");
+    expect(found?.message).toBe(
+      "This /break would jump out of the $(...) around it, so tf rejects the macro: end the loop outside the $(...).",
+    );
+    expect(found?.related?.map((r) => `${text.slice(r.start, r.end)}: ${r.message}`)).toEqual([
+      "$(: the $(...) it would jump out of",
+      "/while: the loop it would end",
+    ]);
+    // A rejected /break stops compiling; one that only fails when it runs doesn't.
+    expect(issue("/echo $(/break)%; /if (1) /echo x")).toBe("block@/break block@/if");
+  });
 });
 
 describe("checkStructure on a top-level line", () => {

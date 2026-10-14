@@ -57,27 +57,27 @@ describe("checkStructure in a macro body", () => {
   });
 
   it("reports substitutions, strings and conditions that never close", () => {
-    expect(issue("/echo $[1+2")).toBe("bracket@$["); // unmatched $[
-    expect(issue("/echo %{foo")).toBe("bracket@%{"); // unmatched { or bad substitution
-    expect(issue("/echo ${foo")).toBe("bracket@${"); // unmatched ${
-    expect(issue("/echo $(/echo x")).toBe("bracket@$("); // unmatched (
-    expect(issue('/echo $["abc]')).toBe('bracket@"'); // unmatched " in string literal
-    expect(issue("/if (1 /echo a%; /endif")).toBe("bracket@("); // condition syntax error
-    expect(issue("/test (1 + 2")).toBe("bracket@("); // expected ')' after '(...'
-    expect(issue('/result redisCmd("RPUSH", {1}, redisEscape({2})')).toBe("bracket@(");
+    expect(issue("/echo $[1+2")).toBe("expression@$["); // unmatched $[
+    expect(issue("/echo %{foo")).toBe("substitution@%{"); // unmatched { or bad substitution
+    expect(issue("/echo ${foo")).toBe("substitution@${"); // unmatched ${
+    expect(issue("/echo $(/echo x")).toBe("substitution@$("); // unmatched (
+    expect(issue('/echo $["abc]')).toBe('expression@"'); // unmatched " in string literal
+    expect(issue("/if (1 /echo a%; /endif")).toBe("expression@("); // condition syntax error
+    expect(issue("/test (1 + 2")).toBe("expression@("); // expected ')' after '(...'
+    expect(issue('/result redisCmd("RPUSH", {1}, redisEscape({2})')).toBe("expression@(");
     expect(checkStructure('/result redisCmd("RPUSH", {1}, redisEscape({2})', "body")[0]?.start).toBe(16); // the redisCmd( one
-    expect(issue('/test strlen("a"%; /echo after')).toBe("bracket@("); // reported, then runs on
-    expect(issue("/echo $[1+(2]")).toBe("bracket@]"); // expected ')' after '(...', found ']'
-    expect(issue("/echo %{x y}")).toBe("bracket@%{"); // unmatched { or illegal character ' '
-    expect(issue("/echo %{x-a%;b}")).toBe("bracket@%{"); // unmatched { or illegal character '%'
+    expect(issue('/test strlen("a"%; /echo after')).toBe("expression@("); // reported, then runs on
+    expect(issue("/echo $[1+(2]")).toBe("expression@]"); // expected ')' after '(...', found ']'
+    expect(issue("/echo %{x y}")).toBe("substitution@%{"); // unmatched { or illegal character ' '
+    expect(issue("/echo %{x-a%;b}")).toBe("substitution@%{"); // unmatched { or illegal character '%'
   });
 
   it("knows a %- that names no selector is an error, not text", () => {
     // illegal character '-' in substitution, each of these
-    expect(issue("/echo 50%-off")).toBe("bracket@%-off");
-    expect(issue("/echo 50%- off")).toBe("bracket@%-");
-    expect(issue("/echo %-P1")).toBe("bracket@%-P1");
-    expect(issue("/echo %-*")).toBe("bracket@%-*");
+    expect(issue("/echo 50%-off")).toBe("substitution@%-off");
+    expect(issue("/echo 50%- off")).toBe("substitution@%-");
+    expect(issue("/echo %-P1")).toBe("substitution@%-P1");
+    expect(issue("/echo %-*")).toBe("substitution@%-*");
     expect(issue("/echo ok %-L %-2 %{-L2} 50%%-off")).toBe("");
   });
 
@@ -94,8 +94,8 @@ describe("checkStructure in a macro body", () => {
   });
 
   it("reports a ) with nothing to close in /test and $[...]", () => {
-    expect(issue("/test 1)%; /echo after")).toBe("bracket@)"); // expected end of expression, found ')'
-    expect(issue("/echo $[ 1 ) ]")).toBe("bracket@)"); // expected operator or ']', found ')'
+    expect(issue("/test 1)%; /echo after")).toBe("expression@)"); // expected end of expression, found ')'
+    expect(issue("/echo $[ 1 ) ]")).toBe("expression@)"); // expected operator or ']', found ')'
   });
 
   it("only points at a mid-statement keyword that would fix the error", () => {
@@ -253,9 +253,9 @@ describe("checkStructure on a top-level line", () => {
     expect(issue("/if (1) /echo top4", "top")).toBe("continuation@/if");
     expect(issue("/endif", "top")).toBe("block@/endif");
     expect(issue("/then", "top")).toBe("block@/then");
-    expect(issue("/if (1 /echo top6%; /endif", "top")).toBe("bracket@(");
+    expect(issue("/if (1 /echo top6%; /endif", "top")).toBe("expression@(");
     expect(issue("/if (1) /echo top9%; /endif /echo y", "top")).toBe("block@/echo");
-    expect(issue("/test (1 + 2", "top")).toBe("bracket@(");
+    expect(issue("/test (1 + 2", "top")).toBe("expression@(");
   });
 });
 

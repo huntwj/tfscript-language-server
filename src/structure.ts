@@ -41,8 +41,10 @@ export type StructureKind =
   | "block"
   /** A top-level /if or /while still open where its (joined) line ends. */
   | "continuation"
-  /** A substitution, command substitution, string or condition that never closes. */
-  | "bracket"
+  /** A `%{...}`, `%-`, `${...}` or `$(...)` tf can't read (`varsub()`, `macsub()`, `cmdsub()`). */
+  | "substitution"
+  /** A `$[...]`, string, parenthesis or condition tf's expression compiler can't read (expr.c). */
+  | "expression"
   /** A %; right after /if (...) or /else, which sends a blank line to the world. */
   | "blank-line"
   /** Nesting past MAX_DEPTH levels, where the check stops (information, not a problem in tf). */
@@ -1079,7 +1081,7 @@ class Parser {
       if (!star && !pee && (ell || n > 0)) except = false;
       if (except) {
         this.fail(
-          "bracket",
+          "substitution",
           percent,
           this.i,
           star || pee || n === 0
@@ -1132,7 +1134,7 @@ class Parser {
       const ch = s[this.i] as string;
       const close: IssueFix = { title: "Close it with }", edits: [this.insertAtEnd(this.i, "}")] };
       this.fail(
-        "bracket",
+        "substitution",
         percent,
         percent + 2,
         this.i < s.length && !this.isStatEnd(this.i) && !(ch === "\r" && this.i === s.length - 1)
@@ -1181,7 +1183,7 @@ class Parser {
       this.cmdsubStarts.pop();
       this.dropMids(dollar);
       if (s[this.i] !== ")") {
-        this.fail("bracket", dollar, dollar + 2, {
+        this.fail("substitution", dollar, dollar + 2, {
           message: "This $( is never closed: add ).",
           label: "never closed",
           fix: { title: "Close it with ) at the end", edits: [this.insertAtEnd(this.i, ")")] },
@@ -1227,7 +1229,7 @@ class Parser {
     }
     if (bracket) {
       if (s[this.i] !== "}") {
-        this.fail("bracket", dollar, dollar + 2, {
+        this.fail("substitution", dollar, dollar + 2, {
           message: "This ${ is never closed: add }.",
           label: "never closed",
           fix: { title: "Close it with }", edits: [this.insertAtEnd(this.i, "}")] },
@@ -1268,7 +1270,7 @@ class Parser {
         this.i += 1;
         while (this.i < s.length && s[this.i] !== ch) this.i += s[this.i] === "\\" ? 2 : 1;
         if (this.i >= s.length) {
-          this.fail("bracket", quote, quote + 1, {
+          this.fail("expression", quote, quote + 1, {
             message: `This string is never closed: add the closing ${ch}.`,
             label: "never closed",
             explanation:
@@ -1298,7 +1300,7 @@ class Parser {
             this.i += 1;
             return;
           }
-          this.fail("bracket", this.i, this.i + 1, {
+          this.fail("expression", this.i, this.i + 1, {
             message: close === "]" ? "This ) has no matching ( inside the $[...]." : "This ) has no matching (.",
             label: "no matching (",
             fix: { title: "Remove the )", edits: [{ start: this.i, end: this.i + 1, newText: "" }] },
@@ -1309,7 +1311,7 @@ class Parser {
       } else if (ch === "]" && close === "]") {
         if (parens.length > 0) {
           const paren = parens[parens.length - 1] as number;
-          this.fail("bracket", this.i, this.i + 1, {
+          this.fail("expression", this.i, this.i + 1, {
             message: "A ( in this $[...] is never closed: add ) before the ].",
             label: "the $[...] ends here",
             related: [{ start: paren, end: paren + 1, message: "this ( is never closed" }],
@@ -1322,20 +1324,20 @@ class Parser {
       this.i += 1;
     }
     if (close === "]") {
-      this.fail("bracket", open, open + 2, {
+      this.fail("expression", open, open + 2, {
         message: "This $[ is never closed: add ].",
         label: "never closed",
         explanation: `A ${code("$[")} runs to its matching ${code("]")}, which has to come before the next ${code("%;")}.`,
         fix: { title: "Close it with ] at the end of the statement", edits: [this.insertAtEnd(this.i, `${")".repeat(parens.length)}]`)] },
       });
     } else if (close === ")") {
-      this.fail("bracket", open, open + 1, {
+      this.fail("expression", open, open + 1, {
         message: `The ${keyword ?? ""} condition's ( is never closed: add ).`,
         label: "never closed",
       });
     } else if (parens.length > 0) {
       const paren = parens[parens.length - 1] as number;
-      this.fail("bracket", paren, paren + 1, {
+      this.fail("expression", paren, paren + 1, {
         message: "This ( is never closed: add ).",
         label: "never closed",
         fix: { title: "Add ) at the end", edits: [this.insertAtEnd(s.length, ")".repeat(parens.length))] },

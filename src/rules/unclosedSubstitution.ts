@@ -14,7 +14,7 @@ export const unclosedSubstitution: EntryRule = {
   scope: "entry",
   check(entry): EntryMatch[] {
     return entryStructure(entry)
-      .filter((i) => i.kind === "bracket")
+      .filter((i) => i.kind === "substitution" || i.kind === "expression")
       .map(({ kind: _kind, ...match }) => match);
   },
 };

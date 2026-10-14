@@ -1,11 +1,10 @@
 import { ALL_COMMANDS } from "./data/commands";
-import { FUNCTIONS } from "./data/functions.generated";
 import type { Position, Range, TfTextEdit } from "./diagnostics";
 import { splitEntry } from "./formatting";
-import { isBlankLine, isTfSpace, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
+import { isBlankLine, isCommentLine, isTfSpace, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { macroBodyStart, parseUnits, type Unit } from "./structure";
 import { defIsInvisible, getDocumentSymbols, type TfSymbol } from "./symbols";
-import { isNameChar, readSelector } from "./variables";
+import { findFunctionCalls, findMacroCalls, findVariables, isNameChar, type MacroCall } from "./variables";
 
 /**
  * "Extract to a new macro": moves statements of a macro body into a `/def` of their own, placed
@@ -23,23 +22,28 @@ import { isNameChar, readSelector } from "./variables";
  *  - tf's scoping is dynamic: a macro called from another sees the caller's `/let` locals, and an
  *    assignment in an expression (`x := 1`, `++x`) sets the nearest one, the caller's included
  *    (hsetnearestvar()). So reads and assignments in the moved statements still reach the caller's.
- *  - Called as `/name %*`, it gets the caller's arguments word for word: `%1`, `%*`, `%#`, `%L`,
- *    `%L2`, `%-1`, `%-L`, `{#}`, `{1}`, `{*}` and the braced and defaulted forms all came out the
- *    same, with arguments holding `"`, `%;`, `%%`, `$[...]` and `\`, and in a trigger's and a
- *    hook's body. `%Pn` reads the caller's last regexp match, and `%?` its last result.
+ *  - It is always called as `/name %*`, which gives it the caller's arguments word for word: `%1`,
+ *    `%*`, `%#`, `%L`, `%L2`, `%-1`, `%-L`, `{#}`, `{1}`, `{*}` and the braced and defaulted forms
+ *    all came out the same, with arguments holding `"`, `%;`, `%%`, `$[...]` and `\`, and in a
+ *    trigger's and a hook's body; with no arguments, passing `%*` on changes none of them. Always,
+ *    not only when the moved text names an argument: `/eval` and `eval()` text shares the running
+ *    macro's arguments, so a `%%1` or `\%1` there reads them too. `%Pn` reads the caller's last
+ *    regexp match, and `%?` its last result.
  *  - After the call, `%?` is the new macro's last command's result: what it was before.
  *
  * And what doesn't, so the action is shown disabled with the reason:
  *  - A `/let` in the moved statements makes a local of the new macro, gone when it returns (a
- *    callee's `/let z` left the caller's `%z` empty): refused when the rest of the body names it,
- *    or runs anything that might read it through the same dynamic scoping (a macro, `/eval`...).
+ *    callee's `/let z` left the caller's `%z` empty), and so does an assignment (`h := 7`, `++c`)
+ *    to a name with no local and no global: refused when the rest of the body names it, or runs a
+ *    macro (or `/trigger`) that might read it through the same dynamic scoping. An assignment to a
+ *    name the macro `/let`s before it is fine: it sets that local.
  *  - `regmatch()` in the new macro sets `%P1`... only for it: the caller's `%P1` afterwards was
  *    still its own match. Refused when the rest of the body reads `%P`.
  *  - `/return`, `/result` and `/exit` would end the new macro instead, `/shift` would shift its
  *    arguments, `getopts()` would read its arguments and set its locals, `%0` would be its name,
  *    and a `/break` that isn't inside a `/while` in the selection would end it instead of a loop.
  *  - A `%|` or `%\` beside the selection ties it to the next statement.
- *  - A tab after a line's indentation: tf turns it into spaces by column, and the column moves.
+ *  - A tab in the moved text: tf turns it into spaces by column, and the column moves.
  *  - A file with CRLF line endings, where a `\` never continues a line (like the formatter).
  */
 
@@ -60,9 +64,11 @@ export interface ExtractOptions {
 const TITLE = "Extract to a new macro";
 
 const COMMAND_NAMES: ReadonlySet<string> = new Set(ALL_COMMANDS.map((c) => c.name.toLowerCase()));
-const FUNCTION_NAMES: ReadonlySet<string> = new Set(FUNCTIONS.map((f) => f.name));
-/** Commands that run text of their own, here and now or later, in which a macro may read the caller's locals. */
-const RUNS_TEXT = new Set(["eval", "for", "repeat", "trigger", "not", "quote"]);
+/**
+ * tf's commands that run code findMacroCalls() doesn't read: `/trigger` runs whichever trigger
+ * bodies match, and `/not` and `/quote` run their text (`/eval`, `/for` and `/repeat` text is read).
+ */
+const RUNS_OTHER_CODE = new Set(["trigger", "not", "quote"]);
 const ENDS_MACRO = new Set(["return", "result", "exit"]);
 const ALIAS_RE = /^\s*\/alias\b/i;
 
@@ -90,28 +96,13 @@ function selected(entry: LogicalEntry, range: Range): { from: number; to: number
   return { from, to };
 }
 
-/** The positional selectors (`1`, `*`, `L2`, `#`, `0`...) the text substitutes, as a macro body would. */
-function positionals(s: string): string[] {
-  const found: string[] = [];
-  const add = (at: number): void => {
-    const sel = readSelector(s, at);
-    if (sel && sel.name === undefined) found.push(s.slice(sel.nameStart, sel.nameEnd));
-  };
-  for (let i = 0; i < s.length; i += 1) {
-    const c = s[i];
-    if (c === "\\") {
-      i += 1;
-    } else if (c === "%") {
-      let n = 1;
-      while (s[i + n] === "%") n += 1;
-      if (n === 1 && !";|\\".includes(s[i + 1] ?? ";")) add(i + 1);
-      i += n - 1;
-    } else if (c === "{" && s[i - 1] !== "%" && s[i - 1] !== "$") {
-      // `{1}` in an expression (or plain text, which only makes this more careful).
-      add(i);
-    }
-  }
-  return found;
+/**
+ * Whether the text reads `%0`, the running macro's name, in any of its forms: `%0`, `%{0}`, `{0}` in
+ * an expression, and with a longer run of `%`s or a `\` before it, which `/eval` text reads one
+ * level down.
+ */
+function readsMacroName(s: string): boolean {
+  return /%+\{?0+(?![0-9])|\{0+\}/.test(s);
 }
 
 /** Whether `name` appears in `text` as a whole name (not part of a longer one). */
@@ -124,23 +115,16 @@ function mentions(text: string, name: string): boolean {
   return false;
 }
 
-/** A name called as a function that isn't one of tf's, which tf then runs as a macro. */
-function macroFunctionCall(text: string): string | undefined {
-  for (const m of text.matchAll(/(^|[^\w%$])([A-Za-z_]\w*)\s*\(/g)) {
-    const name = m[2] as string;
-    if (!FUNCTION_NAMES.has(name)) return name;
+/**
+ * What the rest of the body runs that may read the caller's locals: a call to a macro, by name or as
+ * a function in an expression, or a command that runs code of its own.
+ */
+function readerOutside(calls: MacroCall[]): string | undefined {
+  for (const c of calls) {
+    const name = c.name.toLowerCase();
+    if (!COMMAND_NAMES.has(name) || RUNS_OTHER_CODE.has(name)) return `/${c.name}`;
   }
   return undefined;
-}
-
-/** What the outside of the body runs that may read the caller's locals: a macro, or text it runs. */
-function readerOutside(outside: Unit[], outsideText: string): string | undefined {
-  for (const u of outside) {
-    if (u.word === "" || u.block) continue;
-    if (!COMMAND_NAMES.has(u.word) || RUNS_TEXT.has(u.word)) return `/${u.word}`;
-  }
-  const fn = macroFunctionCall(outsideText);
-  return fn === undefined ? undefined : `${fn}()`;
 }
 
 /** The variable a `/let` statement sets, as written, or "" when its name is built when it runs. */
@@ -165,7 +149,8 @@ function ownerName(symbol: TfSymbol | undefined): string {
 
 /** The new macro's name: `<macro>_extracted`, numbered past any name already taken. */
 function newName(symbol: TfSymbol | undefined, taken: (name: string) => boolean): string {
-  const base = symbol?.kind === "def" && /^[^\s%$=]+$/.test(symbol.name) ? `${symbol.name}_extracted` : "extracted";
+  const written = symbol?.kind === "def" ? symbol.name.replace(/^(["'`])(.*)\1$/, "$2") : "";
+  const base = /^[A-Za-z0-9_~.:-]+$/.test(written) ? `${written}_extracted` : "extracted";
   for (let n = 1; ; n += 1) {
     const name = n === 1 ? base : `${base}${n}`;
     if (!taken(name.toLowerCase())) return name;
@@ -191,7 +176,15 @@ function applyEdits(text: string, edits: TfTextEdit[]): string {
 
 type Plan = { disabled: string } | { name: string; edits: TfTextEdit[] };
 
-function plan(text: string, lines: string[], entry: LogicalEntry, range: Range, symbol: TfSymbol | undefined, options: ExtractOptions): Plan | undefined {
+function plan(
+  text: string,
+  lines: string[],
+  entry: LogicalEntry,
+  entryIndex: number,
+  range: Range,
+  symbol: TfSymbol | undefined,
+  options: ExtractOptions,
+): Plan | undefined {
   const body = macroBodyStart(entry.text);
   if (body < 0) return undefined;
   const { from, to } = selected(entry, range);
@@ -231,11 +224,14 @@ function plan(text: string, lines: string[], entry: LogicalEntry, range: Range, 
   const xEnd = end(chosen[chosen.length - 1] as Unit);
   const moved = bodyText.slice(xStart, xEnd);
   const within = parsed.units.filter((u) => u.start >= xStart && end(u) <= xEnd);
-  const outside = parsed.units.filter((u) => end(u) <= xStart || u.start >= xEnd);
   const outsideText = `${bodyText.slice(0, xStart)} ${bodyText.slice(xEnd)}`;
+  const startPos = entry.offsetMap[body + xStart];
+  const lastPos = entry.offsetMap[body + xEnd - 1];
+  const bodyPos = entry.offsetMap[body];
+  if (!startPos || !lastPos || !bodyPos) return undefined;
 
   if (moved.includes("\t")) {
-    return { disabled: "The selection has a tab after a line's indentation, which tf reads as a different number of spaces in another column: replace it with spaces first." };
+    return { disabled: "The selection has a tab in it, which tf turns into spaces by column, and its column would change in the new macro: replace it with spaces first." };
   }
   // A %| or %\ beside the selection joins it to the statement on that side.
   let before = xStart;
@@ -259,24 +255,40 @@ function plan(text: string, lines: string[], entry: LogicalEntry, range: Range, 
   if (/(^|[^\w])getopts\s*\(/.test(moved)) {
     return { disabled: `getopts() reads the running macro's arguments and sets its locals, so in a new macro it would read and set the wrong ones: leave it out of the selection.` };
   }
-  const selectors = positionals(moved);
-  if (selectors.some((p) => /^0+$/.test(p))) {
+  if (readsMacroName(moved)) {
     return { disabled: `%0 is the running macro's name, which in the new macro would be its own: leave it out of the selection.` };
   }
   if (/(^|[^\w])regmatch\s*\(/.test(moved) && /%\{?P|\{P/.test(outsideText)) {
     return { disabled: `regmatch() in the selection would set %P1 and the rest only inside the new macro, but ${owner} reads them outside it: keep the regmatch() outside the selection.` };
   }
   for (const u of within.filter((w) => w.word === "let")) {
-    const name = letName(bodyText.slice(u.start, u.end));
-    if (name === "") return { disabled: "A /let in the selection sets a variable whose name is built when it runs, and it would be the new macro's local: keep it outside the selection." };
-    if (mentions(outsideText, name)) {
-      return { disabled: `${name} is /let in the selection, so it would be the new macro's local, gone when it returns, but ${owner} uses it outside the selection: keep the /let outside the selection.` };
+    if (letName(bodyText.slice(u.start, u.end)) === "") {
+      return { disabled: "A /let in the selection sets a variable whose name is built when it runs, and it would be the new macro's local: keep it outside the selection." };
     }
-    const reader = readerOutside(outside, outsideText);
-    if (reader) {
-      return {
-        disabled: `${name} is /let in the selection, so it would be the new macro's local, gone when it returns, but ${owner} also runs ${reader}, which may read it through tf's dynamic scoping: keep the /let outside the selection.`,
-      };
+  }
+  // The variables the moved text makes a local of: its /lets, and its assignments to a name with
+  // no local of the macro's (one with no global either makes a local; whether there is a global
+  // isn't known, so any).
+  const inMoved = (offset: number): boolean => offset >= body + xStart && offset < body + xEnd;
+  const made = new Map<string, "let" | "assign">();
+  for (const o of findVariables(text)) {
+    if (o.entry !== entryIndex || !inMoved(o.offset)) continue;
+    if (o.access === "let") made.set(o.name, "let");
+    else if (o.access === "assign" && o.scope === "global" && !made.has(o.name)) made.set(o.name, "assign");
+  }
+  if (made.size > 0) {
+    const inBody = (r: Range): boolean => compare(r.start, bodyPos) >= 0 && r.start.line <= entry.endLine;
+    const inSelection = (r: Range): boolean => compare(r.start, startPos) >= 0 && compare(r.start, lastPos) <= 0;
+    const calls = [...findMacroCalls(text), ...findFunctionCalls(text)].filter((c) => inBody(c.range) && !inSelection(c.range));
+    const reader = readerOutside(calls);
+    for (const [name, how] of made) {
+      const what =
+        how === "let"
+          ? `${name} is /let in the selection, so it would be the new macro's local, gone when it returns`
+          : `${name} is assigned in the selection with no /let of it in ${owner}, so unless a global ${name} exists, the assignment would make a local of the new macro, gone when it returns`;
+      const keep = how === "let" ? "keep the /let outside the selection" : `/let or /set ${name} before the selection, or keep the assignment outside it`;
+      if (mentions(outsideText, name)) return { disabled: `${what}, but ${owner} uses it outside the selection: ${keep}.` };
+      if (reader) return { disabled: `${what}, but ${owner} also runs ${reader}, which may read it through tf's dynamic scoping: ${keep}.` };
     }
   }
 
@@ -293,17 +305,14 @@ function plan(text: string, lines: string[], entry: LogicalEntry, range: Range, 
   const split = splitEntry(lineEntry, [line], options.indent ?? "    ", { headTabs: true });
   // splitEntry() only lays it out when that joins back to the same program.
   const defLines = split && split.length > 1 ? split : [line];
-  // `%Pn` (the last regexp match) and `%?` (the last result) aren't arguments.
-  const call = `/${name}${selectors.some((p) => p !== "?" && !p.startsWith("P")) ? " %*" : ""}`;
+  const call = `/${name} %*`;
 
-  const startPos = entry.offsetMap[body + xStart];
-  const lastPos = entry.offsetMap[body + xEnd - 1];
-  if (!startPos || !lastPos) return undefined;
   if (!entry.parts.some((p) => p.line === lastPos.line) || entry.parts.filter((p) => p.line >= startPos.line && p.line <= lastPos.line).length !== lastPos.line - startPos.line + 1) {
     return { disabled: "The selection has comment lines between its lines, which would be lost: move them out of the selection first." };
   }
   let insertLine = entry.startLine;
-  while (insertLine > 0 && /^\s*;;;/.test(lines[insertLine - 1] ?? "")) insertLine -= 1;
+  // Above the comment lines directly over the macro, which belong to it (its `;;;` doc comment).
+  while (insertLine > 0 && isCommentLine(lines[insertLine - 1] ?? "")) insertLine -= 1;
   const gap = insertLine > 0 && !isBlankLine(lines[insertLine - 1] ?? "") ? "\n" : "";
   const edits: TfTextEdit[] = [
     { range: { start: { line: insertLine, character: 0 }, end: { line: insertLine, character: 0 } }, newText: `${gap}${defLines.join("\n")}\n\n` },
@@ -330,10 +339,12 @@ function plan(text: string, lines: string[], entry: LogicalEntry, range: Range, 
 export function getExtractActions(text: string, range: Range, options: ExtractOptions = {}): TfExtractAction[] {
   if (compare(range.start, range.end) >= 0 || text.includes("\r")) return [];
   const lines = splitRawLines(text);
-  const entry = splitLogicalEntries(text).find((x) => x.startLine <= range.start.line && x.endLine >= range.end.line - (range.end.character === 0 ? 1 : 0));
+  const entries = splitLogicalEntries(text);
+  const entryIndex = entries.findIndex((x) => x.startLine <= range.start.line && x.endLine >= range.end.line - (range.end.character === 0 ? 1 : 0));
+  const entry = entries[entryIndex];
   if (!entry || entry.incomplete || !isDefEntry(entry)) return [];
   const symbol = getDocumentSymbols(text).find((sym) => sym.range.start.line === entry.startLine);
-  const result = plan(text, lines, entry, range, symbol, options);
+  const result = plan(text, lines, entry, entryIndex, range, symbol, options);
   if (!result) return [];
   if ("disabled" in result) return [{ title: TITLE, edits: [], disabled: result.disabled }];
   return [{ title: `${TITLE}, /${result.name}`, edits: result.edits }];

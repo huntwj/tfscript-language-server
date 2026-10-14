@@ -140,6 +140,30 @@ export interface ExpressionRegion {
   level?: SubLevel;
 }
 
+/**
+ * A bracketed piece of text the parser read, as offsets into the text that was parsed: a
+ * substitution (`%{...}`, `%name`, `${...}`, `$[...]`, `$(...)`, `{...}` in an expression), an
+ * `/if` or `/while` condition, a parenthesis or a string in an expression. `inner` is what lies
+ * between its brackets or quotes; a bare `%name` has none.
+ */
+export interface Span {
+  start: number;
+  end: number;
+  kind: "substitution" | "condition" | "paren" | "string";
+  inner?: { start: number; end: number };
+}
+
+/**
+ * An `/if`...`/endif` or `/while`...`/done` that closed, from its keyword to the end of its
+ * closing one, with each part of its body: after a condition, `/then`, `/do` or `/else`, up to the
+ * next `/elseif`, `/else`, `/endif` or `/done` (the separator before that keyword included).
+ */
+export interface BlockRegion {
+  start: number;
+  end: number;
+  parts: { start: number; end: number }[];
+}
+
 const levelOf = (subs: number): SubLevel => (subs >= FULL ? "full" : subs >= NEWLINE ? "newline" : "keyword");
 
 const KEYWORDS = new Set([
@@ -194,6 +218,8 @@ interface Open {
   swallowed?: Swallowed;
   /** How many `$(...)` it is inside. */
   cmdsub: number;
+  /** The parts of its body read so far (BlockRegion.parts). */
+  parts: { start: number; end: number }[];
 }
 
 function isNameChar(ch: string | undefined): boolean {
@@ -243,6 +269,12 @@ class Parser {
   readonly expressions: ExpressionRegion[] = [];
   /** The inside of every `$(...)` read, which runs in a variable scope of its own. */
   readonly cmdsubs: { start: number; end: number }[] = [];
+  /** Every substitution, condition, parenthesis and string read, in the order each one ended. */
+  readonly spans: Span[] = [];
+  /** Every block that closed, in the order each one closed. */
+  readonly blocks: BlockRegion[] = [];
+  /** Where the last /endif or /done read ends. */
+  private closeEnd = 0;
   /** Compiling stopped at an error, so tf runs none of this text. */
   stopped = false;
   /** /ifs and /endifs swallowed by a /let or /set value (for let-swallows-endif). */
@@ -473,6 +505,7 @@ class Parser {
           case "else":
           case "elseif":
             if (this.block !== "then") this.unexpected(word, stmtStart, kwEnd);
+            this.endPart(stmtStart);
             this.block = word;
             // An /endif swallowed before this was never going to close the /if: with a %; it
             // would, and leave this /else or /elseif stray ("unexpected /ELSE in outer block").
@@ -482,10 +515,14 @@ class Parser {
             continue;
           case "endif":
             if (this.block !== "then" && this.block !== "else") this.unexpected(word, stmtStart, kwEnd);
+            this.endPart(stmtStart);
+            this.closeEnd = kwEnd;
             this.block = "endif";
             return;
           case "done":
             if (this.block !== "do") this.unexpected(word, stmtStart, kwEnd);
+            this.endPart(stmtStart);
+            this.closeEnd = kwEnd;
             this.block = "done";
             return;
           case "break":
@@ -542,13 +579,21 @@ class Parser {
     if (open) open.body = this.i;
   }
 
+  /** The innermost open block's current body part ends at `at` (where its next keyword starts). */
+  private endPart(at: number): void {
+    const open = this.open[this.open.length - 1];
+    if (open?.body !== undefined) open.parts.push({ start: open.body, end: at });
+  }
+
   private openBlock(keyword: "if" | "while", start: number, end: number, subs: number): void {
     const outer = this.block;
     this.block = keyword;
-    this.open.push({ keyword, start, end, cmdsub: this.cmdsub });
+    const opened: Open = { keyword, start, end, cmdsub: this.cmdsub, parts: [] };
+    this.open.push(opened);
     this.list(subs);
     // Where the list stopped: /endif or /done if it closed, else whatever block it was in.
     const ended = this.block as Block;
+    if (ended === "endif" || ended === "done") this.blocks.push({ start, end: this.closeEnd, parts: opened.parts });
     const to = this.i + 1;
     // Never closed (the text, or the $(...), ended first; this /if or /while, and every block open
     // around it in the same $(...), with it): an /endif a /let or /set value swallowed is what
@@ -741,6 +786,14 @@ class Parser {
     }
     // tf reports an error in a fixed expression but carries on compiling.
     for (const issue of sub.issues) this.issues.push(shiftIssue(issue, start));
+    for (const span of sub.spans) {
+      this.spans.push({
+        ...span,
+        start: span.start + start,
+        end: span.end + start,
+        ...(span.inner ? { inner: { start: span.inner.start + start, end: span.inner.end + start } } : {}),
+      });
+    }
   }
 
   /** Statement text, as `expand()` scans it, up to a separator, the end, or a `$(...)`'s `)`. */
@@ -830,6 +883,7 @@ class Parser {
     const s = this.s;
     const bracket = s[this.i] === "{";
     if (bracket) this.i += 1;
+    const inner = this.i;
     if ((s[this.i] === "#" || s[this.i] === "?") && (!bracket || s[this.i + 1] === "}")) {
       this.i += 1;
     } else {
@@ -907,9 +961,11 @@ class Parser {
         }
       }
     }
+    if (!bracket) this.spans.push({ start: percent, end: this.i, kind: "substitution" });
     if (bracket) {
       if (s[this.i] === "}") {
         this.i += 1;
+        this.spans.push({ start: percent, end: this.i, kind: "substitution", inner: { start: inner, end: this.i - 1 } });
         return;
       }
       // bad-substitution-selector already explains a substitution glued onto the selector.
@@ -945,6 +1001,7 @@ class Parser {
       const start = this.i;
       this.expression("]", dollar);
       this.expressions.push({ start, end: this.i - 1, kind: "bracket" });
+      this.spans.push({ start: dollar, end: this.i, kind: "substitution", inner: { start, end: this.i - 1 } });
     } else if (s[this.i] === "(") {
       this.i += 1;
       const start = this.i;
@@ -968,6 +1025,7 @@ class Parser {
       }
       this.cmdsubs.push({ start, end: this.i });
       this.i += 1;
+      this.spans.push({ start: dollar, end: this.i, kind: "substitution", inner: { start, end: this.i - 1 } });
     } else {
       this.macsub(dollar);
     }
@@ -1012,6 +1070,7 @@ class Parser {
         });
       }
       this.i += 1;
+      this.spans.push({ start: dollar, end: this.i, kind: "substitution", inner: { start: dollar + 2, end: this.i - 1 } });
     } else if (s[this.i] === "$") {
       this.i += 1;
     }
@@ -1023,6 +1082,7 @@ class Parser {
     this.i += 1;
     this.expression(")", open, keyword);
     this.expressions.push({ start: open + 1, end: this.i - 1, kind: "condition" });
+    this.spans.push({ start: open, end: this.i, kind: "condition", inner: { start: open + 1, end: this.i - 1 } });
   }
 
   /**
@@ -1053,6 +1113,7 @@ class Parser {
           });
         }
         this.i += 1;
+        this.spans.push({ start: quote, end: this.i, kind: "string", inner: { start: quote + 1, end: this.i - 1 } });
         continue;
       }
       if (close && this.isStatEnd(this.i)) break;
@@ -1079,7 +1140,8 @@ class Parser {
             fix: { title: "Remove the )", edits: [{ start: this.i, end: this.i + 1, newText: "" }] },
           });
         }
-        parens.pop();
+        const paren = parens.pop() as number;
+        this.spans.push({ start: paren, end: this.i + 1, kind: "paren", inner: { start: paren + 1, end: this.i } });
       } else if (ch === "]" && close === "]") {
         if (parens.length > 0) {
           const paren = parens[parens.length - 1] as number;
@@ -1166,10 +1228,22 @@ export function parseStatements(text: string, mode: StructureMode): Statement[] 
 export function parseRegions(
   text: string,
   mode: StructureMode,
-): { statements: Statement[]; expressions: ExpressionRegion[]; cmdsubs: { start: number; end: number }[] } {
+): {
+  statements: Statement[];
+  expressions: ExpressionRegion[];
+  cmdsubs: { start: number; end: number }[];
+  spans: Span[];
+  blocks: BlockRegion[];
+} {
   const parser = new Parser(text, mode);
   parser.run();
-  return { statements: parser.statements, expressions: parser.expressions, cmdsubs: parser.cmdsubs };
+  return {
+    statements: parser.statements,
+    expressions: parser.expressions,
+    cmdsubs: parser.cmdsubs,
+    spans: parser.spans,
+    blocks: parser.blocks,
+  };
 }
 
 /**

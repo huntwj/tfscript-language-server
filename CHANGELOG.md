@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `empty-statement` replaces `separator-sends-blank-line`, and covers every statement with
+  nothing in it, which tf sends to the world as a blank line: a `%;` after another separator,
+  after `/then` or `/do`, before a body's first command, before the `)` of a `$(...)`, and in an
+  `/eval`, `/repeat` or `/for` text, as well as after a `(condition)` or `/else`. tf warns about only
+  the last two (and about one in a condition list); the message says which. A `%;` at the very end
+  sends nothing and isn't flagged, nor is anything after a `/break`, `/return` or `/result`.
 - `missing-continuation` replaces `if-multiline-top-level`, and covers `/while` and condition
   lists too (a top-level `/while` cut off at the end of its line was a `block-structure` error).
   One missing `\` used to give two or three diagnostics: the opener, a stray `/endif` and an

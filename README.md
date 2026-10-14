@@ -61,17 +61,17 @@ view of the file gets truncated, since tf never reads past the line it aborts on
 | 10 | `block-structure` | an `/if` or `/while` with no `/endif`, `/done`, `/then` or `/do`; a keyword with no block to belong to; text after `/endif` or `/done` with no `%;`; a `/break` inside `$(...)` that would end a loop outside it, or has no loop inside it to end. Points at a keyword stuck mid-statement (`/echo a /endif`) when that is the cause, since tf only reads keywords at the start of a statement |
 | 11 | `substitution-syntax` | a substitution tf can't read: a `%{` that never closes, or with another substitution glued onto its selector (`%{foo%{bar}}`; nesting only works through the default, `%{foo-%{bar}}`), a `%-` naming no parameter (`50%-off`), and a `${` or `$(` that never closes. Only where tf substitutes: a macro body, `/eval`, `/repeat`, `/at`, `/quote` or `/for` text, an expression; a plain top-level line prints it as it is |
 | 11 | `expression-syntax` | an expression tf can't read: a `$[` that never closes, a string or `(` left open, a `)` with no `(`, an `/if` or `/while` condition with no `)`. In a condition and a top-level `/test` too, which tf compiles as written |
-| 12 | `separator-sends-blank-line` | (warning) a `%;` straight after `/if (...)` or `/else`, which sends a blank line to the world |
+| 12 | `empty-statement` | (warning) a statement with nothing in it, which tf sends to the world as a blank line each time it runs: a `%;` or `%\` right after another separator, after `/then`, `/do`, `/else` or a `(condition)`, before the first command, or before the `)` of a `$(...)` (and an empty `$()`). In every text tf compiles: a macro body, a top-level `/if` or `/while` line, `/eval`, `/repeat` and `/for` text. The message says whether tf warns about it too (only after a `(condition)`, after `/else`, and in a condition list). Not a `%;` at the very end, which sends nothing, nor one after a `/break`, `/return` or `/result`, which never runs |
 | — | `incomplete-continuation` | (warning) the file's last command ends in `\`: tf says "last command is incomplete because of trailing \\" and drops it, so a macro it would define isn't defined. A final newline doesn't complete it (tf reads no line after it); a real blank line does. The fix removes the `\` |
 | — | `body-continues-without-backslash` | (information) a macro body whose last line ends in `%;` but not `\`, with an unindented command on the next line: that line is a command of its own, run when the file loads. Not when the body ends at a blank line, nor when the next line runs the macro just defined |
 | — | `nesting-too-deep` | (information) not a problem in tf: a command nesting more than 400 levels deep (each nested `/if`, `/while`, `$(...)`, `$[...]` or `%{name-...}` default is a level), past which the structural check stops; what it read before that still counts |
 
 `missing-continuation`, `block-structure`, `substitution-syntax`, `expression-syntax`,
-`substitution-in-expression` and `separator-sends-blank-line` share one model of tf's compiler,
+`substitution-in-expression` and `empty-statement` share one model of tf's compiler,
 `src/structure.ts` (`list()`, `statement()` and the substitution scanners in `expand.c`): it reads
 keywords only at the start of a statement, follows nesting, and knows that a top-level line
 substitutes nothing while a macro body does. It reports only the first error in a body, as tf stops
-compiling there. The three substitution and expression rules run it over every text
+compiling there. The substitution, expression and empty-statement rules run it over every text
 `src/substitution.ts` finds tf reading, so they see `/eval` and `/repeat` text too.
 
 Every diagnostic has a one-sentence message for the Problems pane, saying the problem and, where

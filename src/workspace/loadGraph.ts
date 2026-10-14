@@ -163,13 +163,15 @@ export function resolveLoadPath(file: string, env: LoadPathEnvironment): { found
   return { found: candidates.find((c) => env.readFile(c) !== undefined), searched: candidates };
 }
 
-function stripLoadOptions(args: string): string {
+/** The filename after `/load`'s options, or undefined for an option tf rejects (it then loads nothing). */
+function stripLoadOptions(args: string): string | undefined {
   let rest = args.trim();
   while (rest.startsWith("-")) {
     const end = rest.search(/\s/);
     const opt = end === -1 ? rest : rest.slice(0, end);
     rest = end === -1 ? "" : rest.slice(end).trim();
     if (opt === "--") break;
+    if (!/^-q+$/.test(opt)) return undefined;
   }
   return rest;
 }

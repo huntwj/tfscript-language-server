@@ -82,6 +82,12 @@ describe("how tf reads a load command (proven against real tf, 2026-10-13)", () 
     expect(defNames(g)).toEqual(["f"]);
     expect(g.unresolved).toEqual([]);
   });
+
+  it("loads nothing for an option other than -q, which tf rejects", () => {
+    const g = graph({ [p("tfrc")]: "/load -x a.tf\n/load -qq b.tf\n", [p("cwd", "a.tf")]: "/def a = 1\n", [p("cwd", "b.tf")]: "/def b = 1\n" });
+    expect(defNames(g)).toEqual(["b"]);
+    expect(g.unresolved).toEqual([]);
+  });
 });
 
 describe("/require and /loaded (proven against real tf)", () => {

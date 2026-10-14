@@ -245,7 +245,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       documentLinkProvider: { resolveProvider: false },
       foldingRangeProvider: true,
       selectionRangeProvider: true,
-      codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix, CodeActionKind.RefactorRewrite, CodeActionKind.RefactorExtract] },
+      codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix, CodeActionKind.RefactorRewrite, CodeActionKind.RefactorExtract, CodeActionKind.RefactorInline] },
       hoverProvider: true,
       definitionProvider: true,
       referencesProvider: true,
@@ -387,6 +387,12 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   // Only worked out when an extracted macro needs a name.
   let taken: ((name: string) => boolean) | undefined;
   if (file) request.isTaken = (name) => (taken ??= index.macroNameTaken(file, document.getText()))(name);
+  // And, for inlining, whether the macro's /def is the only one, and whether other files name it.
+  let outside: ((name: string) => boolean) | undefined;
+  let mentioned: ((name: string) => boolean) | undefined;
+  if (file) request.definedOutside = (name) => (outside ??= index.macroDefinedOutside(file))(name);
+  if (file) request.mentionedOutside = (name) => (mentioned ??= index.macroMentionedOutside(file))(name);
+  if (file && index.isLibraryFile(file)) request.library = true;
   return routeCodeActions(document.getText(), request).map((action) => ({
     title: action.title,
     kind: action.kind,

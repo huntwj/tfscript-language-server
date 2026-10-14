@@ -8,6 +8,8 @@
  * extension is packaged and installed: VS Code extracts it to its own extensions directory
  * (e.g. ~/.vscode/extensions/huntwj.tfscript-vscode-x.y.z/), nowhere near the repo that built
  * it, and that relative path then points at nothing.
+ *
+ * The extension's "build" script rebuilds the server first, so this never copies a stale dist/.
  */
 const { cpSync, existsSync, rmSync } = require("node:fs");
 const path = require("node:path");

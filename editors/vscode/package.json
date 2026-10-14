@@ -151,7 +151,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p . && node scripts/copy-server.js",
+    "build": "npm --prefix ../.. run build && tsc -p . && node scripts/copy-server.js",
     "watch": "tsc -p . --watch",
     "test": "node test/smoke.js",
     "package": "npm run build && npm test && vsce package -o tfscript-vscode.vsix"

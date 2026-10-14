@@ -37,25 +37,28 @@ import type { Range } from "./symbols";
  *  - `/def -E"expr"` compiles expr when the `/def` runs and evaluates it when the trigger
  *    matches (macro.c), so its names are reads; `-t`, `-h`, `-T`, `-w` and the rest are
  *    patterns and names, not substituted.
- *  - A run of two or more `%`s is text one level down: `%%{w}` in a `/def` inside a body becomes
- *    `%{w}` in the inner macro. `/eval`, `/for` and `/repeat` text and a `/def` inside a body are
- *    read again as the level below sees them, with each run of `%`s one shorter.
+ *  - `/eval`, `/for` and `/repeat` text and a `/def` inside a body are read again as the level
+ *    below sees them: in a substituted statement, each `%x`, `$[...]`, `$(...)` and `${name}`
+ *    became its value first (so its reads are the caller's), and each run of `%`s or `$`s is one
+ *    shorter, so `%%{w}` and `$$[k*k]` are read one level down.
  *  - `/eval` text and a `$(...)` run in a scope of their own inside the running macro's (expand.c
  *    pushes one for each), so a `/let` there ends with them, while their reads still see the
  *    macro's locals. `/for VAR ...` runs its command in stdlib's `/@eval /let VAR=...`, so VAR is
  *    that loop's local and the macro's locals are seen too. `/repeat` compiles its command as a
- *    macro body and runs it later from the top level (process.c), so it sees none of them; nor
- *    does a `/def` inside a body, which runs whenever it's called.
+ *    macro body and normally runs it later from the top level (process.c), seeing none of them;
+ *    `/repeat -S` runs it at once and `-P` runs it once at once, inside the macro, seeing them.
  *
  * Approximated, because which scope a read finds depends on how the code runs:
  *  - A read or assignment counts as local when a `/let` of the same name has ended before it in
  *    its own scope or one around it; anything else counts as global.
  *  - tf's scoping is dynamic: a macro also sees the locals of the macro that called it (proven:
  *    a callee's `%y` read the caller's `/let y`). That isn't followed here: a read in a body
- *    without its own `/let` counts as global (rename refuses the cases it would get wrong).
- *  - A `/let` in a branch that doesn't run still counts.
- *  - `/listvar` takes a pattern, and `/for`'s loop variable is set inside stdlib's /for, so
- *    neither is followed.
+ *    without its own `/let` counts as global (rename refuses the cases it would get wrong). The
+ *    same goes for a `/def` inside a body: its body gets a scope of its own, though called from
+ *    the macro that defined it, it would see that macro's locals.
+ *  - A `/let` in a branch that doesn't run still counts, and a `/repeat` while the `lpquote`
+ *    variable is on (its first run is then at once) is read as one that runs later.
+ *  - `/listvar` takes a pattern, so it isn't followed.
  */
 
 export type VariableAccess = "set" | "setenv" | "let" | "getopts" | "unset" | "export" | "assign" | "read";
@@ -213,10 +216,10 @@ interface Walk {
   found: Found[];
   depth: number;
   /**
-   * The variable scopes the text runs in, innermost first: a macro body's, then for `/eval` text
-   * and a `/for` command the scopes of what runs them (tf searches every scope of the running
-   * macros, findlocalvar()). Text that runs later on its own, a `/repeat` command or a `/def`'s
-   * body inside a body, starts afresh.
+   * The variable scopes the text runs in, innermost first: a macro body's, then for `/eval` text,
+   * a `/for` command and a `/repeat -S` or `-P` command the scopes of what runs them (tf searches
+   * every scope of the running macros, findlocalvar()). Text that runs later on its own, another
+   * `/repeat` command or a `/def`'s body inside a body, starts afresh.
    */
   chain: string[];
   /** Names the next scope opened in this entry. */

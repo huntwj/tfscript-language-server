@@ -440,17 +440,20 @@ body's `/test`, `/return` and `/result`, which tf substitutes first. Names are c
 in tf. `/set`, `/setenv`, `/unset` and `/export` always mean the global; `/let`, and the `opt_`
 variables `getopts()` sets, belong to the macro body they're in, and a read in that body once its
 `/let` statement has run means the local (`/let x=%{x}-copy` reads the global). `/eval` text and
-a `$(...)` get scopes of their own inside the macro's, `/for VAR` makes VAR local to its loop,
-and a `/repeat` command or a `/def` inside a body runs on its own later, seeing no local of the
-macro around it. So renaming a global leaves a body's own `/let x` alone, and renaming that local
+a `$(...)` get scopes of their own inside the macro's, and `/for VAR` makes VAR local to its loop.
+A `/repeat` command runs later on its own, seeing no local of the macro around it, unless it is a
+`/repeat -S` or `-P`, which runs at once inside the macro. A `$[...]` or `%x` the macro evaluates
+before handing text to one of these is read in the macro's scope; a doubled `$$[...]` or `%%x` is
+read one level down. A `/def` inside a body gets a scope of its own here, though called from the
+macro that defined it, it would see that macro's locals too. So renaming a global leaves a body's own `/let x` alone, and renaming that local
 changes only its scope. Definitions include tf's library. Rename refuses tf's special variables,
 variables the library uses, `getopts()` variables, a new name tf would read as a selector (`L`,
 `R`, `P1`), and a new name that is already taken where the rename would merge two variables or let
 a body's `/let` capture the renamed one. tf's scoping is dynamic, so a macro also sees the locals
 of the macro that called it; that isn't followed (a body without its own `/let` reads the
 global here), and rename refuses a variable that is probably passed on that way: a local whose
-name other macros read with nothing setting a global of it, or such a read of a name some macro
-has a `/let` of. Positional selectors (`%1`, `%*`, `{#}`) aren't variables, and
+name is also read outside its scope with nothing setting a global of it, or such a read of a
+name some macro has a `/let` of. The refusal says where the other end is. Positional selectors (`%1`, `%*`, `{#}`) aren't variables, and
 names built at run time (`cylon%i`, `%%{stack_%{n}}`) and `/listvar` patterns aren't followed.
 
 Highlighting the name under the cursor marks every use of that variable or macro in the file,

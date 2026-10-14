@@ -51,6 +51,7 @@ import { getDiagnostics, type TfDiagnostic } from "./diagnostics";
 import { getCompletions } from "./completions";
 import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
+import { getRefactorActions } from "./bodyLayout";
 import { getCodeActions } from "./codeActions";
 import { explainDiagnostic, rangeContains } from "./explain";
 import {
@@ -225,7 +226,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       documentSymbolProvider: true,
       documentLinkProvider: { resolveProvider: false },
       foldingRangeProvider: true,
-      codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix] },
+      codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix, CodeActionKind.RefactorRewrite] },
       hoverProvider: true,
       definitionProvider: true,
       referencesProvider: true,
@@ -349,20 +350,32 @@ connection.onFoldingRanges((params: FoldingRangeParams): FoldingRange[] => {
 
 // `only` lists the kinds the client wants; a kind matches itself and anything nested under it
 // (`quickfix` covers `quickfix.foo`; `""` covers everything).
-function wantsQuickFix(only: string[] | undefined): boolean {
+function wants(only: string[] | undefined, kind: string): boolean {
   if (!only) return true;
-  return only.some((k) => k === "" || CodeActionKind.QuickFix === k || CodeActionKind.QuickFix.startsWith(`${k}.`));
+  return only.some((k) => k === "" || kind === k || kind.startsWith(`${k}.`));
 }
 
 connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   const document = documents.get(params.textDocument.uri);
-  if (!document || !wantsQuickFix(params.context.only)) return [];
-  return getCodeActions(document.getText(), params.range, diagnosticsFor(document)).map((action) => ({
-    title: action.title,
-    kind: CodeActionKind.QuickFix,
-    diagnostics: [toLspDiagnostic(action.diagnostic, document.uri)],
-    edit: { changes: { [document.uri]: action.edits } },
-  }));
+  if (!document) return [];
+  const text = document.getText();
+  const actions: CodeAction[] = [];
+  if (wants(params.context.only, CodeActionKind.QuickFix)) {
+    for (const action of getCodeActions(text, params.range, diagnosticsFor(document))) {
+      actions.push({
+        title: action.title,
+        kind: CodeActionKind.QuickFix,
+        diagnostics: [toLspDiagnostic(action.diagnostic, document.uri)],
+        edit: { changes: { [document.uri]: action.edits } },
+      });
+    }
+  }
+  if (wants(params.context.only, CodeActionKind.RefactorRewrite)) {
+    for (const action of getRefactorActions(text, params.range)) {
+      actions.push({ title: action.title, kind: CodeActionKind.RefactorRewrite, edit: { changes: { [document.uri]: action.edits } } });
+    }
+  }
+  return actions;
 });
 
 connection.onHover((params: TextDocumentPositionParams): Hover | null => {

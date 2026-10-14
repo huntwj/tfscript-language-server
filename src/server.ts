@@ -47,6 +47,7 @@ import { getCompletions } from "./completions";
 import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
 import { getCodeActions } from "./codeActions";
+import { explainDiagnostic, rangeContains } from "./explain";
 import { getDefinition, getHover, getReferences, getRenameEdits, prepareRename, type NavContext } from "./navigation";
 import { encodeSemanticTokens, getSemanticTokens, TOKEN_MODIFIERS, TOKEN_TYPES } from "./semanticTokens";
 import { getSignatureHelp } from "./signatureHelp";
@@ -221,18 +222,20 @@ documents.onDidChangeContent((change) => {
   scheduleRevalidation();
 });
 documents.onDidClose((event) => {
+  published.delete(event.document.uri);
   const file = toPath(event.document.uri);
   if (file) index.setOverlay(file, undefined);
   connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
   scheduleRevalidation();
 });
 
-function toLspDiagnostic(d: TfDiagnostic): Diagnostic {
+function toLspDiagnostic(d: TfDiagnostic, uri: string): Diagnostic {
   return {
     range: d.range,
     message: d.message,
     code: d.code,
     source: "tfscript",
+    ...(d.related ? { relatedInformation: d.related.map((r) => ({ location: { uri, range: r.range }, message: r.message })) } : {}),
     severity:
       d.severity === "error"
         ? DiagnosticSeverity.Error
@@ -246,7 +249,16 @@ function validate(document: TextDocument): void {
   const text = document.getText();
   const file = toPath(document.uri);
   const all = [...getDiagnostics(text), ...(file ? index.loadPathDiagnostics(file, text) : [])];
-  connection.sendDiagnostics({ uri: document.uri, diagnostics: all.map(toLspDiagnostic) });
+  published.set(document.uri, { version: document.version, diagnostics: all });
+  connection.sendDiagnostics({ uri: document.uri, diagnostics: all.map((d) => toLspDiagnostic(d, document.uri)) });
+}
+
+/** The diagnostics last published for each open document, for the hover's explanations. */
+const published = new Map<string, { version: number; diagnostics: TfDiagnostic[] }>();
+
+function diagnosticsFor(document: TextDocument): TfDiagnostic[] {
+  const last = published.get(document.uri);
+  return last && last.version === document.version ? last.diagnostics : getDiagnostics(document.getText());
 }
 
 connection.onCompletion((params: CompletionParams): CompletionItem[] => {
@@ -279,15 +291,27 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   return getCodeActions(document.getText(), params.range).map((action) => ({
     title: action.title,
     kind: CodeActionKind.QuickFix,
-    diagnostics: [toLspDiagnostic(action.diagnostic)],
+    diagnostics: [toLspDiagnostic(action.diagnostic, document.uri)],
     edit: { changes: { [document.uri]: action.edits } },
   }));
 });
 
 connection.onHover((params: TextDocumentPositionParams): Hover | null => {
   const document = documents.get(params.textDocument.uri);
-  const hover = document && getHover(document.getText(), params.position, contextFor(document));
-  return hover ? { contents: { kind: MarkupKind.Markdown, value: hover.markdown }, range: hover.range } : null;
+  if (!document) return null;
+  const text = document.getText();
+  // VS Code shows a diagnostic's message at the top of the hover by itself; this adds its
+  // excerpt and explanation below, then whatever the hover says about the word itself.
+  const explained = diagnosticsFor(document)
+    .filter((d) => rangeContains(d.range, params.position))
+    .flatMap((d) => explainDiagnostic(text, d) ?? []);
+  const hover = getHover(text, params.position, contextFor(document));
+  const parts = [...explained, ...(hover ? [hover.markdown] : [])];
+  if (parts.length === 0) return null;
+  return {
+    contents: { kind: MarkupKind.Markdown, value: parts.join("\n\n---\n\n") },
+    ...(hover && explained.length === 0 ? { range: hover.range } : {}),
+  };
 });
 
 connection.onSignatureHelp((params: TextDocumentPositionParams): SignatureHelp | null => {

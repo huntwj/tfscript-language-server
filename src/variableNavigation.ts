@@ -1,3 +1,4 @@
+import { posix } from "node:path";
 import type { ContextFile, Location, NavContext, TextEditAt } from "./navigation";
 import type { Position, Range } from "./symbols";
 import { findVariables, isVariableName, readSelector, SPECIAL_VARIABLE_NAMES, type VariableOccurrence } from "./variables";
@@ -103,26 +104,53 @@ const WRITES = new Set(["set", "setenv", "assign"]);
 function passedOn(target: VariableOccurrence, text: string, ctx?: NavContext): string | undefined {
   const name = target.name;
   const self = ctx?.uri ?? "";
-  const files = [{ uri: self, text }, ...(ctx?.files ?? []), ...(ctx?.libraryFiles ?? [])];
-  const all = files.flatMap((f) => findVariables(f.text).filter((v) => v.name === name).map((v) => ({ ...v, uri: f.uri })));
+  const files = [
+    { uri: self, text, library: false },
+    ...(ctx?.files ?? []).map((f) => ({ ...f, library: false })),
+    ...(ctx?.libraryFiles ?? []).map((f) => ({ ...f, library: true })),
+  ];
+  type Found = VariableOccurrence & { uri: string; library: boolean };
+  const all: Found[] = files.flatMap((f) =>
+    findVariables(f.text)
+      .filter((v) => v.name === name)
+      .map((v) => ({ ...v, uri: f.uri, library: f.library })),
+  );
   if (all.some((v) => v.scope === "global" && WRITES.has(v.access))) return undefined;
-  // Where another occurrence is, for the user to judge: "line 12", or "stdlib.tf line 40".
-  const where = (v: VariableOccurrence & { uri: string }): string => {
-    const line = `line ${v.range.start.line + 1}`;
-    return v.uri === self ? line : `${decodeURIComponent(v.uri.split("/").pop() ?? v.uri)} ${line}`;
+  const where = (v: Found): string => {
+    const at = `line ${v.range.start.line + 1}, column ${v.range.start.character + 1}`;
+    return v.uri === self ? at : `${fileLabel(v.uri, self, v.library)} ${at}`;
   };
   const advice = "Rename both by hand if they are the same variable.";
   if (target.scope !== "global") {
-    const read = all.find((v) => v.scope === "global" && v.access === "read");
-    if (read) {
-      return `${name} is also read on ${where(read)}, outside this one's scope, and nothing sets a global ${name}, so tf's dynamic scoping probably hands it this one. ${advice}`;
+    const reads = all.filter((v) => v.scope === "global" && v.access === "read");
+    const elsewhere = reads.find((v) => v.uri !== self || v.entry !== target.entry);
+    if (elsewhere) {
+      return `${name} is also read on ${where(elsewhere)}, outside this one's scope, and nothing sets a global ${name}, so tf's dynamic scoping probably hands it this one. ${advice}`;
+    }
+    const here = reads[0];
+    if (here) {
+      return `This macro also reads ${name} on ${where(here)}, where this one doesn't reach, and nothing sets a global ${name}, so that read gets whatever a macro calling this one has. ${advice}`;
     }
     return undefined;
   }
   const bound = all.find((v) => v.access === "let" || v.access === "getopts");
   if (!bound) return undefined;
   const kind = bound.access === "getopts" ? "getopts() option" : bound.form === "loop-variable" ? `/for ${name} loop variable` : `/let ${name}`;
-  return `Nothing sets a global ${name}, so this probably reads the ${kind} on ${where(bound)} through tf's dynamic scoping. ${advice}`;
+  return `Nothing sets a global ${name}, so its reads probably get the ${kind} on ${where(bound)} through tf's dynamic scoping. ${advice}`;
+}
+
+/** How to name another file in a message: a tf library file by its name, a workspace file relative to this one's folder. */
+function fileLabel(uri: string, self: string, library: boolean): string {
+  const filePath = (u: string): string => {
+    try {
+      return decodeURIComponent(new URL(u).pathname);
+    } catch {
+      return u;
+    }
+  };
+  const other = filePath(uri);
+  if (library || !self) return posix.basename(other);
+  return posix.relative(posix.dirname(filePath(self)), other);
 }
 
 /**

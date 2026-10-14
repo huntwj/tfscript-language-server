@@ -3,6 +3,7 @@ import { splitLogicalEntries, splitRawLines } from "../logicalEntries";
 import { entryLoads, literalText } from "../loadCommands";
 import type { ContextFile, ExternalMacro, NavContext } from "../navigation";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
+import { findFunctionCalls } from "../variables";
 import { findLoadPaths, type LoadPath } from "../documentLinks";
 import type { Range } from "../symbols";
 import { buildLoadGraph, fileKey as keyOf, resolveLoadPath, type LoadGraph, type LoadedFile, type LoadPathEnvironment, type SearchEnvironment } from "./loadGraph";
@@ -370,6 +371,20 @@ export class WorkspaceIndex {
     // A file outside every workspace folder (tf's library) is redefined over from all of them.
     for (const f of this.callerFiles(file, (p) => p)) if (keyOf(f.uri) !== self) sets.push(this.macroNamesOf(f.uri, f.text));
     return (name) => sets.some((d) => d.names.has(name) || d.prefixes.some((p) => name.startsWith(p)));
+  }
+
+  /**
+   * Whether a macro name (lower case) is called as a function, `name(...)`, in `file` (its `text`)
+   * or any file a call to its macros may come from (callerFiles()).
+   */
+  macroCalledAsFunction(file: string, text: string): (name: string) => boolean {
+    const self = keyOf(file);
+    const names = new Set(findFunctionCalls(text).map((c) => c.name.toLowerCase()));
+    for (const f of this.callerFiles(file, (p) => p)) {
+      if (keyOf(f.uri) === self) continue;
+      for (const c of findFunctionCalls(f.text)) names.add(c.name.toLowerCase());
+    }
+    return (name) => names.has(name);
   }
 
   /** Whether `file` is in tf's library (the folder's libraryPath, or TFLIBDIR). */

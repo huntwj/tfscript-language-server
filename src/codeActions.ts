@@ -72,6 +72,8 @@ export interface CodeActionRequest {
   mentionedOutside?: (name: string) => boolean;
   /** The file is in tf's library, whose macros aren't inlined. */
   library?: boolean;
+  /** Whether a macro (lower case) is called as a function, `name(...)`, anywhere that can be seen. */
+  calledAsFunction?: (name: string) => boolean;
   /** The client shows an action greyed out with the reason it can't run (LSP `disabled`). */
   disabledSupport?: boolean;
 }
@@ -106,7 +108,11 @@ export function routeCodeActions(text: string, request: CodeActionRequest): Rout
   }
   // Extracting needs a selection; a disabled one only where the client can show why.
   if (wants(request.only, REFACTOR_EXTRACT)) {
-    for (const a of getExtractActions(text, request.range, request.isTaken ? { isTaken: request.isTaken } : {})) {
+    const options = {
+      ...(request.isTaken ? { isTaken: request.isTaken } : {}),
+      ...(request.calledAsFunction ? { calledAsFunction: request.calledAsFunction } : {}),
+    };
+    for (const a of getExtractActions(text, request.range, options)) {
       if (a.disabled === undefined) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: a.edits });
       else if (request.disabledSupport) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: [], disabled: a.disabled });
     }
@@ -116,6 +122,7 @@ export function routeCodeActions(text: string, request: CodeActionRequest): Rout
       ...(request.definedOutside ? { definedOutside: request.definedOutside } : {}),
       ...(request.mentionedOutside ? { mentionedOutside: request.mentionedOutside } : {}),
       ...(request.library ? { library: true } : {}),
+      ...(request.calledAsFunction ? { calledAsFunction: request.calledAsFunction } : {}),
     };
     for (const a of getInlineActions(text, request.range, options)) {
       if (a.disabled === undefined) out.push({ title: a.title, kind: REFACTOR_INLINE, edits: a.edits });

@@ -393,6 +393,8 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   if (file) request.definedOutside = (name) => (outside ??= index.macroDefinedOutside(file))(name);
   if (file) request.mentionedOutside = (name) => (mentioned ??= index.macroMentionedOutside(file))(name);
   if (file && index.isLibraryFile(file)) request.library = true;
+  let functions: ((name: string) => boolean) | undefined;
+  if (file) request.calledAsFunction = (name) => (functions ??= index.macroCalledAsFunction(file, document.getText()))(name);
   return routeCodeActions(document.getText(), request).map((action) => ({
     title: action.title,
     kind: action.kind,

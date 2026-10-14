@@ -176,6 +176,10 @@ function joined(lines: string[], base: number, from: number, to: number, mode: S
     const line = lines[k] ?? "";
     if (isCommentLine(line) || isBlankLine(line)) continue;
     if (OWN_SEPARATOR_RE.test(line)) return undefined;
+    // A top-level /if or /while line gets one more round of % processing than the line had on its
+    // own (proven in tf dev, 2026-10-14: an /echo or a /def -t pattern's %% becomes %), so a %%
+    // would change what the line says, or make a %%; a separator.
+    if (mode === "top" && /%%/.test(line)) return undefined;
     if (!continuesToNextLine(previous) && line[leadingWhitespaceLength(line)] !== "/") return undefined;
     previous = line;
   }

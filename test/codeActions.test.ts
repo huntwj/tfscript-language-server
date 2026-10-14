@@ -221,9 +221,8 @@ describe("rule fixes", () => {
     ["indented-line-after-command", ["/def -i a = /echo a\\\\%;", "    /echo two"], ["/def -i a = /echo a\\\\%; \\", "    /echo two"]],
     ["indented-line-after-command", ["/def -i a = /echo pct\\%%;", "    /echo two"], ["/def -i a = /echo pct\\%%; \\", "    /echo two"]],
     ["indented-line-after-command", ["/def -i a = /echo a\\\\\\%;", "    /echo two"], ["/def -i a = /echo a\\\\\\%;%; \\", "    /echo two"]],
-    // A top-level /if line does no \ processing, so there \%%; doesn't separate. (A body line with a
-    // \%; of its own is joined in no more: see "refuses a join that changes what a line means".)
-    ["missing-continuation", ["/if (1)", "  /echo a\\%%;", "  /echo b", "/endif"], ["/if (1) \\", "  /echo a\\%%;%; \\", "  /echo b%; \\", "/endif"]],
+    // (A line with a %; or a %% of its own is joined into a top-level /if no more: see "refuses a
+    // join that changes what a line means".)
   ];
   for (const [code, before, after] of cases) {
     it(`${code}: ${before.join(" | ")}`, () => {
@@ -344,6 +343,13 @@ describe("rule fixes", () => {
       ["/if (1)", "    /echo % a", "    say hello", "/echo % after"],
       ["/while (0)", "    /echo % a", "    north", "/done"],
       ["/def -i a = /echo one", "    two", "/echo x"],
+      // A %% joined into a top-level /if loses one %: k05, e03, e04, e08, e09, e40, e41.
+      ["/if (1)", "    /echo % a%%;b", "/echo % after"],
+      ["/if (1)", "    /echo % a%%%;b", "/echo % after"],
+      ["/if (1)", "    /echo % a\\%%;/echo % b", "/echo % after"],
+      ["/if (1)", "    /def foo = /echo % x%%; /echo % y", "/foo"],
+      ["/if (1)", "    /def foo = /echo % x%%; /echo % y", "/endif", "/foo"],
+      ["/set i=0", "/while (i < 1)", "    /test ++i", "    /def bar = /echo % p%%; /echo % q", "/bar"],
     ]) {
       expect(joins(shape)).toEqual([]);
     }

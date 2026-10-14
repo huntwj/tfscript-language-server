@@ -173,8 +173,12 @@ interface Context {
   conditional: boolean;
 }
 
+/** How many `/eval`s nested in one another entryCommands follows, as structure.ts's MAX_DEPTH for blocks. */
+const MAX_EVAL_DEPTH = 400;
+
 export function entryCommands(entry: LogicalEntry): EntryCommand[] {
   const out: EntryCommand[] = [];
+  let evalDepth = 0;
 
   /** The statement `src.text[start, end)`, read at `level` inside `ctx`. */
   const statement = (src: Source, start: number, end: number, level: SubLevel, ctx: Context): void => {
@@ -210,13 +214,21 @@ export function entryCommands(entry: LogicalEntry): EntryCommand[] {
         mode = picked;
       }
       const from = i < args.length ? args[i]!.start : end;
-      for (const st of parseStatements(text.slice(from, end), mode)) {
-        statement(src, from + st.start, from + st.end, st.level, {
-          ...ctx,
-          plain: false,
-          viaEval: true,
-          conditional: ctx.conditional || st.conditional,
-        });
+      // Each /eval nested in another is read by recursion: past MAX_EVAL_DEPTH (2000 overflowed the
+      // stack, review rev-s2d perf.js) the rest isn't followed, as structure.ts stops past its depth.
+      if (evalDepth >= MAX_EVAL_DEPTH) return;
+      evalDepth += 1;
+      try {
+        for (const st of parseStatements(text.slice(from, end), mode)) {
+          statement(src, from + st.start, from + st.end, st.level, {
+            ...ctx,
+            plain: false,
+            viaEval: true,
+            conditional: ctx.conditional || st.conditional,
+          });
+        }
+      } finally {
+        evalDepth -= 1;
       }
       return;
     }

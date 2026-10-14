@@ -139,6 +139,9 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
       return;
     }
     const regions = parseRegions(s, mode);
+    // Where the text is split into statements, `%;` separates: it is read at the newline level.
+    const split = mode === "newline" || regions.blocks.length > 0 || regions.statements.length > 1;
+    mark(src, 0, s.length, split ? "newline" : "keyword");
     for (const st of regions.statements) {
       mark(src, st.start, st.end, st.level);
       const word = commandWord(s, st.start);

@@ -74,3 +74,11 @@ describe("evalArguments", () => {
     expect(evalArguments("", 0, 0)).toEqual({ text: 0, mode: "body" });
   });
 });
+
+describe("separators and strings", () => {
+  it("reads the %; between statements at the newline level", () => {
+    expect(contextOf("/eval -son /echo a%; /echo b", "%;")).toBe("newline");
+    expect(contextOf("/eval -soff /if (1) /echo a%; /echo b%; /endif", "%;")).toBe("newline");
+    expect(contextOf("/eval -soff /echo a%; /echo b", "%;")).toBe("keyword");
+  });
+});

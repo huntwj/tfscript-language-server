@@ -128,8 +128,18 @@ describe("not-substituted-here (rule 4)", () => {
     expect(d?.fix?.edits[0]?.newText).toBe("\n");
   });
 
+  // Review probes p3 (C5) and p4 (D1, D2): these %;s separate.
   it("doesn't note a %; that separates, ends the line, or sits in a definition", () => {
-    for (const line of ["/if (1) /set a=1%; /endif", "/eval /set a=1%; /set b=2", "/let _x=1%;", "/def -E'/undef b%; /undef c' -t'*' a = /echo a"]) {
+    for (const line of [
+      "/if (1) /set a=1%; /endif",
+      "/eval /set a=1%; /set b=2",
+      "/let _x=1%;",
+      "/def -E'/undef b%; /undef c' -t'*' a = /echo a",
+      "/eval -son /echo a%; /echo b",
+      "/eval -soff /if (1) /echo a%; /echo b%; /endif",
+      "/eval -s1 /set a=1%; /echo a=%a",
+      "/@def pd2 = /echo a%; /echo b",
+    ]) {
       expect(codes(`${line}\n`)).not.toContain("not-substituted-here");
     }
   });

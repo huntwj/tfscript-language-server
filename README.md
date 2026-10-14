@@ -60,6 +60,7 @@ view of the file gets truncated, since tf never reads past the line it aborts on
 | 10 | `block-structure` | an `/if` or `/while` with no `/endif`, `/done`, `/then` or `/do`; a keyword with no block to belong to; text after `/endif` or `/done` with no `%;`. Points at a keyword stuck mid-statement (`/echo a /endif`) when that is the cause, since tf only reads keywords at the start of a statement |
 | 11 | `unclosed-substitution` | a `$[`, `${`, `$(`, `%{`, string or `(` that never closes, and a `%-` naming no selector (`50%-off`), where tf substitutes: in a macro body, a top-level condition, `/test` |
 | 12 | `separator-sends-blank-line` | (warning) a `%;` straight after `/if (...)` or `/else`, which sends a blank line to the world |
+| — | `incomplete-continuation` | (warning) the file's last command ends in `\`: tf says "last command is incomplete because of trailing \\" and drops it, so a macro it would define isn't defined. A final newline doesn't complete it (tf reads no line after it); a real blank line does. The fix removes the `\` |
 | — | `nesting-too-deep` | (information) not a problem in tf: a command nesting more than 400 levels deep (each nested `/if`, `/while`, `$(...)`, `$[...]` or `%{name-...}` default is a level), past which the structural check stops; what it read before that still counts |
 
 `if-multiline-top-level`, `block-structure`, `unclosed-substitution` and
@@ -362,6 +363,8 @@ test/
   symbols.test.ts, folding.test.ts, codeActions.test.ts, navigation.test.ts  unit tests for
                         the four above
   bodyLayout.test.ts    split and join: layouts, when they aren't offered, and round trips
+  codeActionRouting.test.ts  which kinds of code action a request gets, and when
+  endOfFile.test.ts     a final newline, a command the file ends inside, incomplete-continuation
   variables.test.ts, variableNavigation.test.ts, highlights.test.ts  variable scopes,
                         lookups, rename and highlights
   documentLinks.test.ts  which /load and /require filenames link, and where to
@@ -549,12 +552,17 @@ library and the WoTMUD scripts this way and loading both versions into real tf g
 
 ### Splitting and joining a body
 
-Two refactorings (`refactor.rewrite` code actions) move one macro body between layouts:
+Two refactorings (`refactor.rewrite` code actions) move one macro body between layouts. Their
+titles name the body (`Split /foo's body onto separate lines`, or `this trigger's` for a
+trigger, hook or key binding). They aren't any diagnostic's fix, so they are offered when you ask
+for code actions or refactorings, or over a selection, not in the lightbulb the editor checks for
+on every cursor move.
 
 - **Split the body onto separate lines**, on a `/def`, `/alias`, `/bind`, `/hook` or `/trig*`
   written on one line: the formatter's layout for that entry, one statement per line ending
   `%;\`, each block's children indented, using the file's own indentation (the smallest
-  indentation of a continuation line, else four spaces).
+  indentation of a continuation line, else four spaces). A `%;` that ends the body stays on its
+  last line, which never ends in `\`.
 - **Join the body onto one line**, on one that spans several: the text tf itself reads from the
   lines (each line's indentation dropped, the `\` removed), with one blank after each `%;`.
 
@@ -564,12 +572,14 @@ problems; a split must also join back to the same program. They aren't offered o
 (a `\` before the `\r` continues nothing), when a tab after a line's indentation would move to
 another column (a tab in the head, as tf's library writes `/def -i true<tab>= ...`, stays put
 and is fine), across comment lines (tf skips them, but joining would delete them), or on an
-entry the file ends in the middle of. Split isn't offered for a body with a single statement.
+entry the file ends in the middle of, final newline or not, which tf drops
+(`incomplete-continuation`). Split isn't offered for a body with a single statement.
 
 Original, split and rejoined forms of `/if`/`/elseif`/`/else`, `/while`, a `/then` condition
 list, `%|`, nested `$(...)`, `/let` values with inner and trailing blanks, `\\` and `%%;` in
 values, a `-t` trigger body, `/trig`, `/alias` and a tab in the head printed the same in real tf
-(tf-script-check, 2026-10-14). Over tf's library and the WoTMUD scripts, split is offered on 9
+(tf-script-check, 2026-10-14), and a body ending in `%;`, split at the end of a file with or
+without a final newline, still loaded and ran. Over tf's library and the WoTMUD scripts, split is offered on 9
 of 381 one-line bodies (the rest have one statement, or, in `self.tf`, quotes that make the
 layout uncertain) and join on 181 of 206 continued ones (23 have comment lines between their
 lines, 2 a tab that would move); every result parses to the same statements.

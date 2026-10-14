@@ -2,10 +2,18 @@
 
 ## Unreleased
 
-- Two refactorings for a macro body: "Split the body onto separate lines" (one statement per
-  line, blocks indented, as the formatter lays it out) and "Join the body onto one line". Each is
-  offered only when tf would run the same program afterwards, and never on CRLF lines, across
-  comment lines, or where a tab would move to another column.
+- Two refactorings for a macro body: "Split /foo's body onto separate lines" (one statement per
+  line, blocks indented, as the formatter lays it out) and "Join /foo's body onto one line". Each
+  is offered only when tf would run the same program afterwards, and never on CRLF lines, across
+  comment lines, on a command the file ends inside, or where a tab would move to another column.
+  They come with an explicit request for code actions or a selection, not in the automatic
+  lightbulb.
+- `incomplete-continuation` (warning): the file's last command ends in `\`, so tf drops it, with
+  a fix that removes the `\`. A final newline no longer counts as a line a `\` can continue onto:
+  tf reads no line after it, so such a command is dropped too, and the other rules, the outline
+  and formatting now leave it alone.
+- Formatting keeps a `%;` that ends a macro body on the body's last line, instead of ending that
+  line in `\` and continuing onto an empty one.
 - `undefined-macro` is on by default and a warning: a `/name` command calling a macro no file on
   the load path, in the workspace or in tf's library defines, with a "did you mean" fix when one
   visible name is a clear typo of it. A macro defined in a file the load path doesn't reach is a

@@ -83,6 +83,13 @@ export interface StructureIssue extends IssueDetail {
   end: number;
 }
 
+/** An /endif inside a /let or /set value, with offsets into the checked text: the keyword, and where its statement starts. */
+export interface SwallowedEndif {
+  start: number;
+  end: number;
+  stmt: number;
+}
+
 /** `issue` with every offset moved by `by`. */
 export function shiftIssue<T extends StructureIssue>(issue: T, by: number): T {
   return {
@@ -197,6 +204,8 @@ class Parser {
   readonly statements: Statement[] = [];
   /** Compiling stopped at an error, so tf runs none of this text. */
   stopped = false;
+  /** /endifs swallowed by a /let or /set value while their /if is open (for let-swallows-endif). */
+  readonly swallowed: SwallowedEndif[] = [];
   constructor(private readonly s: string, private readonly mode: StructureMode) {}
 
   run(): void {
@@ -712,6 +721,14 @@ class Parser {
       if (ch === "/" && this.i > stmtStart && isTfSpace(s[this.i - 1])) {
         const kw = this.keywordAt(this.i + 1);
         if (kw && INNER_KEYWORDS.has(kw.word)) this.mids.push({ start: this.i, end: kw.end, word: kw.word, command, stmt: stmtStart });
+        // An /endif that would close the /if it is in, but sits in a /let or /set value instead.
+        if (
+          kw?.word === "endif" &&
+          (this.block === "then" || this.block === "else") &&
+          LET_ASSIGNMENT_RE.test(s.slice(stmtStart, this.i))
+        ) {
+          this.swallowed.push({ start: this.i, end: kw.end, stmt: stmtStart });
+        }
       }
       this.i += 1;
     }
@@ -1061,23 +1078,40 @@ export function entryStatements(entry: LogicalEntry): Statement[] {
   return statements;
 }
 
-const cache = new WeakMap<LogicalEntry, StructureIssue[]>();
+interface EntryModel {
+  issues: StructureIssue[];
+  swallowed: SwallowedEndif[];
+}
+
+const cache = new WeakMap<LogicalEntry, EntryModel>();
+
+function entryModel(entry: LogicalEntry): EntryModel {
+  let model = cache.get(entry);
+  if (!model) {
+    const top = new Parser(entry.text, "top");
+    top.run();
+    model = { issues: top.issues, swallowed: [...top.swallowed] };
+    const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(entry.text) : -1;
+    if (body >= 0) {
+      const parser = new Parser(entry.text.slice(body), "body");
+      parser.run();
+      for (const issue of parser.issues) model.issues.push(shiftIssue(issue, body));
+      for (const w of parser.swallowed) model.swallowed.push({ start: w.start + body, end: w.end + body, stmt: w.stmt + body });
+    }
+    cache.set(entry, model);
+  }
+  return model;
+}
 
 /**
  * Structural problems in a top-level entry, with offsets into `entry.text`: the entry as tf reads
  * a top-level line, and, for a `/def`, `/bind`, `/hook`, `/trig*` or `/alias`, its macro body.
  */
 export function entryStructure(entry: LogicalEntry): StructureIssue[] {
-  let issues = cache.get(entry);
-  if (!issues) {
-    issues = checkStructure(entry.text, "top");
-    const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(entry.text) : -1;
-    if (body >= 0) {
-      for (const issue of checkStructure(entry.text.slice(body), "body")) {
-        issues.push(shiftIssue(issue, body));
-      }
-    }
-    cache.set(entry, issues);
-  }
-  return issues;
+  return entryModel(entry).issues;
+}
+
+/** The /endifs in `entry` that a /let or /set value swallows while their /if is open, offsets into `entry.text`. */
+export function entrySwallowedEndifs(entry: LogicalEntry): SwallowedEndif[] {
+  return entryModel(entry).swallowed;
 }

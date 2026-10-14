@@ -100,6 +100,24 @@ describe("let-swallows-endif (rule 5)", () => {
     expect(codes("/def a = /let x=1 /endif\n")).not.toContain("let-swallows-endif");
     expect(codes("/def a = /if (1) /echo%; /endif%; /let x=1 /endif\n")).not.toContain("let-swallows-endif");
   });
+
+  // Which /ifs are open comes from structure.ts's model of tf's compiler, not from counting words.
+  it("doesn't count an /if that is only text, or /if( which isn't the keyword", () => {
+    expect(codes("/def -i a = /echo use /if to branch%; /set x=1 /endif%; /echo x=%x\n")).not.toContain("let-swallows-endif");
+    expect(codes("/def -i a = /if(x) /let v=1 /endif\n")).not.toContain("let-swallows-endif");
+  });
+
+  it("flags every /endif swallowed while the /if is open", () => {
+    const found = getDiagnostics("/def a = /if (1) /let x=1 /endif%; /let y=2 /endif\n").filter((d) => d.code === "let-swallows-endif");
+    expect(found.map((d) => d.range.start.character)).toEqual([26, 44]);
+  });
+
+  it("stays linear on one long line", () => {
+    const text = `/def a = ${"/let x=1 /endif%; ".repeat(5000)}\n`;
+    const start = Date.now();
+    getDiagnostics(text);
+    expect(Date.now() - start).toBeLessThan(500);
+  });
 });
 
 describe("dollar-bracket-in-if (rule 6)", () => {

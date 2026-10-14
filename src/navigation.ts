@@ -8,6 +8,7 @@ import type { HelpEntry } from "./workspace/tfHelp";
 import {
   prepareVariableRename,
   variableDefinition,
+  variableHighlights,
   variableReferences,
   variableRenameEdits,
 } from "./variableNavigation";
@@ -409,4 +410,27 @@ export function getRenameEdits(text: string, pos: Position, newName: string, ctx
   usesIn(self, text);
   for (const f of ctx?.files ?? []) usesIn(f.uri, f.text);
   return edits;
+}
+
+export interface TfHighlight {
+  range: Range;
+  kind: "read" | "write";
+}
+
+/**
+ * Every occurrence in this file of the variable or macro under the cursor, for the editor to
+ * highlight. A variable's `/set`, `/setenv`, `/let`, `/unset`, `/export` and assignments are
+ * writes; a macro's `/def` names are.
+ */
+export function getDocumentHighlights(text: string, pos: Position): TfHighlight[] {
+  const variable = variableHighlights(text, pos);
+  if (variable) return variable;
+  const symbols = getDocumentSymbols(text);
+  const target = targetAt(text, pos, symbols);
+  if (!target || target.usage?.kind === "builtin-call") return [];
+  const defs: TfHighlight[] = definitionsOf(target.name, text, symbols, undefined).map((d) => ({ range: d.symbol.selectionRange, kind: "write" }));
+  const uses: TfHighlight[] = findUsages(text)
+    .filter((u) => u.kind !== "builtin-call" && same(u.name, target.name))
+    .map((u) => ({ range: u.range, kind: "read" }));
+  return [...defs, ...uses];
 }

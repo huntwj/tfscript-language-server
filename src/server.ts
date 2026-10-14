@@ -11,6 +11,8 @@ import {
   type CompletionParams,
   type Diagnostic,
   DiagnosticSeverity,
+  type DocumentHighlight,
+  DocumentHighlightKind,
   type DocumentSymbol,
   type DocumentLink,
   type DocumentLinkParams,
@@ -50,7 +52,15 @@ import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
 import { getCodeActions } from "./codeActions";
 import { explainDiagnostic, rangeContains } from "./explain";
-import { getDefinition, getHover, getReferences, getRenameEdits, prepareRename, type NavContext } from "./navigation";
+import {
+  getDefinition,
+  getDocumentHighlights,
+  getHover,
+  getReferences,
+  getRenameEdits,
+  prepareRename,
+  type NavContext,
+} from "./navigation";
 import { encodeSemanticTokens, getSemanticTokens, TOKEN_MODIFIERS, TOKEN_TYPES } from "./semanticTokens";
 import { getSignatureHelp } from "./signatureHelp";
 import { formatText } from "./formatting";
@@ -169,6 +179,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       hoverProvider: true,
       definitionProvider: true,
       referencesProvider: true,
+      documentHighlightProvider: true,
       workspaceSymbolProvider: true,
       renameProvider: { prepareProvider: true },
       semanticTokensProvider: { legend: { tokenTypes: [...TOKEN_TYPES], tokenModifiers: [...TOKEN_MODIFIERS] }, full: true },
@@ -368,6 +379,15 @@ connection.onReferences((params: ReferenceParams): Location[] => {
   return getReferences(document.getText(), params.position, params.context.includeDeclaration, ctx).map((l) => ({
     uri: l.uri || document.uri,
     range: l.range,
+  }));
+});
+
+connection.onDocumentHighlight((params: TextDocumentPositionParams): DocumentHighlight[] => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return [];
+  return getDocumentHighlights(document.getText(), params.position).map((h) => ({
+    range: h.range,
+    kind: h.kind === "write" ? DocumentHighlightKind.Write : DocumentHighlightKind.Read,
   }));
 });
 

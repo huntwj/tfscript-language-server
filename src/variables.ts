@@ -363,6 +363,24 @@ function getopts(w: Walk, i: number, to: number): void {
   }
 }
 
+/**
+ * A call `name(...)` in an expression, at `[start, end)` of the walk's text. tf tries its builtin
+ * functions first (find_builtin_func(), a case-sensitive search), then a command, which a macro
+ * of that name shadows, then a macro (do_function()): only the last two can run a macro.
+ */
+function functionCall(w: Walk, name: string, start: number, end: number): void {
+  if (FUNCTION_NAMES.has(name)) return;
+  w.scopes.functionCalls.push({
+    name: name.toLowerCase(),
+    written: name,
+    chain: w.chainAt?.(start) ?? w.chain,
+    at: w.src.map[start] as number,
+    nameStart: w.src.map[start] as number,
+    nameEnd: (w.src.map[end - 1] as number) + 1,
+    dynamic: false,
+  });
+}
+
 /** Variable names in the expression `[from, to)`. */
 function expression(w: Walk, from: number, to: number): void {
   const s = w.src.text;
@@ -385,7 +403,13 @@ function expression(w: Walk, from: number, to: number): void {
     } else if (c === "{") {
       const sel = readSelector(s, i);
       const built = sel !== undefined && s[sel.nameEnd] !== "}" && s[sel.nameEnd] !== "-";
-      if (sel?.name !== undefined && !built) push(w, sel.name, "read", "expr-braced", sel.nameStart, sel.nameEnd);
+      let k = sel === undefined ? i : sel.nameEnd + 1;
+      while (isTfSpace(s[k])) k += 1;
+      if (sel?.name !== undefined && s[sel.nameEnd] === "}" && s[k] === "(") {
+        // `{name}(...)` calls name, as `name(...)` does (proven: `$[{sq}(3)]` ran the macro sq
+        // with a variable sq set, and `$[{strlen}("abc")]` gave 3): no variable is read.
+        functionCall(w, sel.name, sel.nameStart, sel.nameEnd);
+      } else if (sel?.name !== undefined && !built) push(w, sel.name, "read", "expr-braced", sel.nameStart, sel.nameEnd);
       i = Math.max(substitutionEnd(s, i, to), i + 1);
     } else if (c === "/" && isNameFirst(s[i + 1]) && (i === from || isTfSpace(s[i - 1]))) {
       // `x /y` divides by y; when y names a command, tf warns of a missing %; and it's no variable.
@@ -420,19 +444,7 @@ function expression(w: Walk, from: number, to: number): void {
         // A function call (expr.c unary_expr()). getopts("ab:", ...) sets a local opt_a and opt_b.
         const fn = s.slice(start, i);
         if (fn === "getopts") getopts(w, k + 1, to);
-        // tf tries its builtin functions first (find_builtin_func(), a case-sensitive search),
-        // then a command, which a macro of that name shadows, then a macro (do_function()).
-        else if (!FUNCTION_NAMES.has(fn)) {
-          w.scopes.functionCalls.push({
-            name: fn.toLowerCase(),
-            written: fn,
-            chain: w.chainAt?.(start) ?? w.chain,
-            at: w.src.map[start] as number,
-            nameStart: w.src.map[start] as number,
-            nameEnd: (w.src.map[i - 1] as number) + 1,
-            dynamic: false,
-          });
-        }
+        else functionCall(w, fn, start, i);
         continue;
       }
       let b = start - 1;

@@ -405,6 +405,15 @@ export function getRenameEdits(text: string, pos: Position, newName: string, ctx
   }
   const { target, defs } = r;
   const self = ctx?.uri ?? "";
+  // tf looks macro names up ignoring case, so a /def of the new name would replace (or be
+  // replaced by) the renamed one: "Redefined macro".
+  if (!same(newName, target.name)) {
+    const taken = definitionsOf(newName, text, r.symbols, ctx).find((d) => d.loaded);
+    if (taken) {
+      const where = taken.uri === self ? `line ${taken.symbol.selectionRange.start.line + 1}` : (taken.label ?? taken.uri);
+      return { error: `There's already a macro /${taken.symbol.name} (${where}), and tf ignores case in macro names, so one /def would replace the other: pick another name.` };
+    }
+  }
   const edits: TextEditAt[] = defs.map((d) => ({ uri: d.uri, range: d.symbol.selectionRange, newText: newName }));
 
   const uses = [{ uri: self, text }, ...(ctx?.files ?? [])].flatMap((f) =>

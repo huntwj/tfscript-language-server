@@ -172,3 +172,25 @@ describe("macros called as functions in expressions", () => {
     expect(getDocumentHighlights(text, pos(0, 9)).filter((h) => h.kind === "read")).toHaveLength(3);
   });
 });
+
+describe("{name}(...) calls and renaming onto a taken name", () => {
+  const text = ["/def -i sq = /return {1}*{1}", "/set sq=5", "/def -i show = /echo $[{sq}(3)] $[{sq} (4)] $[{sq}]", ""].join("\n");
+
+  it("counts {name}(...) as a call to the macro, not a read of the variable", () => {
+    expect(getReferences(text, pos(0, 9), false).map((r) => r.range.start)).toEqual([pos(2, 24), pos(2, 35)]);
+    const variable = getReferences(text, pos(1, 6), false).map((r) => r.range.start);
+    expect(variable).toEqual([pos(2, 47)]);
+  });
+
+  it("renames {name}(...) with the macro", () => {
+    const edits = getRenameEdits(text, pos(0, 9), "square");
+    expect(Array.isArray(edits) && edits.map((e) => e.range.start.line + ":" + e.range.start.character).sort()).toEqual(["0:8", "2:24", "2:35"]);
+  });
+
+  it("refuses a new name an existing macro has, ignoring case", () => {
+    const two = "/def -i foo = 1\n/def -i Bar = 2\n/foo\n";
+    expect(getRenameEdits(two, pos(0, 9), "bar")).toEqual({ error: expect.stringContaining("already a macro /Bar (line 2)") });
+    // Changing only the case of the name is fine.
+    expect(Array.isArray(getRenameEdits(two, pos(0, 9), "FOO"))).toBe(true);
+  });
+});

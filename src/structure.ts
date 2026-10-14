@@ -92,6 +92,10 @@ function isDigit(ch: string | undefined): boolean {
   return ch !== undefined && ch >= "0" && ch <= "9";
 }
 
+function charName(ch: string): string {
+  return ch === " " ? "space" : ch === "\t" ? "tab" : `'${ch}'`;
+}
+
 function describeBlock(block: Block): string {
   switch (block) {
     case "then": return "in an /if body";
@@ -161,7 +165,6 @@ class Parser {
     start: number,
     end: number,
     problem: string,
-    tf: string,
     fix: string | undefined,
     kind: StructureKind = "block",
     searchTo = start,
@@ -178,10 +181,10 @@ class Parser {
         mid.start,
         mid.end,
         `/${mid.word} is part of ${where}, not a keyword: tf only reads keywords at the start of a ` +
-          `statement. Put %; before it. (tf: "${tf}")`,
+          `statement. Put %; before it.`,
       );
     }
-    this.fail(kind, start, end, `${problem} (tf: "${tf}")`);
+    this.fail(kind, start, end, problem);
   }
 
   private list(subsIn: number): void {
@@ -260,15 +263,14 @@ class Parser {
         this.i += 2;
         this.skipSpace();
       } else if (this.i < this.s.length) {
-        const after = special === "if" ? " after /endif" : special === "while" ? " after /done" : "";
+        const after = special === "if" ? "/endif" : special === "while" ? "/done" : "";
         let end = this.i + 1;
         while (end < this.s.length && !isTfSpace(this.s[end]) && !this.isStatEnd(end)) end += 1;
         this.fail(
           "block",
           this.i,
           end,
-          `Expected %; or the end of the line${after}, but found more text. (tf: "macro syntax error: ` +
-            `expected end of statement${after}... Possibly missing '%;'")`,
+          after ? `Nothing can follow ${after} in the same statement. Put %; before this.` : "Put %; before this to start a new statement.",
         );
       }
     } while (this.i < this.s.length);
@@ -281,13 +283,12 @@ class Parser {
     this.list(subs);
     // Where the list stopped: /endif or /done if it closed, else whatever block it was in.
     const ended = this.block as Block;
-    const found = this.errorText(this.i);
     const to = this.i + 1;
     if (keyword === "if") {
       if (ended === "if" || ended === "elseif") {
-        this.blockError(start, end, "This /if's condition list has no /then.", `macro syntax error: expected /then, found ${found}.`, "then", "block", to);
+        this.blockError(start, end, "This /if's condition list has no /then.", "then", "block", to);
       } else if (ended === "then" || ended === "else") {
-        const top = this.mode === "top" && this.cmdsub === 0 && found === "end of body";
+        const top = this.mode === "top" && this.cmdsub === 0 && this.i >= this.s.length;
         this.blockError(
           start,
           end,
@@ -297,16 +298,15 @@ class Parser {
                 "joined line: either on one line with %;, or continued with a trailing \\ on every line but " +
                 "the last."
             : "This /if has no /endif.",
-          `macro syntax error: expected /endif, found ${found}.`,
           "endif",
           top ? "if-top" : "block",
           to,
         );
       }
     } else if (ended === "while") {
-      this.blockError(start, end, "This /while's condition list has no /do.", `macro syntax error: expected /do, found ${found}.`, "do", "block", to);
+      this.blockError(start, end, "This /while's condition list has no /do.", "do", "block", to);
     } else if (ended === "do") {
-      this.blockError(start, end, "This /while has no /done.", `macro syntax error: expected /done, found ${found}.`, "done", "block", to);
+      this.blockError(start, end, "This /while has no /done.", "done", "block", to);
     }
     this.open.pop();
     this.dropMids(start);
@@ -318,21 +318,8 @@ class Parser {
     while (this.mids.length > 0 && (this.mids[this.mids.length - 1] as MidKeyword).start > from) this.mids.pop();
   }
 
-  /** What tf's `error_text()` quotes for the text at `p`: a word, one character, or "end of body". */
-  private errorText(p: number): string {
-    if (p >= this.s.length) return "end of body";
-    let end = p + 1;
-    if (/[A-Za-z0-9"'`/]/.test(this.s[p] as string)) while (end < this.s.length && /[A-Za-z0-9]/.test(this.s[end] as string)) end += 1;
-    return `'${this.s.slice(p, end)}'`;
-  }
-
   private unexpected(word: string, start: number, end: number): never {
     const outer = this.block;
-    const label = word.toUpperCase();
-    const tf =
-      outer === "then" ? `unexpected /${label} in IF body`
-        : outer === "do" ? `unexpected /${label} in WHILE body`
-          : `unexpected /${label} in ${outer ? outer.toUpperCase() : "outer"} block`;
     let problem = `/${word} ${describeBlock(outer)} doesn't belong to anything here.`;
     if (word === "then" && outer === "then") problem = "/then after an /if (...) condition: the condition already acts as the /then.";
     else if (word === "do" && outer === "do") problem = "/do after a /while (...) condition: the condition already acts as the /do.";
@@ -345,7 +332,7 @@ class Parser {
     }
     // Only a missing /then or /do can explain a keyword turning up early in a condition list.
     const fix = outer === "if" || outer === "elseif" ? "then" : outer === "while" ? "do" : undefined;
-    this.blockError(start, end, problem, tf, fix);
+    this.blockError(start, end, problem, fix);
   }
 
   private blankLine(after: string, at: number): void {
@@ -355,9 +342,7 @@ class Parser {
       start: at,
       end: at + 2,
       message:
-        `${sep} straight after ${after} ends an empty statement, which sends a blank line to the world. ` +
-        `Drop the ${sep}. (tf warns: "\\"${sep}\\" following \\"${after.toUpperCase()}\\" sends blank line to server, ` +
-        `which is probably not what was intended.")`,
+`${sep} straight after ${after} ends an empty statement, which sends a blank line to the world. Drop the ${sep}.`,
     });
   }
 
@@ -372,7 +357,7 @@ class Parser {
     const digits = this.i;
     while (isDigit(this.s[this.i])) this.i += 1;
     if (this.i === digits || Number(this.s.slice(digits, this.i)) <= 0) {
-      this.fail("block", start, end, `/break takes a positive number of loops. (tf: "/BREAK syntax error: expected positive integer")`);
+      this.fail("block", start, end, "/break takes a positive number of loops.");
     }
     if (this.isStatEnd(this.i)) {
       this.i += 2;
@@ -481,10 +466,9 @@ class Parser {
           "bracket",
           percent,
           this.i,
-          (star || pee || n === 0
-            ? "A leading - only goes with a positive number or L (%-1, %-L2), not with *, P or 0. "
-            : "%- starts a substitution (%-1, %-L), but no selector follows it; write %%- for a literal %-. ") +
-            `(tf: "illegal character '-' in substitution")`,
+          star || pee || n === 0
+            ? "A leading - only goes with a positive number or L (%-1, %-L2), not with *, P or 0."
+            : "%- starts a substitution (%-1, %-L), but no selector follows it. Write %%- for a literal %-.",
         );
       }
     }
@@ -517,14 +501,14 @@ class Parser {
       }
       // bad-substitution-selector already explains a substitution glued onto the selector.
       if (!hasDefault && (s[this.i] === "%" || s[this.i] === "$")) throw new Stop();
-      const tf = this.i < s.length ? `unmatched { or illegal character '${s[this.i]}'` : "unmatched { or bad substitution";
+      const ch = s[this.i] as string;
       this.fail(
         "bracket",
         percent,
         percent + 2,
         this.i < s.length && !this.isStatEnd(this.i)
-          ? `This %{ is never closed: tf expects } here. (tf: "${tf}")`
-          : `This %{ is never closed. (tf: "${tf}")`,
+          ? `This %{ needs its } before the ${charName(ch)}: a %{...} name can't contain one.`
+          : "This %{ is never closed: add }.",
       );
     }
   }
@@ -546,7 +530,7 @@ class Parser {
       this.block = outer;
       this.cmdsub -= 1;
       this.dropMids(dollar);
-      if (s[this.i] !== ")") this.fail("bracket", dollar, dollar + 2, `This $( is never closed. (tf: "unmatched (")`);
+      if (s[this.i] !== ")") this.fail("bracket", dollar, dollar + 2, "This $( is never closed: add ).");
       this.i += 1;
     } else {
       this.macsub(dollar);
@@ -584,7 +568,7 @@ class Parser {
       }
     }
     if (bracket) {
-      if (s[this.i] !== "}") this.fail("bracket", dollar, dollar + 2, `This \${ is never closed. (tf: "unmatched \${")`);
+      if (s[this.i] !== "}") this.fail("bracket", dollar, dollar + 2, "This ${ is never closed: add }.");
       this.i += 1;
     } else if (s[this.i] === "$") {
       this.i += 1;
@@ -613,7 +597,7 @@ class Parser {
         this.i += 1;
         while (this.i < s.length && s[this.i] !== ch) this.i += s[this.i] === "\\" ? 2 : 1;
         if (this.i >= s.length) {
-          this.fail("bracket", quote, quote + 1, `This string is never closed. (tf: "unmatched ${ch} in string literal")`);
+          this.fail("bracket", quote, quote + 1, `This string is never closed: add the closing ${ch}.`);
         }
         this.i += 1;
         continue;
@@ -641,14 +625,14 @@ class Parser {
             this.i,
             this.i + 1,
             close === "]"
-              ? `This ) has no ( to close inside the $[...]. (tf: "expression syntax error: expected operator or ']', found ')'")`
-              : `This ) has no ( to close. (tf: "expression syntax error: expected end of expression, found ')'")`,
+              ? "This ) has no matching ( inside the $[...]."
+              : "This ) has no matching (.",
           );
         }
         depth -= 1;
       } else if (ch === "]" && close === "]") {
         if (depth > 0) {
-          this.fail("bracket", this.i, this.i + 1, `A ( in this $[...] is never closed before its ]. (tf: "expression syntax error: expected ')' after '(...', found ']'")`);
+          this.fail("bracket", this.i, this.i + 1, "A ( in this $[...] is never closed: add ) before the ].");
         }
         this.i += 1;
         return;
@@ -656,16 +640,16 @@ class Parser {
       this.i += 1;
     }
     if (close === "]") {
-      this.fail("bracket", open, open + 2, `This $[ is never closed. (tf: "unmatched $[")`);
+      this.fail("bracket", open, open + 2, "This $[ is never closed: add ].");
     } else if (close === ")") {
       this.fail(
         "bracket",
         open,
         open + 1,
-        `The ${keyword ?? ""} condition's ( is never closed. (tf: "condition syntax error: expected operator or ')'")`,
+        `The ${keyword ?? ""} condition's ( is never closed: add ).`,
       );
     } else if (depth > 0) {
-      this.fail("bracket", open, s.length, `A ( in this expression is never closed. (tf: "expression syntax error: expected ')'")`);
+      this.fail("bracket", open, s.length, "A ( in this expression is never closed: add ).");
     }
   }
 }

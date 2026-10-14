@@ -60,6 +60,20 @@ describe("substitution-syntax only where tf substitutes", () => {
     expect(syntax("/for i 1 2 /echo %{foo\n")).toHaveLength(1);
   });
 
+  // Proven live (review rev-s2b q5): stdlib compiles VAR and START as `/let VAR=START` and END in
+  // `/while ( VAR <= END )`, so tf rejects each of these, as it does a broken COMMAND.
+  it("reads a /for's VAR, START and END where stdlib puts them", () => {
+    const found = (text: string) =>
+      getDiagnostics(text)
+        .filter((d) => d.severity === "error")
+        .map((d) => `${d.code}@${d.range.start.character}`);
+    expect(found("/for i %{q 2 /echo %% R1:%i\n")).toEqual(["substitution-syntax@7"]);
+    expect(found("/for i 1 $[1+ /echo %% R2:%i\n")).toEqual(["expression-syntax@12"]);
+    expect(found("/for %{x 1 1 /echo %% R10:%i\n")).toEqual(["substitution-syntax@5"]);
+    expect(getDiagnostics("/for %{x 1 1 /echo x\n")[0]?.message).toBe("This %{ needs its } before the '='.");
+    expect(found("/for i 1 1 /echo %% R11 $[1+\n")).toEqual(["expression-syntax@24"]);
+  });
+
   // Proven live (review rev-s2 p3): tf runs these clean. Read as one body, the whole of /for's
   // text has its COMMAND mid-statement, where the /if's (...) would be no condition.
   it("reads a /for's COMMAND as a command list, not its whole text", () => {

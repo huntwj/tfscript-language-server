@@ -345,6 +345,30 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
   });
 
   /**
+   * The text a macro builds from words of `src`, as a source of its own: each word maps to where it
+   * is written, and the text around it to the start of the word after it (or the end of the one
+   * before). Its map isn't a plain slice, so no fix is kept from it.
+   */
+  const built = (src: Source, parts: (string | { start: number; end: number })[]): Source => {
+    let text = "";
+    const map: number[] = [];
+    parts.forEach((part, k) => {
+      if (typeof part !== "string") {
+        text += src.text.slice(part.start, part.end);
+        map.push(...src.map.slice(part.start, part.end));
+        return;
+      }
+      const next = parts.slice(k + 1).find((p) => typeof p !== "string") as { start: number } | undefined;
+      const prev = parts.slice(0, k).reverse().find((p) => typeof p !== "string") as { end: number } | undefined;
+      const at = next ? (src.map[next.start] as number) : prev ? (src.map[prev.end - 1] as number) : (src.map[0] as number);
+      text += part;
+      for (let i = 0; i < part.length; i += 1) map.push(at);
+    });
+    map.push(map[map.length - 1] ?? (src.map[0] as number));
+    return { text, map };
+  };
+
+  /**
    * `src.text`, read as `mode` reads it; later (inner) reads overwrite earlier ones. `issues`
    * false for a read that only marks how the text is substituted, not how it is compiled.
    */
@@ -383,14 +407,18 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
         }
       } else if (word === "for") {
         // VAR START END COMMAND: all substituted, and COMMAND is a macro body of its own, whose
-        // conditions are read as conditions (second review's g1: G4 printed %{x}). Only COMMAND is
-        // compiled as a command list: read as one body, the whole text has COMMAND mid-statement,
-        // where an /if (...) is no condition (review rev-s2 p3), so its issues aren't kept.
+        // conditions are read as conditions (second review's g1: G4 printed %{x}). Read as one body,
+        // the whole text has COMMAND mid-statement, where an /if (...) is no condition (review rev-s2
+        // p3), so that read's issues aren't kept. stdlib compiles each word where it puts it
+        // (stdlib.tf: `/@eval /let %1=%2%%; /while ( %1 <= %3 ) %-3...`), so each is read there.
         const h = handed(argStart);
         read(h, "body", depth + 1, undefined, false);
-        let w = nextWord(h.text, 0, h.text.length);
-        for (let n = 0; w && n < 3; n += 1) w = nextWord(h.text, w.end, h.text.length);
-        if (w) read(sub(h, w.start), "body", depth + 1, undefined);
+        const words: { start: number; end: number }[] = [];
+        for (let w = nextWord(h.text, 0, h.text.length); w && words.length < 4; w = nextWord(h.text, w.end, h.text.length)) words.push(w);
+        const [name, from, to, command] = words;
+        if (name && from) read(built(h, ["/let ", name, "=", from]), "body", depth + 1, undefined);
+        if (to) read(built(h, ["/if (0 <= ", to, ") /endif"]), "body", depth + 1, undefined);
+        if (command) read(sub(h, command.start), "body", depth + 1, undefined);
       } else if (word === "repeat") {
         const h = handed(argStart);
         const r = repeatArguments(h.text, 0, h.text.length);

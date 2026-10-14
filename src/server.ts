@@ -30,6 +30,8 @@ import {
   MarkupKind,
   type PrepareRenameParams,
   type ReferenceParams,
+  type SelectionRange,
+  type SelectionRangeParams,
   type SemanticTokens,
   type SemanticTokensParams,
   type SignatureHelp,
@@ -51,6 +53,7 @@ import { getDiagnostics, type TfDiagnostic } from "./diagnostics";
 import { getCompletions } from "./completions";
 import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
+import { getSelectionRanges } from "./selectionRange";
 import { routeCodeActions, type CodeActionRequest } from "./codeActions";
 import { explainDiagnostic, rangeContains } from "./explain";
 import {
@@ -225,6 +228,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       documentSymbolProvider: true,
       documentLinkProvider: { resolveProvider: false },
       foldingRangeProvider: true,
+      selectionRangeProvider: true,
       codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix, CodeActionKind.RefactorRewrite] },
       hoverProvider: true,
       definitionProvider: true,
@@ -345,6 +349,12 @@ connection.onFoldingRanges((params: FoldingRangeParams): FoldingRange[] => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
   return getFoldingRanges(document.getText()).map(toFoldingRange);
+});
+
+connection.onSelectionRanges((params: SelectionRangeParams): SelectionRange[] => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return [];
+  return getSelectionRanges(document.getText(), params.positions);
 });
 
 connection.onCodeAction((params: CodeActionParams): CodeAction[] => {

@@ -19,7 +19,15 @@
   treatment, and new quick fixes: `(...)` for a redundant `$[...]`, a `%;` before a swallowed
   `/endif` or `/if`, commenting out a line that isn't a command, and joining the lines of a
   multi-line top-level `/if` or `/while`, or an indented line and the one above it, with `\`.
-  A CRLF line's `\` gets its own message: the carriage return is what stops it continuing.
+  A CRLF line's `\` gets its own message: the carriage return is what stops it continuing; so
+  does a line ending in `%\`, and one starting with a UTF-8 byte order mark, which tf reads as
+  text (the fix deletes the mark). The load-path diagnostics (`unresolved-load`,
+  `undefined-macro`) get the same style of message.
+- `dollar-bracket-in-if` no longer flags a `$[...]` inside a `%{name-default}`, `${...}` or
+  `$(...)`, where it isn't redundant, and `let-swallows-endif` no longer flags an `if` in a path
+  or URL, or an `/endif` with no `/if` open.
+- The fix that adds an `/endif` or `/done` isn't offered after an empty body, where it would send
+  a blank line (or, for `/while`, loop forever).
 - `if-multiline-top-level` uses the same model, so it follows nesting and no longer counts an
   `/endif` that is only text (`/if (1) /echo /endif`) as closing the `/if`.
 - `/load` and `/require` filenames are links (Ctrl+click) to the file tf would open, found the

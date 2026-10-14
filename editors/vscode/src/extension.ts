@@ -52,6 +52,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "tf" }],
     synchronize: { configurationSection: "tfscript" },
+    // The "N references" lenses run this command (registered below) to open the references peek.
+    initializationOptions: { showReferencesCommand: "tfscript.showReferences" },
   };
 
   client = new LanguageClient("tfscript", "tfscript", serverOptions, clientOptions);

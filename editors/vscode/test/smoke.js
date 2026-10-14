@@ -66,7 +66,13 @@ const timeout = setTimeout(() => {
 }, 10_000);
 
 (async () => {
-  await request("initialize", { processId: process.pid, rootUri: null, capabilities: {} });
+  // As the extension starts it: the lenses need the command that opens the references peek.
+  await request("initialize", {
+    processId: process.pid,
+    rootUri: null,
+    capabilities: {},
+    initializationOptions: { showReferencesCommand: "tfscript.showReferences" },
+  });
   send("initialized", {});
 
   // A real absolute path (it need not exist): on Windows a file URI without a drive is no path at all.

@@ -144,6 +144,8 @@ let folders: string[] = [];
 let hasConfiguration = false;
 let canRefreshTokens = false;
 let canRefreshLenses = false;
+/** The client's command that opens a list of locations, from its initializationOptions (the VS Code extension's tfscript.showReferences). */
+let showReferencesCommand: string | undefined;
 
 function toPath(uri: string): string | undefined {
   if (!uri.startsWith("file:")) return undefined;
@@ -227,6 +229,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
   hasConfiguration = Boolean(params.capabilities.workspace?.configuration);
   canRefreshTokens = Boolean(params.capabilities.workspace?.semanticTokens?.refreshSupport);
   canRefreshLenses = Boolean(params.capabilities.workspace?.codeLens?.refreshSupport);
+  const command = (params.initializationOptions as { showReferencesCommand?: unknown } | undefined)?.showReferencesCommand;
+  showReferencesCommand = typeof command === "string" && command.length > 0 ? command : undefined;
   canWatch = Boolean(params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration);
   canWatchOutside = canWatch && Boolean(params.capabilities.workspace?.didChangeWatchedFiles?.relativePatternSupport);
   return {
@@ -514,9 +518,12 @@ connection.languages.callHierarchy.onOutgoingCalls((params): CallHierarchyOutgoi
 });
 
 // "N references" above each /def, counted when the editor shows it (codeLens/resolve), so a
-// file with many /defs stays cheap. The command is the VS Code extension's own
-// tfscript.showReferences, which opens the references peek: VS Code's editor.action.showReferences
-// needs its Uri and Position objects, which JSON arguments can't carry.
+// file with many /defs stays cheap. LSP has no standard command that opens a list of locations,
+// so the lenses are only offered to a client that names one in its initializationOptions
+// (`showReferencesCommand`), called with a URI, a position and the locations: the VS Code
+// extension's tfscript.showReferences, which opens the references peek (VS Code's own
+// editor.action.showReferences needs Uri and Position objects, which JSON arguments can't carry).
+// A lens another client couldn't run would only fail when clicked.
 interface LensData {
   uri: string;
   position: { line: number; character: number };
@@ -525,7 +532,7 @@ interface LensData {
 connection.onCodeLens((params): CodeLens[] => {
   const document = documents.get(params.textDocument.uri);
   const file = document && toPath(document.uri);
-  if (!document || file === undefined || !index.referenceLenses(file)) return [];
+  if (!showReferencesCommand || !document || file === undefined || !index.referenceLenses(file)) return [];
   return getDocumentSymbols(document.getText())
     .filter((s) => s.kind === "def")
     .map((s) => ({ range: s.selectionRange, data: { uri: document.uri, position: s.selectionRange.start } satisfies LensData }));
@@ -544,7 +551,7 @@ connection.onCodeLensResolve((lens): CodeLens => {
     ...lens,
     command: {
       title: n === 1 ? "1 reference" : `${n} references`,
-      command: "tfscript.showReferences",
+      command: showReferencesCommand ?? "",
       arguments: [data.uri, data.position, locations],
     },
   };

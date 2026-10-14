@@ -50,6 +50,8 @@ const MAX_TOTAL_TRIES = 1500;
 /** An /endif or /done as a word of its own, after a blank or a separator. */
 const CLOSER_RE = /(?<![^ \t;|\\])\/(?:endif|done)(?=[ \t\r\f\v%)]|$)/i;
 const TOP_BLOCK_RE = /^\/(?:if|while)\b/i;
+/** A line that starts with a keyword of a block: it can only belong to one opened above it. */
+const STRAY_KEYWORD_RE = /^\/(?:then|else|elseif|endif|do|done)(?![^ \t\r\f\v%])/i;
 /** Structural fixes the settle step applies; not "Add %; /endif ...", which would close a block early. */
 const SETTLE_CODES = new Set(["block-structure", "separator-sends-blank-line"]);
 
@@ -377,8 +379,11 @@ function addJoins(text: string, diagnostics: TfDiagnostic[], diagnoseSlice: Diag
   if (!diagnostics.some((d) => d.code === "missing-continuation" || d.code === "indented-line-after-command" || d.code === "block-structure")) return;
   const lines = splitRawLines(text);
   const entries = splitLogicalEntries(text);
-  // A block's join stops at a macro definition: its body isn't part of the block.
-  const definitions = new Set(entries.filter((e) => e.isDefBody || e.isOtherMacroBody).map((e) => e.startLine));
+  // A block's join stops at an unindented macro definition, a new command whose body isn't part of
+  // the block. An indented one is meant to be in it, and joins like any command.
+  const definitions = new Set(
+    entries.filter((e) => (e.isDefBody || e.isOtherMacroBody) && leadingWhitespaceLength(lines[e.startLine] ?? "") === 0).map((e) => e.startLine),
+  );
   const joins: NonNullable<TfDiagnostic["fix"]>[] = [];
   /** The joins that leave no error, with the lines they make one command. */
   const clean: { fix: NonNullable<TfDiagnostic["fix"]>; from: number; to: number }[] = [];
@@ -411,12 +416,21 @@ function addJoins(text: string, diagnostics: TfDiagnostic[], diagnoseSlice: Diag
       add(d, `Join the ${opener[0].toLowerCase()}'s lines with \\`, join);
       continue;
     }
-    // A block with no closer below it, only lines meant as its body (or a stray /else): join those and close it.
+    // A block with no closer below it, only lines meant as its body (or a stray /else or /elseif):
+    // join those and close it. Not with a stray /then or /do, where it can't tell a condition list
+    // from a (condition), nor with a closer, which the join above would have brought in.
     const related = d.code === "missing-continuation" ? (d.related ?? []) : [];
-    if (related.length === 0 || related.some((r) => r.message.includes("doesn't close"))) continue;
+    if (related.length === 0 || related.some((r) => / \/(?:then|do|endif|done) doesn't/.test(r.message))) continue;
     const word = opener[0].toLowerCase();
     const closer = word === "/while" ? "done" : "endif";
     const last = Math.max(...related.map((r) => r.range.start.line));
+    // Only if that is clearly where the block ends: not when the next command (past any blank or
+    // comment lines) is indented or a keyword of a block, as more of its body or its closer may be
+    // past a blank line or the reach a join has, which missing-continuation doesn't take in.
+    let after = last + 1;
+    while (after < lines.length && (isCommentLine(lines[after] ?? "") || isBlankLine(lines[after] ?? ""))) after += 1;
+    const following = lines[after] ?? "";
+    if (leadingWhitespaceLength(following) > 0 || STRAY_KEYWORD_RE.test(following)) continue;
     const closed = attempt(diagnoseSlice, (diagnose) => joinAndClose(lines, entry, last, closer, diagnose));
     if (closed) add(d, `Join the ${word}'s lines with \\ and end it with /${closer}`, closed);
   }

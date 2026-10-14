@@ -1,6 +1,6 @@
 import type { EntryRule, EntryMatch } from "./types";
 import type { TfDiagnostic } from "../diagnostics";
-import { isBlankLine, splitRawLines, type LogicalEntry } from "../logicalEntries";
+import { isBlankLine, isCommentLine, leadingWhitespaceLength, splitRawLines, type LogicalEntry } from "../logicalEntries";
 import { JOIN_MAX_LINES } from "../joinFix";
 import { entryStructure } from "../structure";
 
@@ -52,19 +52,19 @@ const byPosition = (a: { range: TfDiagnostic["range"] }, b: { range: TfDiagnosti
 
 /**
  * The last line of the top-level commands after `entries[index]` that a line join could bring
- * into it: up to a blank line (which ends any join), a macro definition (a body is not part of an
- * /if), or JOIN_MAX_LINES lines past it. Comment lines in between don't matter, as tf skips them
- * even inside a continuation.
+ * into it: up to a blank line (which ends any join), an unindented macro definition (a new command,
+ * not part of the block), or JOIN_MAX_LINES lines past it. Comment lines in between don't matter,
+ * as tf skips them even inside a continuation (they aren't entries).
  */
 function spanOf(entries: LogicalEntry[], index: number, lines: string[]): number {
   const entry = entries[index] as LogicalEntry;
   let end = entry.endLine;
   for (let k = index + 1; k < entries.length; k += 1) {
     const e = entries[k] as LogicalEntry;
-    if (e.isDefBody || e.isOtherMacroBody || e.endLine > entry.endLine + JOIN_MAX_LINES) break;
-    let blank = false;
-    for (let line = end + 1; line < e.startLine && !blank; line += 1) blank = isBlankLine(lines[line] ?? "");
-    if (blank) break;
+    const first = lines[e.startLine] ?? "";
+    // A blank line is an entry of its own.
+    if (isBlankLine(first) || e.endLine > entry.endLine + JOIN_MAX_LINES) break;
+    if ((e.isDefBody || e.isOtherMacroBody) && leadingWhitespaceLength(first) === 0) break;
     end = e.endLine;
   }
   return end;
@@ -144,13 +144,20 @@ export function consolidateContinuations(text: string, entries: LogicalEntry[], 
   for (const opener of openers) {
     const related: Related[] = [];
     const lastStray = opener.strays[opener.strays.length - 1]?.d.range.start.line;
-    // With no stray keyword, the run of indented lines that starts on the line after it.
-    let next = opener.endLine + 1;
+    // The indented lines up to the last stray keyword, and the run of them straight after that
+    // (or, with none, after the opener): the body of the branch it starts. Comment lines don't
+    // break the run, as tf skips them inside a continuation.
+    const after = (line: number): number => {
+      let next = (entries[entryIndexAt(entries, line)]?.endLine ?? line) + 1;
+      while (next < lines.length && isCommentLine(lines[next] ?? "")) next += 1;
+      return next;
+    };
+    let next = after(lastStray ?? opener.endLine);
     for (const d of indented) {
       const line = d.range.start.line;
       if (line <= opener.endLine || line > opener.spanEnd || dropped.has(d)) continue;
-      if (lastStray !== undefined ? line > lastStray : line !== next) continue;
-      next = (entries[entryIndexAt(entries, line)]?.endLine ?? line) + 1;
+      if (!(lastStray !== undefined && line <= lastStray) && line !== next) continue;
+      if (line === next) next = after(line);
       dropped.add(d);
       // An indented stray keyword is noted once, as the keyword.
       if (opener.strays.some((s) => s.d.range.start.line === line)) continue;

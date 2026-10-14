@@ -155,6 +155,64 @@ describe("missing-continuation messages", () => {
       "This /if ends at the end of line 1, where the file's Windows (CRLF) line ending puts a carriage return after the \\, so the /endif on line 2 is a separate command: save the file with LF line endings.",
     );
   });
+
+});
+
+// The second review's probes (scratchpad rev-r1b), each fix applied and run in tf dev, 2026-10-14.
+describe("missing-continuation: what a join can reach", () => {
+  const text = (lines: string[]) => `${lines.join("\n")}\n`;
+  const opener = (t: string) => getDiagnostics(t).find((d) => d.code === "missing-continuation")!;
+
+  it("joins the body of a stray /else or /elseif in before closing the block", () => {
+    const q06c = ["/if (1)", "    /echo % then-branch", "/else", "    /echo % ELSE-BRANCH", "/echo % after"];
+    const fixed = applyEdits(text(q06c), opener(text(q06c)).fix!.edits);
+    expect(fixed).toBe(text(["/if (1) \\", "    /echo % then-branch%; \\", "/else \\", "    /echo % ELSE-BRANCH%; /endif", "/echo % after"]));
+    const q11c = ["/if (0)", "    /echo % a", "/elseif (0)", "    /echo % ELSEIF-BRANCH", "/echo % after"];
+    const fixed11 = applyEdits(text(q11c), opener(text(q11c)).fix!.edits);
+    expect(fixed11).toBe(text(["/if (0) \\", "    /echo % a%; \\", "/elseif (0) \\", "    /echo % ELSEIF-BRANCH%; /endif", "/echo % after"]));
+    expect(getDiagnostics(fixed11)).toEqual([]);
+  });
+
+  it("offers no join-and-close after a stray /do or /then", () => {
+    // Joined to the /do line it would read /while (i < 3) /done, which never ends.
+    expect(opener(text(["/set i=0", "/while (i < 3)", "/do", "    /test ++i", "/echo % i"])).fix).toBeUndefined();
+  });
+
+  it("stops at a blank line, as a join does", () => {
+    // No /def in between: blank lines alone keep the later lines apart.
+    const q30 = ["/if (1) /echo % forgot-endif", "", "/echo % x", "/set foo=1", "    /echo % indented", "", "/endif"];
+    expect(found(q30)).toEqual(["missing-continuation@0", "indented-line-after-command@4", "block-structure@6"]);
+    const q31 = ["/if (0) /echo % forgot-endif", "", "/set z=1", "", "/if (1) /echo % one%; /endif", "/endif"];
+    expect(found(q31)).toEqual(["missing-continuation@0", "block-structure@5"]);
+    // A blank line in the middle of the body: the lines after it aren't taken in, and nothing joins.
+    const q04 = ["/if (0)", "    /echo % a", "", "    /echo % b", "/endif"];
+    const d = opener(text(q04));
+    expect(relatedLines(d)).toEqual([1]);
+    expect(d.fix).toBeUndefined();
+  });
+
+  it("offers no join-and-close when the body or its closer goes on past the reach", () => {
+    const body = Array.from({ length: 23 }, (_, k) => `    /echo % b${k}`);
+    expect(opener(text(["/if (0)", ...body, "/echo % after"])).fix).toBeUndefined();
+    const q26 = ["/if (0)", ...body.slice(0, 20), "/endif", "/echo % after"];
+    expect(opener(text(q26)).fix).toBeUndefined();
+    expect(found(q26).filter((c) => !c.startsWith("indented"))).toEqual(["missing-continuation@0", "block-structure@21"]);
+  });
+
+  it("takes in an indented /def, which a join brings into the block", () => {
+    const q03 = ["/if (0)", "    /def foo = /echo % foo", "/endif", "/echo % after"];
+    const d = only(q03);
+    expect(relatedLines(d)).toEqual([1, 2]);
+    const fixed = applyEdits(text(q03), d.fix!.edits);
+    expect(fixed).toBe(text(["/if (0) \\", "    /def foo = /echo % foo%; \\", "/endif", "/echo % after"]));
+    expect(getDiagnostics(fixed)).toEqual([]);
+  });
+
+  it("takes in the indented lines after a comment line", () => {
+    const d = only(["/if (0)", "; comment", "    /echo % a", "/echo % after"]);
+    expect(relatedLines(d)).toEqual([2]);
+    expect(d.fix?.title).toBe("Join the /if's lines with \\ and end it with /endif");
+  });
 });
 
 function applyEdits(text: string, edits: { range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }[]): string {

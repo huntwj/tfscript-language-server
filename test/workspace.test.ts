@@ -265,9 +265,9 @@ describe("variables through the workspace index", () => {
     expect(getDefinition(text, pos(0, 34), ctx()).map((l) => path.basename(l.uri))).toEqual(["stdlib.tf"]);
   });
 
-  it("renames a global across the load path, but not one tf's library sets", () => {
+  it("renames a global across the load path, but not one tf's library uses", () => {
     const edits = getRenameEdits(text, pos(0, 24), "cols", ctx());
     expect(Array.isArray(edits) && edits.map((e) => path.basename(e.uri)).sort()).toEqual(["conf.tf", "main.tf"]);
-    expect(prepareRename(text, pos(0, 34), ctx())).toEqual({ error: "libwidth is set in tf's library, which isn't yours to rename." });
+    expect(prepareRename(text, pos(0, 34), ctx())).toEqual({ error: "libwidth is used by tf's library, which a rename here can't change, so it can't be renamed." });
   });
 });

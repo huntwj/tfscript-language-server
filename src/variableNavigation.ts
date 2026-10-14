@@ -81,11 +81,43 @@ function renameCheck(text: string, pos: Position, ctx?: NavContext): RenameCheck
   }
   if (target.scope === "global") {
     for (const f of ctx?.libraryFiles ?? []) {
-      const set = findVariables(f.text).find((v) => v.name === target.name && v.scope === "global" && v.access !== "read");
-      if (set) return { ok: false, reason: `${target.name} is set in tf's library, which isn't yours to rename.` };
+      if (findVariables(f.text).some((v) => v.name === target.name && v.scope === "global")) {
+        return { ok: false, reason: `${target.name} is used by tf's library, which a rename here can't change, so it can't be renamed.` };
+      }
     }
   }
   return { ok: true, target };
+}
+
+/**
+ * Why renaming `target` to `newName` would change what the script does, if it would: the new
+ * name already means a variable the renamed one would merge with, or a macro body's own
+ * variable would take over the renamed one there (or the other way round).
+ */
+function collision(target: VariableOccurrence, newName: string, text: string, ctx?: NavContext): string | undefined {
+  const old = target.name;
+  const everywhere = [{ uri: ctx?.uri ?? "", text }, ...(ctx?.files ?? []), ...(ctx?.libraryFiles ?? [])];
+  const globalNamed = everywhere.some((f) => findVariables(f.text).some((v) => v.name === newName && v.scope === "global"));
+  if (target.scope === "global") {
+    if (globalNamed) {
+      return `${newName} is already a variable on this file's load path, so renaming ${old} to it would merge the two. Pick a name that isn't used yet.`;
+    }
+    for (const f of everywhere) {
+      const all = findVariables(f.text);
+      const uses = new Set(all.filter((v) => v.name === old && v.scope === "global").map((v) => v.entry));
+      if (all.some((v) => v.name === newName && v.scope !== "global" && uses.has(v.entry))) {
+        return `A macro that uses ${old} has its own /let ${newName}, which would take over ${old} there after the rename. Pick another name.`;
+      }
+    }
+    return undefined;
+  }
+  if (findVariables(text).some((v) => v.name === newName && v.entry === target.entry)) {
+    return `This macro body already uses ${newName}, so renaming ${old} to it would merge the two. Pick another name.`;
+  }
+  if (globalNamed) {
+    return `${newName} is already a global variable on this file's load path, and a /let ${newName} would hide it from this macro and any macro it calls. Pick another name.`;
+  }
+  return undefined;
 }
 
 export function prepareVariableRename(text: string, pos: Position, ctx?: NavContext): { range: Range; placeholder: string } | { error: string } | undefined {
@@ -114,8 +146,11 @@ function badName(name: string): string | undefined {
  * for a global, the others on its load path. A body's own `/let` variable only changes in that
  * body, and a global leaves those bodies' locals alone.
  *
- * Not renamed, because nothing here can tell them from ordinary text: names in strings or built
- * at runtime (`/eval /set %{prefix}_x=1`, `getopts("x:")`), `/listvar` patterns, and comments.
+ * Refused: tf's special variables, variables tf's library uses, the `opt_` variables getopts()
+ * names after its option letters, and a new name that is already taken where the rename would
+ * merge or capture variables (see collision()). Not renamed, because nothing here can tell them
+ * from ordinary text: names in strings tf doesn't substitute or built at run time
+ * (`/eval /set %{prefix}_x=1`), `/listvar` patterns, and comments.
  */
 export function variableRenameEdits(text: string, pos: Position, newName: string, ctx?: NavContext): TextEditAt[] | { error: string } | undefined {
   const check = renameCheck(text, pos, ctx);
@@ -123,5 +158,9 @@ export function variableRenameEdits(text: string, pos: Position, newName: string
   if (!check.ok) return { error: check.reason };
   const bad = badName(newName);
   if (bad) return { error: bad };
+  if (newName !== check.target.name) {
+    const taken = collision(check.target, newName, text, ctx);
+    if (taken) return { error: taken };
+  }
   return occurrencesOf(check.target, text, ctx?.uri ?? "", ctx?.files ?? []).map((v) => ({ uri: v.uri, range: v.range, newText: newName }));
 }

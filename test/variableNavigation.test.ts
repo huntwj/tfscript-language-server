@@ -121,10 +121,10 @@ describe("variable rename", () => {
     expect(prepareRename("/def -i a = /echo %{foo}\n", pos(0, 21))).toEqual({ range: { start: pos(0, 20), end: pos(0, 23) }, placeholder: "foo" });
   });
 
-  it("refuses tf's special variables and variables tf's library sets", () => {
+  it("refuses tf's special variables and variables tf's library uses", () => {
     expect(prepareRename("/set wrapspace=4\n", pos(0, 6))).toEqual({ error: "wrapspace is one of tf's special variables, so it can't be renamed." });
     const ctx: NavContext = { uri: "file:///a.tf", files: [], libraryFiles: [{ uri: "file:///lib/x.tf", text: "/set libvar=1\n" }], macros: [] };
-    expect(prepareRename("/def -i a = /echo %libvar\n", pos(0, 20), ctx)).toEqual({ error: "libvar is set in tf's library, which isn't yours to rename." });
+    expect(prepareRename("/def -i a = /echo %libvar\n", pos(0, 20), ctx)).toEqual({ error: "libvar is used by tf's library, which a rename here can't change, so it can't be renamed." });
   });
 
   it("refuses a getopts() variable, whose name comes from its option letter", () => {
@@ -144,5 +144,51 @@ describe("variable rename", () => {
     expect(getRenameEdits(text, pos(0, 5), "L2")).toHaveProperty("error");
     expect(getRenameEdits(text, pos(0, 5), "TFPATH")).toEqual({ error: '"TFPATH" is one of tf\'s special variables: pick another name.' });
     expect(Array.isArray(getRenameEdits(text, pos(0, 5), "Lx"))).toBe(true);
+  });
+
+  it("refuses a variable tf's library only reads", () => {
+    const ctx: NavContext = { uri: "file:///a.tf", files: [], libraryFiles: [{ uri: "file:///lib/x.tf", text: "/def -i q = /echo %{qdef_prefix}\n" }], macros: [] };
+    expect(prepareRename("/set qdef_prefix=x\n", pos(0, 6), ctx)).toEqual({
+      error: "qdef_prefix is used by tf's library, which a rename here can't change, so it can't be renamed.",
+    });
+  });
+
+  it("refuses a new name another global already has, which would merge the two", () => {
+    const text = "/set gx=1\n/set b=2\n/def -i a = /echo %gx %b\n";
+    expect(getRenameEdits(text, pos(0, 5), "b")).toEqual({
+      error: "b is already a variable on this file's load path, so renaming gx to it would merge the two. Pick a name that isn't used yet.",
+    });
+    const ctx: NavContext = { uri: "file:///a.tf", files: [{ uri: "file:///b.tf", text: "/def -i b = /echo %{taken}\n" }], macros: [] };
+    expect(getRenameEdits("/set gx=1\n", pos(0, 5), "taken", ctx)).toHaveProperty("error");
+  });
+
+  it("refuses a new name a body that uses the global has its own /let of", () => {
+    // Real tf: after renaming gx to b, this body would print LOCALB, not gx's value.
+    const text = "/set gx=G\n/def -i capt = /let b=LOCALB%; /echo %{gx}\n";
+    expect(getRenameEdits(text, pos(0, 5), "b")).toEqual({
+      error: "A macro that uses gx has its own /let b, which would take over gx there after the rename. Pick another name.",
+    });
+  });
+
+  it("refuses renaming a /let variable to a name its body or the load path already uses", () => {
+    const text = "/set y=G\n/def -i loc = /let n=1%; /echo %n %{y}\n/def -i other = /let n=1%; /let m=2%; /echo %n %m\n";
+    expect(getRenameEdits(text, at(text, "/let n", 0, 5), "y")).toEqual({
+      error: "This macro body already uses y, so renaming n to it would merge the two. Pick another name.",
+    });
+    expect(getRenameEdits(text, at(text, "/let n", 1, 5), "m")).toHaveProperty("error");
+    expect(getRenameEdits(text, at(text, "/let n", 1, 5), "y")).toEqual({
+      error: "y is already a global variable on this file's load path, and a /let y would hide it from this macro and any macro it calls. Pick another name.",
+    });
+    expect(Array.isArray(getRenameEdits(text, at(text, "/let n", 1, 5), "fresh"))).toBe(true);
+  });
+
+  it("renames the global a /let's own value reads", () => {
+    const text = "/set gx=G\n/def -i self = /let gx=%{gx}-copy%; /echo %{gx}\n";
+    expect(apply(text, getRenameEdits(text, pos(0, 5), "gy") as never)).toBe("/set gy=G\n/def -i self = /let gx=%{gy}-copy%; /echo %{gx}\n");
+  });
+
+  it("leaves strings tf doesn't substitute alone", () => {
+    const text = '/set Y=1\n/def -i a = /echo $[ftime("%Y")] %Y\n';
+    expect(apply(text, getRenameEdits(text, pos(0, 5), "year") as never)).toBe('/set year=1\n/def -i a = /echo $[ftime("%Y")] %year\n');
   });
 });

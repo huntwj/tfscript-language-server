@@ -132,13 +132,21 @@ describe("missing-continuation fixes", () => {
     expect(getDiagnostics(fixed)).toEqual([]);
   });
 
-  it("joins a stray /else with no closer below it, and closes it", () => {
-    const text = ["/if (0) /echo a%;", "/else /echo b", ""].join("\n");
-    const d = only(text.trimEnd().split("\n"));
-    expect(relatedLines(d)).toEqual([1]);
-    const fixed = applyEdits(text, d.fix!.edits);
-    expect(fixed).toBe(["/if (0) /echo a%; \\", "/else /echo b%; /endif", ""].join("\n"));
-    expect(getDiagnostics(fixed)).toEqual([]);
+  it("offers join-and-close only for the simple shape: an opener alone, an indented body, maybe a lone /else and its body", () => {
+    const close = (lines: string[]) =>
+      getDiagnostics(`${lines.join("\n")}\n`)
+        .find((d) => d.code === "missing-continuation")
+        ?.fix?.title.endsWith("and end it with /endif") ?? false;
+    // Text on the opener's line, an /else with text on its line, /elseif, a condition list: none.
+    expect(close(["/if (0) /echo a%;", "/else /echo b"])).toBe(false);
+    expect(close(["/if (0)", "    /echo a", "/else /echo b"])).toBe(false);
+    expect(close(["/if (0)", "    /echo a", "/elseif (1)", "    /echo b"])).toBe(false);
+    expect(close(["/if /test 1", "    /echo a"])).toBe(false);
+    expect(close(["/if (1) /echo % a%;", "    /echo % b"])).toBe(false);
+    // The simple shape, with the /else at either indentation.
+    expect(close(["/if (0)", "    /echo a", "/else", "    /echo b"])).toBe(true);
+    expect(close(["/if (0)", "    /echo a", "    /else", "    /echo b"])).toBe(true);
+    expect(close(["/if (0)", "    /echo a"])).toBe(true);
   });
 
   it("keeps the add-a-closer fix when there are related lines but no join works", () => {
@@ -202,14 +210,13 @@ describe("missing-continuation: what a join can reach", () => {
   const text = (lines: string[]) => `${lines.join("\n")}\n`;
   const opener = (t: string) => getDiagnostics(t).find((d) => d.code === "missing-continuation")!;
 
-  it("joins the body of a stray /else or /elseif in before closing the block", () => {
+  it("joins the body of a stray /else in before closing the block, but not an /elseif's", () => {
     const q06c = ["/if (1)", "    /echo % then-branch", "/else", "    /echo % ELSE-BRANCH", "/echo % after"];
     const fixed = applyEdits(text(q06c), opener(text(q06c)).fix!.edits);
     expect(fixed).toBe(text(["/if (1) \\", "    /echo % then-branch%; \\", "/else \\", "    /echo % ELSE-BRANCH%; /endif", "/echo % after"]));
+    expect(getDiagnostics(fixed)).toEqual([]);
     const q11c = ["/if (0)", "    /echo % a", "/elseif (0)", "    /echo % ELSEIF-BRANCH", "/echo % after"];
-    const fixed11 = applyEdits(text(q11c), opener(text(q11c)).fix!.edits);
-    expect(fixed11).toBe(text(["/if (0) \\", "    /echo % a%; \\", "/elseif (0) \\", "    /echo % ELSEIF-BRANCH%; /endif", "/echo % after"]));
-    expect(getDiagnostics(fixed11)).toEqual([]);
+    expect(opener(text(q11c)).fix).toBeUndefined();
   });
 
   it("offers no join-and-close that would leave a branch empty", () => {

@@ -328,6 +328,49 @@ function joinAndClose(lines: string[], entry: LogicalEntry, last: number, closer
   return { edits: lineEdits(original, settled.lines, base), clean: true, from: base, to: last };
 }
 
+/** Where the `(condition)` that starts at `open` ends (after its `)`), or -1: quotes are skipped, as in an expression. */
+function conditionEnd(s: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < s.length; i += 1) {
+    const ch = s[i];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      i += 1;
+      while (i < s.length && s[i] !== ch) i += s[i] === "\\" ? 2 : 1;
+    } else if (ch === "(") depth += 1;
+    else if (ch === ")" && --depth === 0) return i + 1;
+  }
+  return -1;
+}
+
+/**
+ * Whether a missing-continuation's block is the one shape join-and-close fixes: `/if (x)` or
+ * `/while (x)` alone on its line, then its indented body, then for an /if optionally `/else`
+ * alone on a line and its indented body, every one of those lines taken in (`related`).
+ */
+function simpleBlock(lines: string[], d: TfDiagnostic, entry: LogicalEntry, related: NonNullable<TfDiagnostic["related"]>): boolean {
+  if (related.length === 0 || entry.startLine !== entry.endLine || d.range.start.character !== 0) return false;
+  const line = (lines[entry.startLine] ?? "").replace(/[ \t\r\f\v]+$/, "");
+  const opener = /^\/(if|while)[ \t]*/i.exec(line);
+  if (!opener || line[opener[0].length] !== "(") return false;
+  if (conditionEnd(line, opener[0].length) !== line.length) return false;
+  const isIf = (opener[1] as string).toLowerCase() === "if";
+  const rows = [...related].sort((a, b) => a.range.start.line - b.range.start.line);
+  let elses = 0;
+  let body = 0;
+  for (const r of rows) {
+    const text = (lines[r.range.start.line] ?? "").trim();
+    if (/^\/else$/i.test(text) && isIf && elses === 0 && body > 0) {
+      elses += 1;
+      body = 0;
+    } else if (r.message.includes("line before it has no") && leadingWhitespaceLength(lines[r.range.start.line] ?? "") > 0) {
+      body += 1;
+    } else {
+      return false;
+    }
+  }
+  return body > 0;
+}
+
 /** Whether a block in this top-level command has a part with no statement in it. */
 function hasEmptyBranch(text: string): boolean {
   return parseRegions(text, "top").blocks.some((b) => b.parts.some((p) => text.slice(p.start, p.end).replace(/%[;|\\]/g, "").trim() === ""));
@@ -445,11 +488,12 @@ function addJoins(text: string, diagnostics: TfDiagnostic[], diagnoseSlice: Diag
       add(d, `Join the ${opener[0].toLowerCase()}'s lines with \\`, join);
       continue;
     }
-    // A block with no closer below it, only lines meant as its body (or a stray /else or /elseif):
-    // join those and close it. Not with a stray /then or /do, where it can't tell a condition list
-    // from a (condition), nor with a closer, which the join above would have brought in.
+    // A block with no closer below it: join its lines and close it, but only in the one shape where
+    // that is surely what was meant: an opener alone on its line with a (condition), its indented
+    // body, and optionally a lone /else line and its own indented body. Anything else (a condition
+    // list, /elseif, a stray /then or /do, text on the opener's line) gets no such fix.
     const related = d.code === "missing-continuation" ? (d.related ?? []) : [];
-    if (related.length === 0 || related.some((r) => / \/(?:then|do|endif|done) doesn't/.test(r.message))) continue;
+    if (!simpleBlock(lines, d, entry, related)) continue;
     const word = opener[0].toLowerCase();
     const closer = word === "/while" ? "done" : "endif";
     const last = Math.max(...related.map((r) => r.range.start.line));

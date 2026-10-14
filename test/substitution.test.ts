@@ -116,4 +116,14 @@ describe("separators and strings", () => {
     expect(contextOf('/test echo("%{x}")', "%{x}")).toBe("keyword");
     expect(contextOf('/if (1) /test echo("%{x}")%; /endif', "%{x}")).toBe("newline");
   });
+
+  // Second review's probes e1-e3: a $(...) in an expression runs as a macro body, quotes and all.
+  it("reads a $(...) in an expression as a macro body", () => {
+    expect(contextOf('/def e1 = /if ($(/echo "%{x}") =~ "\\"XV\\"") /endif', "%{x}")).toBe("full");
+    expect(contextOf('/def e5 = /echo $[strcat("a", $(/echo "%{x}"))]', "%{x}")).toBe("full");
+    expect(contextOf('/if ($(/echo "%{x}") =~ "x") /endif', "%{x}")).toBe("full");
+    expect(contextOf('/test echo(strcat("a", $(/echo "%{x}")))', "%{x}")).toBe("full");
+    expect(contextOf('/if (1) /test echo(strcat("a", $(/echo "%{x}")))%; /endif', "%{x}")).toBe("full");
+    expect(contextOf("/echo $(/echo %{x})", "%{x}")).toBe("keyword");
+  });
 });

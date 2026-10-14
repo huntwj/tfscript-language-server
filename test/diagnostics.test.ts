@@ -137,6 +137,10 @@ describe("not-substituted-here (rule 4)", () => {
     expect(message('/test echo("%{x}")')).toEqual([
       "%{x} stays as it is in a command at the top level of a file: put /eval in front of the command to substitute it.",
     ]);
+    // Second review's probes e1 and e3: tf runs these $(...)s as macro bodies, substituting %{x}.
+    expect(message('/def e1 = /if ($(/echo "%{x}") =~ "\\"XV\\"") /echo s%; /endif')).toEqual([]);
+    expect(message('/def e5 = /echo $[strcat("a", $(/echo "%{x}"))]')).toEqual([]);
+    expect(message('/test echo(strcat("a", $(/echo "%{x}")))')).toEqual([]);
   });
 
   // Review probes p1 (A4) and p2 (B1): the command after /quote's backquote is run as a macro body.

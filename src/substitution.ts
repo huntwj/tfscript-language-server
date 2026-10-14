@@ -199,18 +199,45 @@ export function atCommand(s: string, from: number, to: number): number | undefin
   return command?.start;
 }
 
-/** The strings in `s[from, to)`, read as an expression reads them (tf's `is_quote()`, `\` escaping). */
-function stringsIn(s: string, from: number, to: number): { start: number; end: number }[] {
-  const out: { start: number; end: number }[] = [];
+/**
+ * Where the `$(...)` whose `$` is at `at` ends (just past its `)`, or `to`). Its text is a command
+ * list, where quotes are text: the first `)` outside a `$[...]` or an inner `$(...)` ends it.
+ */
+function cmdsubEnd(s: string, at: number, to: number): number {
+  let brackets = 0;
+  for (let k = at + 2; k < to; k += 1) {
+    if (s[k] === "$" && s[k + 1] === "(") k = cmdsubEnd(s, k, to) - 1;
+    else if (s[k] === "$" && s[k + 1] === "[") {
+      brackets += 1;
+      k += 1;
+    } else if (s[k] === "]" && brackets > 0) brackets -= 1;
+    else if (s[k] === ")" && brackets === 0) return k + 1;
+  }
+  return to;
+}
+
+/**
+ * The strings in `s[from, to)`, read as an expression reads them (tf's `is_quote()`, `\` escaping),
+ * and the `$(...)`s, whose text is a command list run as a macro body, not part of the expression.
+ */
+function stringsIn(s: string, from: number, to: number): { strings: { start: number; end: number }[]; cmdsubs: { start: number; end: number }[] } {
+  const strings: { start: number; end: number }[] = [];
+  const cmdsubs: { start: number; end: number }[] = [];
   for (let k = from; k < to; k += 1) {
+    if (s[k] === "$" && s[k + 1] === "(") {
+      const end = cmdsubEnd(s, k, to);
+      cmdsubs.push({ start: k + 2, end: s[end - 1] === ")" ? end - 1 : end });
+      k = end - 1;
+      continue;
+    }
     const quote = s[k];
     if (quote !== '"' && quote !== "'" && quote !== "`") continue;
     let end = k + 1;
     while (end < to && s[end] !== quote) end += s[end] === "\\" ? 2 : 1;
-    out.push({ start: k, end: Math.min(end + 1, to) });
+    strings.push({ start: k, end: Math.min(end + 1, to) });
     k = end;
   }
-  return out;
+  return { strings, cmdsubs };
 }
 
 const cache = new WeakMap<LogicalEntry, SubstitutionModel>();
@@ -233,13 +260,17 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
     }
   };
 
-  /** Expressions, then the strings in them: a string in a condition or `$[...]` is never substituted. */
+  /**
+   * Expressions, outer before inner, then the strings in each: a string in a condition or `$[...]`
+   * is never substituted. A `$(...)` in an expression runs as a macro body (review probes e1-e3:
+   * `/if ($(/echo "%{x}") =~ ...)` compares `"XV"`, at the top level too).
+   */
   const expressions = (src: Source, list: ExpressionRegion[]): void => {
-    for (const ex of list) mark(src, ex.start, ex.end, "expression", true);
-    for (const ex of list) {
-      for (const str of stringsIn(src.text, ex.start, ex.end)) {
-        mark(src, str.start, str.end, ex.kind === "statement" ? (ex.level ?? "keyword") : "string", true);
-      }
+    for (const ex of [...list].sort((a, b) => a.start - b.start || b.end - a.end)) {
+      mark(src, ex.start, ex.end, "expression", true);
+      const { strings, cmdsubs } = stringsIn(src.text, ex.start, ex.end);
+      for (const str of strings) mark(src, str.start, str.end, ex.kind === "statement" ? (ex.level ?? "keyword") : "string", true);
+      for (const c of cmdsubs) mark(src, c.start, c.end, "full");
     }
   };
 

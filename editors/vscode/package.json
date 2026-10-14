@@ -133,6 +133,13 @@
           "default": [],
           "scope": "resource",
           "markdownDescription": "Where tf's paths are on this machine, when tf runs somewhere else (a container, WSL, another host): `[{ \"tf\": \"/wotmud\", \"local\": \"C:/Users/me/wotmud\" }]`. Absolute paths in `/load` and `/require`, and in the `TFPATH` and `HOME` a script sets, go through it, as do the other path settings when written as tf's paths."
+        },
+        "tfscript.variables": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {},
+          "scope": "resource",
+          "markdownDescription": "Variables with a value when tf starts, as if `/set` after `stdlib.tf`: set in the environment, by a tfrc outside the workspace, or by a default this check can't work out, such as `/if (x =~ \"\") /set x=...%; /endif`. For example `{ \"wotmud_repo_dir\": \"/wotmud\" }`. Values are as tf sees them, so paths go through `#tfscript.pathMappings#`. A value here stands through a `/set` of it inside an `/if` or `/while`; a `/set` that always runs replaces it."
         }
       }
     }

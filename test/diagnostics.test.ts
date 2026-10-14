@@ -154,6 +154,26 @@ describe("not-substituted-here (rule 4)", () => {
     expect(codes("/quote -S !echo %{x}\n")).toContain("not-substituted-here");
   });
 
+  // Second review's probe q2: Q2, Q13 and Q16 leave %{x} and %; as written, Q14 and Q15 don't.
+  it("names /quote -soff and -son text, and offers to leave out its -s or give it -son", () => {
+    const fixes = (line: string) =>
+      getDiagnostics(`${line}\n`).map((d) => [d.message, d.fix?.title, d.fix?.edits.map((e) => [e.range.start.character, e.range.end.character, e.newText])]);
+    expect(fixes("/quote -S -soff `/echo %{x}")).toEqual([
+      ["%{x} stays as it is in /quote -soff text: leave out the -s option to substitute it.", "Leave out -soff", [[10, 16, ""]]],
+    ]);
+    expect(fixes("/quote -Ssoff `/echo %{x}")).toEqual([
+      ["%{x} stays as it is in /quote -soff text: leave out the -s option to substitute it.", "Leave out -soff", [[9, 13, ""]]],
+    ]);
+    expect(fixes("/quote -S -soff `/echo a%; /echo b")).toEqual([
+      [
+        "%; doesn't end a command in /quote -soff text, so it and the rest of the line are part of /echo: give the /quote -son, or leave out the -s option.",
+        "Give the /quote -son",
+        [[10, 15, "-son"]],
+      ],
+    ]);
+    expect(fixes("/quote -Ssoff `/echo a%; /echo b")[0]?.[2]).toEqual([[9, 13, "son"]]);
+  });
+
   it("leaves %name alone outside a load path, and a % in a run", () => {
     expect(codes("/set std_clock_format=%H:%M\n")).toEqual([]);
     expect(codes("/echo %%{x}\n")).toEqual([]);

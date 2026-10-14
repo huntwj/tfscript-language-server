@@ -69,7 +69,7 @@ describe("repeatArguments", () => {
 describe("evalArguments", () => {
   it("reads -s and where the text starts", () => {
     const args = "-soff -- /echo x";
-    expect(evalArguments(args, 0, args.length)).toEqual({ text: args.indexOf("/echo"), mode: "top", options: [{ start: 0, end: 5 }] });
+    expect(evalArguments(args, 0, args.length)).toEqual({ text: args.indexOf("/echo"), mode: "top", options: [{ start: 0, end: 5, whole: true }] });
     expect(evalArguments("-q x", 0, 4)).toBeUndefined();
     expect(evalArguments("", 0, 0)).toEqual({ text: 0, mode: "body", options: [] });
   });

@@ -1,7 +1,7 @@
 import { entryLoads } from "../loadCommands";
 import { isTfSpace } from "../logicalEntries";
 import { code, type IssueEdit } from "../structure";
-import { entrySubstitution, type ContextStatement, type EvalLevel } from "../substitution";
+import { entrySubstitution, type ContextStatement, type EvalLevel, type LevelOption } from "../substitution";
 import type { EntryRule, EntryMatch } from "./types";
 
 /**
@@ -36,9 +36,14 @@ function statementAt(statements: ContextStatement[], offset: number): ContextSta
   return found;
 }
 
-/** `/eval -soff`'s or `-son`'s name, as written in the advice. */
+/** `/eval -soff`'s or `/quote -son`'s name, as written in the advice. */
 function evalName(e: EvalLevel): string {
-  return `/eval -s${e.mode === "top" ? "off" : "on"}`;
+  return `/${e.command} -s${e.mode === "top" ? "off" : "on"}`;
+}
+
+/** An `-s` option as the advice names it: `-soff` for the `soff` in `-Ssoff` too. */
+function optionName(text: string, o: LevelOption): string {
+  return `${o.whole ? "" : "-"}${text.slice(o.start, o.end)}`;
 }
 
 export const notSubstitutedHere: EntryRule = {
@@ -55,11 +60,11 @@ export const notSubstitutedHere: EntryRule = {
       const st = statementAt(statements, at);
       return !(st && st.body !== undefined && at < st.body);
     };
-    /** Edits that take an `/eval`'s `-s` options out, with the blanks after each. */
+    /** Edits that take an `/eval`'s or `/quote`'s `-s` options out, a word with the blanks after it. */
     const dropOptions = (e: EvalLevel): IssueEdit[] =>
       e.options.map((o) => {
         let end = o.end;
-        while (end < text.length && isTfSpace(text[end])) end += 1;
+        while (o.whole && end < text.length && isTfSpace(text[end])) end += 1;
         return { start: o.start, end, newText: "" };
       });
     const out: EntryMatch[] = [];
@@ -80,8 +85,10 @@ export const notSubstitutedHere: EntryRule = {
           explanation:
             `${code(name)} runs its text ${st.viaEval.mode === "top" ? "as a plain line of a file is run" : "as a top-level /if line is run"}, ` +
             `without substituting variables, so the command gets the text ${code(written)}. Without ${code("-s")}, ` +
-            `${code("/eval")} substitutes its text once and then runs it.`,
-          fix: { title: `Leave out ${text.slice(st.viaEval.options.at(-1)!.start, st.viaEval.options.at(-1)!.end)}`, edits: dropOptions(st.viaEval) },
+            (st.viaEval.command === "eval"
+              ? `${code("/eval")} substitutes its text once and then runs it.`
+              : `${code("/quote")} runs the command as a macro body is run, substituting it.`),
+          fix: { title: `Leave out ${optionName(text, st.viaEval.options.at(-1)!)}`, edits: dropOptions(st.viaEval) },
         });
         return;
       }
@@ -139,7 +146,7 @@ export const notSubstitutedHere: EntryRule = {
       const where = st.viaEval ? `in ${evalName(st.viaEval)} text` : "on a plain top-level line";
       const value = VALUE_COMMANDS.has(st.word);
       const advice = st.viaEval
-        ? "give the /eval -son, or leave out the -s option"
+        ? `give the /${st.viaEval.command} -son, or leave out the -s option`
         : value
           ? "if they are meant as commands, put each on a line of its own"
           : "put each command on a line of its own, or start the line with /eval";
@@ -165,7 +172,10 @@ export const notSubstitutedHere: EntryRule = {
       if (command && !value) {
         if (st.viaEval) {
           const last = st.viaEval.options.at(-1)!;
-          match.fix = { title: "Give the /eval -son", edits: [{ start: last.start, end: last.end, newText: "-son" }] };
+          match.fix = {
+            title: `Give the /${st.viaEval.command} -son`,
+            edits: [{ start: last.start, end: last.end, newText: last.whole ? "-son" : "son" }],
+          };
         } else {
           match.fix = { title: "Put the next command on a line of its own", edits: [{ start: at, end: next, newText: "\n" }] };
         }

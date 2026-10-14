@@ -38,10 +38,24 @@ import { macroBodyStart, parseRegions, type ExpressionRegion, type StructureMode
  */
 export type SubContext = SubLevel | "expression" | "string";
 
-/** The `/eval -soff` or `-son` whose text a statement is, with its `-s` options' offsets into `entry.text`. */
+/**
+ * An `-s` option, as offsets: a word of its own (`-soff`, `whole`), or the `soff` grouped after
+ * other flags in one (`-Ssoff`).
+ */
+export interface LevelOption {
+  start: number;
+  end: number;
+  whole: boolean;
+}
+
+/**
+ * The `/eval -soff` or `-son`, or the `/quote` with one, whose text a statement is, with its `-s`
+ * options' offsets into `entry.text`.
+ */
 export interface EvalLevel {
+  command: "eval" | "quote";
   mode: "top" | "newline";
-  options: { start: number; end: number }[];
+  options: LevelOption[];
 }
 
 /** A statement read at the top level, or by an `/eval -soff`/`-son` there, as offsets into `entry.text`. */
@@ -128,9 +142,9 @@ export function evalArguments(
   s: string,
   from: number,
   to: number,
-): { text: number; mode: StructureMode; options: { start: number; end: number }[] } | undefined {
+): { text: number; mode: StructureMode; options: LevelOption[] } | undefined {
   let mode: StructureMode = "body";
-  const options: { start: number; end: number }[] = [];
+  const options: LevelOption[] = [];
   let word = nextWord(s, from, to);
   while (word && s[word.start] === "-") {
     const opt = s.slice(word.start, word.end);
@@ -140,24 +154,30 @@ export function evalArguments(
     const picked = opt.startsWith("-s") ? evalMode(opt.slice(2)) : undefined;
     if (!picked) return undefined;
     mode = picked;
-    options.push({ start: at.start, end: at.end });
+    options.push({ start: at.start, end: at.end, whole: true });
   }
   return { text: word ? word.start : to, mode, options };
 }
 
 /**
  * `/quote [-options] [PREFIX]` + backquote + `COMMAND`, its arguments `s[from, to)`: where COMMAND
- * starts and ends, and how it is read. procopt("-@PSw:d:s:"): `-w`, `-d` and `-s` take the rest of
- * their word; a digit or `:` is the time. The first `'`, `!`, `#` or backquote not escaped by `\`
- * picks the kind; only a backquote runs a tf command, `"COMMAND"SUFFIX` or the rest of the text.
- * Undefined for any other kind, or an error.
+ * starts and ends, how it is read, and where each `-s` option is. procopt("-@PSw:d:s:"): `-w`, `-d`
+ * and `-s` take the rest of their word; a digit or `:` is the time. The first `'`, `!`, `#` or
+ * backquote not escaped by `\` picks the kind; only a backquote runs a tf command,
+ * `"COMMAND"SUFFIX` or the rest of the text. Undefined for any other kind, or an error.
  */
-export function quoteCommand(s: string, from: number, to: number): { start: number; end: number; mode: StructureMode } | undefined {
+export function quoteCommand(
+  s: string,
+  from: number,
+  to: number,
+): { start: number; end: number; mode: StructureMode; options: LevelOption[] } | undefined {
   let mode: StructureMode = "body";
+  const options: LevelOption[] = [];
   let i = from;
   let word = nextWord(s, i, to);
   while (word && s[word.start] === "-") {
     const opt = s.slice(word.start, word.end);
+    const at = word;
     i = word.end;
     word = nextWord(s, word.end, to);
     if (opt === "-" || opt === "--") break;
@@ -168,6 +188,7 @@ export function quoteCommand(s: string, from: number, to: number): { start: numb
         const picked = evalMode(opt.slice(k + 1));
         if (!picked) return undefined;
         mode = picked;
+        options.push(k === 1 ? { start: at.start, end: at.end, whole: true } : { start: at.start + k, end: at.end, whole: false });
         break;
       }
       // (procopt's "-@" isn't an option letter: tf says "-@: invalid option", second review's q2.)
@@ -178,10 +199,10 @@ export function quoteCommand(s: string, from: number, to: number): { start: numb
   while (i < to && s[i] !== "'" && s[i] !== "!" && s[i] !== "#" && s[i] !== "`") i += s[i] === "\\" ? 2 : 1;
   if (i >= to || s[i] !== "`") return undefined;
   i += 1;
-  if (s[i] !== '"') return { start: i, end: to, mode };
+  if (s[i] !== '"') return { start: i, end: to, mode, options };
   let end = i + 1;
   while (end < to && s[end] !== '"') end += s[end] === "\\" ? 2 : 1;
-  return { start: i + 1, end: Math.min(end, to), mode };
+  return { start: i + 1, end: Math.min(end, to), mode, options };
 }
 
 /**
@@ -323,16 +344,13 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
         const h = handed(argStart);
         const command = atCommand(h.text, 0, h.text.length);
         if (command !== undefined) read(sub(h, command), "body", depth + 1, undefined);
-      } else if (word === "quote") {
+      } else if (word === "quote" || word === "eval") {
         const h = handed(argStart);
-        const q = quoteCommand(h.text, 0, h.text.length);
-        if (q) read(sub(h, q.start, q.end), q.mode, depth + 1, undefined);
-      } else if (word === "eval") {
-        const h = handed(argStart);
-        const e = evalArguments(h.text, 0, h.text.length);
-        if (!e) continue;
-        const options = e.options.map((o) => ({ start: h.map[o.start] as number, end: (h.map[o.end - 1] as number) + 1 }));
-        read(sub(h, e.text), e.mode, depth + 1, e.mode === "body" ? undefined : { mode: e.mode, options });
+        const r = word === "quote" ? quoteCommand(h.text, 0, h.text.length) : evalArguments(h.text, 0, h.text.length);
+        if (!r) continue;
+        const [from, to] = "text" in r ? [r.text, h.text.length] : [r.start, r.end];
+        const options = r.options.map((o) => ({ start: h.map[o.start] as number, end: (h.map[o.end - 1] as number) + 1, whole: o.whole }));
+        read(sub(h, from, to), r.mode, depth + 1, r.mode === "body" ? undefined : { command: word, mode: r.mode, options });
       }
     }
     // A /test, /return or /result is a statement too, though its text is an expression.

@@ -32,9 +32,18 @@ function check(text: string): LineMatch[] {
 
     const after = line.slice(end + 1);
     const detail =
-      after === "\r"
+      line[end - 1] === "%"
         ? {
-            message: "This \\ doesn't continue the line: the file's Windows (CRLF) line endings put a carriage return after it.",
+            message: "This %\\ doesn't continue the line, with or without the whitespace after it: to continue, end the line with a \\ that has no % before it.",
+            label: "%\\ never continues",
+            explanation:
+              `tf continues a line onto the next one only when its very last character is a ${code("\\")} that doesn't ` +
+              `follow a ${code("%")}: a line ending in ${code("%\\")} is a complete command. tf also warns ` +
+              `${code("whitespace following final '\\'")} about the whitespace after it.`,
+          }
+        : after === "\r"
+        ? {
+            message: "This \\ doesn't continue the line, because the file's Windows (CRLF) line endings put a carriage return after it: save the file with LF line endings.",
             label: "carriage return after the \\",
             explanation:
               `A line continues onto the next one only when ${code("\\")} is its very last character. tf keeps the ` +
@@ -42,7 +51,7 @@ function check(text: string): LineMatch[] {
               "this file can continue. Save the file with LF line endings.",
           }
         : {
-            message: "This \\ doesn't continue the line, because whitespace follows it.",
+            message: "This \\ doesn't continue the line, because whitespace follows it: remove the whitespace.",
             label: "whitespace after the \\",
             explanation:
               `A line continues onto the next one only when ${code("\\")} is its very last character. With whitespace ` +

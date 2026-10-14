@@ -317,6 +317,16 @@ describe("rule fixes", () => {
     expect(Date.now() - start).toBeLessThan(1000);
   });
 
+  it("still joins a macro body's line with a %; of its own, which keeps its meaning in the body", () => {
+    // e30 (tf dev, 2026-10-14): joined, the /def's /if runs its /else and prints "b".
+    const e30 = ["/def f = \\", "    /if (0) \\", "        /echo % a%; \\", "    /else", "        /echo % b%; \\", "    /endif", "/f", ""].join("\n");
+    const fix = getCodeActions(e30, WHOLE_FILE).find((a) => a.title === "End line 4 with \\");
+    expect(applyEdits(e30, fix!.edits)).toBe(["/def f = \\", "    /if (0) \\", "        /echo % a%; \\", "    /else \\", "        /echo % b%; \\", "    /endif", "/f", ""].join("\n"));
+    // e37: the second line's two commands become the body's; tf then prints a, b and c from /f.
+    const e37 = ["/def f = /echo % a", "    /echo % b%; /echo % c", "/f", ""].join("\n");
+    expect(getCodeActions(e37, WHOLE_FILE).map((a) => a.title)).toContain("End line 1 with \\");
+  });
+
   it("writes no %; after a /do or /then that ends a line, which would send a blank line", () => {
     // s10, s96 (tf dev, 2026-10-14): the joined loop runs, with no blank line sent.
     const s96 = ["/if /test 1", "/then", "    /echo % a", "/endif", "/echo % after", ""].join("\n");

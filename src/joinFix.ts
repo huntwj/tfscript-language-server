@@ -168,14 +168,16 @@ function continued(line: string, next: string, mode: Separates, header: boolean,
  * `base`, or undefined if they can't be.
  */
 function joined(lines: string[], base: number, from: number, to: number, mode: Separates): string[] | undefined {
-  // Only lines that start a command of their own and keep their meaning in the joined one: a
-  // separator of their own (%;, %| or %\) was text, or a body's, and would split the block's
-  // statements instead; and a line of text would become the previous command's arguments.
+  // Only lines that start a command of their own and keep their meaning in the joined one. In a
+  // top-level /if or /while, a separator of the line's own (%;, %| or %\) was text, or a /def's
+  // body separator, and would split the block's statements instead. (Joined into a macro body,
+  // the line stays in that body, so its %; means what it was written to.) And a line of text would
+  // become the previous command's arguments.
   let previous = lines[from] ?? "";
   for (let k = from + 1; k <= to; k += 1) {
     const line = lines[k] ?? "";
     if (isCommentLine(line) || isBlankLine(line)) continue;
-    if (OWN_SEPARATOR_RE.test(line)) return undefined;
+    if (mode === "top" && OWN_SEPARATOR_RE.test(line)) return undefined;
     // A top-level /if or /while line gets one more round of % processing than the line had on its
     // own (proven in tf dev, 2026-10-14: an /echo or a /def -t pattern's %% becomes %), so a %%
     // would change what the line says, or make a %%; a separator.

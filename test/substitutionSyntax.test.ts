@@ -202,4 +202,14 @@ describe("not-substituted-here and nested or malformed %{", () => {
     expect(fixOf("/if (1) /eval -s0 /echo %% X2:%{x} %%{y%; /endif\n")?.fix).toBeUndefined();
     expect(fixOf("/if (1) /echo %%%% X3:%{x} %%%{y%; /endif\n")?.fix?.title).toBe("Put /eval in front of the command");
   });
+
+  // Review rev-s2b q7: each of these is rejected under /eval (proven, s2/r/q7all.tf).
+  it("names what tf couldn't read from the opener of the substitution it is in", () => {
+    const named = (text: string) =>
+      /fix (.*) first\.$/.exec(getDiagnostics(text).find((d) => d.code === "not-substituted-here")?.message ?? "")?.[1];
+    expect(named("/echo T18:%{x} $[%y + (]\n")).toBe("$[%y + (]");
+    expect(named("/echo T16:%{x} $[(1]\n")).toBe("$[(1]");
+    expect(named("/echo T21:%{x} %{y-$[}\n")).toBe("%{y-$[}");
+    expect(named("/echo T13:%{x} ${y\n")).toBe("${y");
+  });
 });

@@ -62,6 +62,32 @@ function percentBraces(text: string): { index: number; text: string }[] {
   return found;
 }
 
+/**
+ * Where the outermost `%{`, `${`, `$[` or `$(` still open at `at` in `s` starts, or `at` when none
+ * is: enough to name a problem by the substitution it is in.
+ */
+function openerOf(s: string, at: number): number {
+  const open: { at: number; close: string; opener: boolean }[] = [];
+  for (let i = 0; i < at; i += 1) {
+    const ch = s[i];
+    const next = s[i + 1];
+    if ((ch === "%" || ch === "$") && next === ch) {
+      while (s[i + 1] === ch) i += 1;
+    } else if ((ch === "%" || ch === "$") && next === "{") {
+      open.push({ at: i, close: "}", opener: true });
+      i += 1;
+    } else if (ch === "$" && (next === "[" || next === "(")) {
+      open.push({ at: i, close: next === "[" ? "]" : ")", opener: true });
+      i += 1;
+    } else if (ch === "(" && open.length > 0) {
+      open.push({ at: i, close: ")", opener: false });
+    } else if (ch === open[open.length - 1]?.close) {
+      open.pop();
+    }
+  }
+  return open.find((o) => o.opener)?.at ?? at;
+}
+
 /** The innermost statement holding `offset`. */
 function statementAt(statements: ContextStatement[], offset: number): ContextStatement | undefined {
   let found: ContextStatement | undefined;
@@ -118,12 +144,11 @@ export const notSubstitutedHere: EntryRule = {
       const { text: s, map } = inIfLine ? shortened(identity, 0, written.length) : identity;
       const issue = parseRegions(s, "body").issues.find((i) => i.kind === "substitution" || i.kind === "expression");
       if (!issue) return undefined;
-      // From its opener (a related location, for a selector with something glued on) to the end of
+      // From the opener of the substitution it is in (`$[` for the `(` of `$[%y + (]`) to the end of
       // the word, named as written in the file.
-      let from = Math.min(issue.start, ...(issue.related ?? []).map((n) => n.start));
+      const from = openerOf(s, Math.min(issue.start, ...(issue.related ?? []).map((n) => n.start)));
       let to = issue.end;
       while (to < s.length && !isTfSpace(s[to])) to += 1;
-      while (from > 0 && !isTfSpace(s[from - 1]) && s[from] !== "%" && s[from] !== "$") from -= 1;
       return written.slice(map[from], to > from ? (map[to - 1] as number) + 1 : map[from]);
     };
     const rejected = (bad: string): string =>

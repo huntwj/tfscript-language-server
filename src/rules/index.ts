@@ -11,6 +11,7 @@ import { unclosedSubstitution } from "./unclosedSubstitution";
 import { separatorSendsBlankLine } from "./separatorSendsBlankLine";
 import { nestingTooDeep } from "./nestingTooDeep";
 import { incompleteContinuation } from "./incompleteContinuation";
+import { bodyContinuesWithoutBackslash } from "./bodyContinuesWithoutBackslash";
 import type { Rule } from "./types";
 
 // notACommand.ts is deliberately not in this list: it doesn't just report a
@@ -30,6 +31,7 @@ export const RULES: Rule[] = [
   separatorSendsBlankLine,
   nestingTooDeep,
   incompleteContinuation,
+  bodyContinuesWithoutBackslash,
 ];
 
 export type { EntryRule, FileRule, Rule, EntryMatch, LineMatch, LineSpan, Severity } from "./types";

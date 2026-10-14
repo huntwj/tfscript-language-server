@@ -63,6 +63,7 @@ view of the file gets truncated, since tf never reads past the line it aborts on
 | 11 | `unclosed-substitution` | a `$[`, `${`, `$(`, `%{`, string or `(` that never closes, and a `%-` naming no selector (`50%-off`), where tf substitutes: in a macro body, a top-level condition, `/test` |
 | 12 | `separator-sends-blank-line` | (warning) a `%;` straight after `/if (...)` or `/else`, which sends a blank line to the world |
 | — | `incomplete-continuation` | (warning) the file's last command ends in `\`: tf says "last command is incomplete because of trailing \\" and drops it, so a macro it would define isn't defined. A final newline doesn't complete it (tf reads no line after it); a real blank line does. The fix removes the `\` |
+| — | `body-continues-without-backslash` | (information) a macro body whose last line ends in `%;` but not `\`, with an unindented command on the next line: that line is a command of its own, run when the file loads. Not when the body ends at a blank line, nor when the next line runs the macro just defined |
 | — | `nesting-too-deep` | (information) not a problem in tf: a command nesting more than 400 levels deep (each nested `/if`, `/while`, `$(...)`, `$[...]` or `%{name-...}` default is a level), past which the structural check stops; what it read before that still counts |
 
 `missing-continuation`, `block-structure`, `unclosed-substitution` and
@@ -380,6 +381,7 @@ test/
   endOfFile.test.ts     a final newline, a command the file ends inside, incomplete-continuation
   missingContinuation.test.ts  a top-level block cut off at the end of its line, reported once
                         with the lines that were meant to be part of it
+  bodyContinuesWithoutBackslash.test.ts  a body ending in %; with a command on the next line
   variables.test.ts, variableNavigation.test.ts, highlights.test.ts  variable scopes,
                         lookups, rename and highlights
   documentLinks.test.ts  which /load and /require filenames link, and where to

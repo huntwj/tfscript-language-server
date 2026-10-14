@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getDefinition, getHover, getReferences, getRenameEdits, prepareRename } from "../src/navigation";
-import { resolveSettings, type Environment } from "../src/workspace/settings";
+import { resolveSettings, toLocalPath, type Environment } from "../src/workspace/settings";
 import { WorkspaceIndex } from "../src/workspace/workspaceIndex";
 
 const ROOT = path.resolve("/fake");
@@ -336,5 +336,27 @@ describe("undefined macros through the workspace index", () => {
     expect(score).toMatchObject({ severity: "information" });
     expect(score?.message).toContain("the load of dep/main.tf (main.tf line 1) can't be followed");
     expect(diagnose(files, p("ws", "alone.tf"))).toMatchObject([{ severity: "warning" }]);
+  });
+});
+
+describe("toLocalPath", () => {
+  const mappings = [
+    { tf: "/wotmud", local: p("repo") },
+    { tf: "/", local: p("root") },
+  ];
+
+  it("resolves .. and // before matching, as tf's open() would", () => {
+    expect(toLocalPath("/wotmud/x/../y.tf", mappings)).toBe(p("repo", "y.tf"));
+    expect(toLocalPath("/wotmud//y.tf", mappings)).toBe(p("repo", "y.tf"));
+    expect(toLocalPath("/wotmud/../etc/z.tf", mappings)).toBe(p("root", "etc", "z.tf"));
+  });
+
+  it("leaves a UNC path alone, even with a / mapping", () => {
+    expect(toLocalPath(String.raw`\\server\share\a.tf`, mappings)).toBe(String.raw`\\server\share\a.tf`);
+    expect(toLocalPath("//server/share/a.tf", mappings)).toBe("//server/share/a.tf");
+  });
+
+  it("matches whole segments only", () => {
+    expect(toLocalPath("/wotmudx/a.tf", [{ tf: "/wotmud", local: p("repo") }])).toBe("/wotmudx/a.tf");
   });
 });

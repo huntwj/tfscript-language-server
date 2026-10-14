@@ -31,7 +31,7 @@ export interface RawSettings {
   diagnostics?: {
     /** `/load`/`/require` paths tf wouldn't find. Default on. */
     unresolvedLoads?: boolean;
-    /** Calls to macros defined nowhere tf can see. Default off. */
+    /** Calls to macros defined nowhere tf can see. Default on. */
     undefinedMacros?: boolean;
     /** Macro names the undefined-macro check leaves alone (made while tf runs, say); `*` is a wildcard. */
     ignoreMacros?: string[];
@@ -74,7 +74,10 @@ export interface PathMapping {
  * built with path.join() still maps.
  */
 export function toLocalPath(p: string, mappings: readonly PathMapping[]): string {
-  const forward = p.replace(/\\/g, "/");
+  // A UNC path (\\server\share) is this machine's, never tf's.
+  if (mappings.length === 0 || /^[\\/]{2}/.test(p)) return p;
+  // `..` and `//` are resolved first, as tf's open() would: /wotmud/x/../y.tf is /wotmud/y.tf.
+  const forward = path.posix.normalize(p.replace(/\\/g, "/"));
   for (const m of mappings) {
     if (forward === m.tf || forward.startsWith(m.tf === "/" ? "/" : `${m.tf}/`)) {
       return path.join(m.local, forward.slice(m.tf === "/" ? 1 : m.tf.length));
@@ -98,7 +101,7 @@ export function toTfPath(p: string, mappings: readonly PathMapping[]): string | 
 function mappingsOf(raw: RawSettings, folder: string, home: string): PathMapping[] {
   return (raw.pathMappings ?? [])
     .filter((m) => typeof m?.tf === "string" && typeof m?.local === "string" && m.tf.startsWith("/") && m.local.trim() !== "")
-    .map((m) => ({ tf: m.tf.replace(/\\/g, "/").replace(/\/+$/, "") || "/", local: absolute(m.local, folder, home, []) }))
+    .map((m) => ({ tf: path.posix.normalize(m.tf.replace(/\\/g, "/")).replace(/\/+$/, "") || "/", local: absolute(m.local, folder, home, []) }))
     .sort((a, b) => b.tf.length - a.tf.length);
 }
 

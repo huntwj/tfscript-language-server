@@ -531,10 +531,12 @@ aren't shown, and a redefined macro's calls are shown under each of its `/def`s.
 another command isn't an item of its own: its calls count as its file's top level, or the
 definition around it.
 
-Find-references, highlights and rename count those `name(...)` calls as uses of the macro, too.
-Rename refuses a new name tf couldn't call that way: one with characters other than letters,
-digits and `_` (`$[s.q(2)]` is a syntax error in tf), or a builtin function's name, which tf would
-call instead.
+Find-references, highlights and rename count those `name(...)` calls as uses of the macro, too,
+and `{name}(...)`, which calls name the same way (proven: `$[{sq}(3)]` ran the macro sq with a
+variable sq set), so it isn't a read of the variable. Rename refuses a new name tf couldn't call
+that way: one with characters other than letters, digits and `_` (`$[s.q(2)]` is a syntax error
+in tf), or a builtin function's name, which tf would call instead. It also refuses a new name
+another macro already has, ignoring case as tf does, since one `/def` would replace the other.
 
 Above each `/def`, a lens counts its references, as find-references does, and opens them in the
 references peek. The count is worked out only when the lens is shown, and

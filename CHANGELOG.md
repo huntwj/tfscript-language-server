@@ -7,8 +7,9 @@
   top level each call is in, and only calls that run that `/def` from the caller's load path) and
   what it calls. Calls are what tf runs: `/name` statements, and `name(...)` in an expression
   (stdlib's `/expr` included) when name isn't a builtin function.
-- Find-references, highlights and rename count `name(...)` calls as uses of the macro; rename
-  refuses a new name tf couldn't call that way.
+- Find-references, highlights and rename count `name(...)` and `{name}(...)` calls as uses of the
+  macro; rename refuses a new name tf couldn't call that way, and one another macro already has
+  (ignoring case, as tf does).
 - "N references" above each `/def`, opening the references peek, for a client that passes a
   `showReferencesCommand` in its `initializationOptions` (the VS Code extension does);
   `tfscript.codeLens.references` turns them off.

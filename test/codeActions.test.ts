@@ -192,8 +192,13 @@ describe("rule fixes", () => {
       ["/def -i a = /echo one", "    /echo two", "    /echo three"],
       ["/def -i a = /echo one%; \\", "    /echo two%; \\", "    /echo three"],
     ],
-    // A top-level line does no \ processing, so there \%; does separate.
+    // Proven live in a /def body: \\%; and \%%; separate (\ escapes one character), \\\%; is text.
+    ["indented-line-after-command", ["/def -i a = /echo a\\\\%;", "    /echo two"], ["/def -i a = /echo a\\\\%; \\", "    /echo two"]],
+    ["indented-line-after-command", ["/def -i a = /echo pct\\%%;", "    /echo two"], ["/def -i a = /echo pct\\%%; \\", "    /echo two"]],
+    ["indented-line-after-command", ["/def -i a = /echo a\\\\\\%;", "    /echo two"], ["/def -i a = /echo a\\\\\\%;%; \\", "    /echo two"]],
+    // A top-level line does no \ processing, so there \%; does separate, and \%%; doesn't.
     ["if-multiline-top-level", ["/if (1)", "  /echo a\\%;", "  /echo b", "/endif"], ["/if (1) \\", "  /echo a\\%; \\", "  /echo b%; \\", "/endif"]],
+    ["if-multiline-top-level", ["/if (1)", "  /echo a\\%%;", "  /echo b", "/endif"], ["/if (1) \\", "  /echo a\\%%;%; \\", "  /echo b%; \\", "/endif"]],
   ];
   for (const [code, before, after] of cases) {
     it(`${code}: ${before.join(" | ")}`, () => {
@@ -240,6 +245,14 @@ describe("rule fixes", () => {
     const text = [...lines, "/if (1)", "  /echo ok", "/endif", ""].join("\n");
     const good = getDiagnostics(text).find((d) => d.code === "if-multiline-top-level" && d.range.start.line === 300);
     expect(good?.fix?.title).toBe("Join the /if's lines with \\");
+  });
+
+  it("bounds the cost of trying joins over a whole file", () => {
+    // Every line holds an /endif or /done, so every join has candidates to try.
+    const lines = Array.from({ length: 3000 }, (_, i) => ["/while (1)", "  /if (x) /echo /done", "  /echo /endif"][i % 3] as string);
+    const start = Date.now();
+    getCodeActions(`${lines.join("\n")}\n`, WHOLE_FILE);
+    expect(Date.now() - start).toBeLessThan(1000);
   });
 
   it("continues a line of text without a %;", () => {

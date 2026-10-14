@@ -44,6 +44,7 @@ interface Join {
 const MAX_LINES = 20;
 const MAX_TRIES = 80;
 const MAX_SLICE = 20_000;
+const MAX_TOTAL_TRIES = 1500;
 /** An /endif or /done as a word of its own, after a blank or a separator. */
 const CLOSER_RE = /(?<![^ \t;|\\])\/(?:endif|done)(?=[ \t\r\f\v%)]|$)/i;
 const TOP_BLOCK_RE = /^\/(?:if|while)\b/i;
@@ -59,27 +60,68 @@ function separates(entry: LogicalEntry): Separates {
 }
 
 /**
- * Whether `body` already ends with a statement separator: `%;`, `%|` or `%\` with exactly one
- * `%` (in a run of two or more, percentsub() keeps them all as text, so `%%;` is text). In a macro
- * body a `\` before the `%` escapes it; proven live, `\%;` and even `\\%;` at the end of a `/def`
- * body line are text. A top-level line does no `\` processing.
+ * Reads a command's text the way expand() finds its statement separators (structure.ts has the
+ * full model): `%;`, `%|` or `%\` separates; a run of two or more `%`s is text, whatever follows
+ * (percentsub() keeps the whole run); in a macro body `\` escapes the next character, and a
+ * top-level line does no `\` processing. Proven live in a /def body: `\\%;` and `\\\\%;` separate,
+ * `\%;` and `\\\%;` are text, `\%%;` separates (the `\` takes one `%`), `%%%;` is text; on a
+ * top-level /if line `\%;` and `\\%;` separate, `%%;` and `\%%;` don't.
+ *
+ * It is fed one piece at a time, so a command joined from many lines is read once.
  */
-function endsWithSeparator(body: string, mode: Separates): boolean {
-  if (!/[;|\\]$/.test(body) || body[body.length - 2] !== "%") return false;
-  const before = body[body.length - 3];
-  if (before === "%") return false;
-  return !(mode === "body" && before === "\\");
+class SeparatorScanner {
+  private escaped = false;
+  private percents = 0;
+  private content = false;
+  /** The text so far ends with a separator. */
+  atSeparator = false;
+  /** Separators with nothing but blanks since the one before (or the start): empty statements. */
+  empty = 0;
+  constructor(private readonly mode: Separates) {}
+
+  feed(text: string): this {
+    for (const ch of text) {
+      if (this.escaped) {
+        this.escaped = false;
+        this.text();
+      } else if (this.percents === 1 && (ch === ";" || ch === "|" || ch === "\\")) {
+        if (!this.content) this.empty += 1;
+        this.content = false;
+        this.percents = 0;
+        this.atSeparator = true;
+      } else if (ch === "%") {
+        if (this.percents > 0) this.content = true; // a run of %s is text
+        this.percents += 1;
+        this.atSeparator = false;
+      } else if (ch === "\\" && this.mode === "body") {
+        this.escaped = true;
+        this.text();
+      } else if (isTfSpace(ch) && this.percents === 0) {
+        this.atSeparator = false;
+      } else {
+        this.text();
+      }
+    }
+    return this;
+  }
+
+  private text(): void {
+    this.content = true;
+    this.percents = 0;
+    this.atSeparator = false;
+  }
 }
 
-/** The command so far, as tf joins it: each line without its leading blanks or continuing `\`. */
+/** A line's part of the command, as tf joins it: without its leading blanks or continuing `\`. */
+function partOf(line: string): string {
+  const part = line.slice(leadingWhitespaceLength(line));
+  return continuesToNextLine(part) ? part.slice(0, -1) : part;
+}
+
+/** The command of lines `from`..`to`, as tf joins it. */
 function joinedText(lines: string[], from: number, to: number): string {
   let text = "";
-  for (let k = from; k <= to; k += 1) {
-    const line = lines[k] ?? "";
-    if (isCommentLine(line)) continue;
-    const part = line.slice(leadingWhitespaceLength(line));
-    text += continuesToNextLine(part) ? part.slice(0, -1) : part;
-  }
+  for (let k = from; k <= to; k += 1) if (!isCommentLine(lines[k] ?? "")) text += partOf(lines[k] ?? "");
   return text;
 }
 
@@ -88,33 +130,48 @@ function joinedText(lines: string[], from: number, to: number): string {
  * `header` says the command so far is a macro's header with its body still empty (`/def a =`),
  * where nothing needs separating.
  */
-function continued(line: string, next: string, mode: Separates, header: boolean): string | undefined {
+function continued(line: string, next: string, mode: Separates, header: boolean, scan: SeparatorScanner): string | undefined {
   if (line.endsWith("\r") || isBlankLine(line)) return undefined;
   let end = line.length;
   while (end > 0 && isTfSpace(line[end - 1])) end -= 1;
   const body = line.slice(0, end);
-  if (continuesToNextLine(body)) return body; // a \ with whitespace after it
+  if (continuesToNextLine(body)) {
+    // A \ with whitespace after it: deleting the whitespace is all it needs.
+    scan.feed(partOf(body));
+    return body;
+  }
+  scan.feed(body.slice(leadingWhitespaceLength(body)));
   const command = next[leadingWhitespaceLength(next)] === "/";
-  const sep = mode !== undefined && command && !header && !endsWithSeparator(body, mode);
-  if (!sep) return `${body} \\`;
+  const sep = mode !== undefined && command && !header && !scan.atSeparator;
   // Glued onto a % the %; would be %%;, which is text; after a \ in a body, the % would be escaped.
-  return body.endsWith("%") || (mode === "body" && body.endsWith("\\")) ? `${body} %; \\` : `${body}%; \\`;
+  const added = !sep ? " " : body.endsWith("%") || (mode === "body" && body.endsWith("\\")) ? " %; " : "%; ";
+  scan.feed(added);
+  return `${body}${added}\\`;
 }
 
-/** Lines `from`..`to` of `lines` joined into one command starting at line `base`, or undefined if they can't be. */
+/**
+ * Lines `base`..`to` of `lines`, with `from`..`to` joined into the command that starts at line
+ * `base`, or undefined if they can't be.
+ */
 function joined(lines: string[], base: number, from: number, to: number, mode: Separates): string[] | undefined {
-  const out = lines.slice();
+  const out = lines.slice(base, to + 1);
+  const scan = new SeparatorScanner(mode);
+  scan.feed(joinedText(lines, base, from - 1));
+  // A macro header with its body still empty (`/def a =`) needs no separator after it.
+  let header = mode === "body";
   for (let k = from; k < to; k += 1) {
-    const line = out[k] ?? "";
+    const line = out[k - base] ?? "";
     if (isCommentLine(line)) continue;
     let n = k + 1;
-    while (n < to && isCommentLine(out[n] ?? "")) n += 1;
-    const sofar = joinedText(out, base, k);
-    const start = mode === "body" ? macroBodyStart(sofar) : -1;
-    const header = start >= 0 && sofar.slice(start).trim() === "";
-    const next = continued(line, out[n] ?? "", mode, header);
+    while (n < to && isCommentLine(out[n - base] ?? "")) n += 1;
+    if (header) {
+      const sofar = joinedText(out, 0, k - base);
+      const start = macroBodyStart(sofar);
+      header = start >= 0 && sofar.slice(start).trim() === "";
+    }
+    const next = continued(line, out[n - base] ?? "", mode, header, scan);
     if (next === undefined) return undefined;
-    out[k] = next;
+    out[k - base] = next;
   }
   return out;
 }
@@ -154,6 +211,10 @@ function settle(slice: string[], before: TfDiagnostic[], diagnose: Diagnose): { 
     diagnostics = diagnose(lines.join("\n"));
   }
   return { lines, diagnostics };
+}
+
+function emptyStatements(lines: string[], mode: Separates): number {
+  return mode === undefined ? 0 : new SeparatorScanner(mode).feed(joinedText(lines, 0, lines.length - 1)).empty;
 }
 
 /** Single-line edits that turn `before` into `after` (same number of lines), offset by `base` lines. */
@@ -201,10 +262,12 @@ function joinFix(
     if (!candidate) break;
     const original = lines.slice(base, last + 1);
     const before = diagnose(original.join("\n"));
-    const settled = settle(candidate.slice(base, last + 1), before, diagnose);
+    const settled = settle(candidate, before, diagnose);
     if (!gone(settled.diagnostics)) continue;
     const had = counts(before);
     if ([...counts(settled.diagnostics)].some(([code, n]) => n > (had.get(code) ?? 0))) continue;
+    // Nor an empty statement (%;%;) the original didn't have: in a body it sends a blank line.
+    if (emptyStatements(settled.lines, separate) > emptyStatements(original, separate)) continue;
     const edits = lineEdits(original, settled.lines, base);
     const join = { edits, clean: !settled.diagnostics.some((d) => d.severity === "error"), from: base, to: last };
     if (join.clean) return join;
@@ -213,8 +276,18 @@ function joinFix(
   return fallback;
 }
 
+/** The entry holding `line` (entries are in line order, so a binary search). */
 function entryAt(entries: LogicalEntry[], line: number): LogicalEntry | undefined {
-  return entries.find((e) => e.startLine <= line && line <= e.endLine);
+  let lo = 0;
+  let hi = entries.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const e = entries[mid] as LogicalEntry;
+    if (line < e.startLine) hi = mid - 1;
+    else if (line > e.endLine) lo = mid + 1;
+    else return e;
+  }
+  return undefined;
 }
 
 function touches(fix: TfDiagnostic["fix"], line: number): boolean {
@@ -229,12 +302,19 @@ function touches(fix: TfDiagnostic["fix"], line: number): boolean {
  * block-structure fix that would add an /endif or /done to a command that a join fix extends is
  * dropped: the join brings in the real one.
  *
- * Each try runs the diagnostics over the lines being joined. So the cost stays bounded per
- * diagnostic, each one gets at most MAX_TRIES runs, over at most MAX_SLICE characters; one that
- * runs out goes without a join fix, and the others are unaffected.
+ * Each try runs the diagnostics over the lines being joined. So the cost stays bounded, each
+ * diagnostic gets at most MAX_TRIES runs, over at most MAX_SLICE characters, and the whole file at
+ * most MAX_TOTAL_TRIES; a diagnostic that runs out goes without a join fix. The per-diagnostic
+ * budget keeps one hard case from starving the rest; the total is only reached by files full of
+ * them.
  */
 export function addJoinFixes(text: string, diagnostics: TfDiagnostic[], diagnoseSlice: Diagnose): void {
-  addJoins(text, diagnostics, diagnoseSlice);
+  let total = 0;
+  addJoins(text, diagnostics, (t) => {
+    total += 1;
+    if (total > MAX_TOTAL_TRIES) throw new OutOfTries();
+    return diagnoseSlice(t);
+  });
 }
 
 class OutOfTries extends Error {}

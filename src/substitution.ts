@@ -335,7 +335,13 @@ export function entrySubstitution(entry: LogicalEntry): SubstitutionModel {
           read(handed(st.start + body), "body", depth + 1, undefined);
         }
       } else if (word === "for") {
-        read(handed(argStart), "body", depth + 1, undefined);
+        // VAR START END COMMAND: all substituted, and COMMAND is a macro body of its own, whose
+        // conditions are read as conditions (second review's g1: G4 printed %{x}).
+        const h = handed(argStart);
+        read(h, "body", depth + 1, undefined);
+        let w = nextWord(h.text, 0, h.text.length);
+        for (let n = 0; w && n < 3; n += 1) w = nextWord(h.text, w.end, h.text.length);
+        if (w) read(sub(h, w.start), "body", depth + 1, undefined);
       } else if (word === "repeat") {
         const h = handed(argStart);
         const r = repeatArguments(h.text, 0, h.text.length);

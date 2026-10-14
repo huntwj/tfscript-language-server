@@ -122,6 +122,14 @@ describe("separators and strings", () => {
     expect(contextOf('/if (1) /test echo("%{x}")%; /endif', "%{x}")).toBe("newline");
   });
 
+  // Second review's probe g1: G3, G4 and G5 print %{x}.
+  it("reads the command of a /for or /repeat as a macro body, with its conditions", () => {
+    expect(contextOf('/for i 1 1 /if (echo("%{x}")) /endif', "%{x}")).toBe("string");
+    expect(contextOf('/for i 1 1 /echo $[strcat("a", "%{x}")]', "%{x}")).toBe("string");
+    expect(contextOf('/repeat -S 1 /if (echo("%{x}")) /endif', "%{x}")).toBe("string");
+    expect(contextOf("/for i %{lo} 3 /echo x", "%{lo}")).toBe("full");
+  });
+
   // Second review's probes e1-e3: a $(...) in an expression runs as a macro body, quotes and all.
   it("reads a $(...) in an expression as a macro body", () => {
     expect(contextOf('/def e1 = /if ($(/echo "%{x}") =~ "\\"XV\\"") /endif', "%{x}")).toBe("full");

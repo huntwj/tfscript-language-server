@@ -221,8 +221,8 @@ describe("rule fixes", () => {
     ["indented-line-after-command", ["/def -i a = /echo a\\\\%;", "    /echo two"], ["/def -i a = /echo a\\\\%; \\", "    /echo two"]],
     ["indented-line-after-command", ["/def -i a = /echo pct\\%%;", "    /echo two"], ["/def -i a = /echo pct\\%%; \\", "    /echo two"]],
     ["indented-line-after-command", ["/def -i a = /echo a\\\\\\%;", "    /echo two"], ["/def -i a = /echo a\\\\\\%;%; \\", "    /echo two"]],
-    // A top-level line does no \ processing, so there \%; does separate, and \%%; doesn't.
-    ["missing-continuation", ["/if (1)", "  /echo a\\%;", "  /echo b", "/endif"], ["/if (1) \\", "  /echo a\\%; \\", "  /echo b%; \\", "/endif"]],
+    // A top-level /if line does no \ processing, so there \%%; doesn't separate. (A body line with a
+    // \%; of its own is joined in no more: see "refuses a join that changes what a line means".)
     ["missing-continuation", ["/if (1)", "  /echo a\\%%;", "  /echo b", "/endif"], ["/if (1) \\", "  /echo a\\%%;%; \\", "  /echo b%; \\", "/endif"]],
   ];
   for (const [code, before, after] of cases) {
@@ -317,10 +317,35 @@ describe("rule fixes", () => {
     expect(Date.now() - start).toBeLessThan(1000);
   });
 
-  it("continues a line of text without a %;", () => {
-    const text = ["/def -i a = /echo one", "    two", "/echo x", ""].join("\n");
-    const [action] = getCodeActions(text, WHOLE_FILE).filter((a) => a.diagnostic.code === "indented-line-after-command");
-    expect(applyEdits(text, action!.edits)).toBe(["/def -i a = /echo one \\", "    two", "/echo x", ""].join("\n"));
+  it("writes no %; after a /do or /then that ends a line, which would send a blank line", () => {
+    // s10, s96 (tf dev, 2026-10-14): the joined loop runs, with no blank line sent.
+    const s96 = ["/if /test 1", "/then", "    /echo % a", "/endif", "/echo % after", ""].join("\n");
+    const [then] = getCodeActions(s96, WHOLE_FILE);
+    expect(applyEdits(s96, then!.edits)).toBe(["/if /test 1%; \\", "/then \\", "    /echo % a%; \\", "/endif", "/echo % after", ""].join("\n"));
+    const s10 = ["/set i=0", "/while /test i < 3", "/do", "    /test ++i", "/done", ""].join("\n");
+    const loop = getCodeActions(s10, WHOLE_FILE).find((a) => a.title === "Join the /while's lines with \\");
+    expect(applyEdits(s10, loop!.edits)).toBe(["/set i=0", "/while /test i < 3%; \\", "/do \\", "    /test ++i%; \\", "/done", ""].join("\n"));
+  });
+
+  it("refuses a join that changes what a line means", () => {
+    // tf dev, 2026-10-14 (the fourth review's probes): a line's own %; (in a /def body, or as text
+    // on a plain line) would split the block's statements instead (u01, u02, u06, u07); a line of
+    // text would become the previous command's arguments (x01, x02, x04, and a /def body's).
+    const joins = (lines: string[]) =>
+      getCodeActions(`${lines.join("\n")}\n`, WHOLE_FILE).filter((a) => /^(?:Join|End line)/.test(a.title)).map((a) => a.title);
+    for (const shape of [
+      ["/if (1)", "    /def foo = /echo % x%; /echo % y", "/foo"],
+      ["/if (1)", "    /def foo = /echo % x%; /echo % y", "/endif", "/foo"],
+      ["/if (1)", "    /set v=1%; /echo % set", "/echo % after"],
+      ["/if (1)", '    /def -t"x*" trig = /echo % t1%; /echo % t2', "/echo % after"],
+      ["/if (1)", "  /echo a\\%;", "  /echo b", "/endif"],
+      ["/if (1)", "    /echo % a", "    say hello", "/endif"],
+      ["/if (1)", "    /echo % a", "    say hello", "/echo % after"],
+      ["/while (0)", "    /echo % a", "    north", "/done"],
+      ["/def -i a = /echo one", "    two", "/echo x"],
+    ]) {
+      expect(joins(shape)).toEqual([]);
+    }
   });
 
   it("offers no fix where a %; would only be text, or on a CRLF line", () => {

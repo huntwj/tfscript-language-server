@@ -50,6 +50,10 @@ const MAX_TOTAL_TRIES = 1500;
 /** An /endif or /done as a word of its own, after a blank or a separator. */
 const CLOSER_RE = /(?<![^ \t;|\\])\/(?:endif|done)(?=[ \t\r\f\v%)]|$)/i;
 const TOP_BLOCK_RE = /^\/(?:if|while)\b/i;
+/** A statement separator: a single `%` before `;`, `|` or `\` (a run of `%`s is text). */
+const OWN_SEPARATOR_RE = /(?<!%)%[;|\\]/;
+/** A line whose last statement is a lone /do or /then. */
+const KEYWORD_END_RE = /(?:^|%;[ \t]*)\/(?:do|then)$/i;
 /** A command whose last statement is an /endif or /done, with only blanks or `%;` after it. */
 const CLOSES_RE = /(?:^|[ \t;|\\])\/(?:endif|done)(?:[ \t\r\f\v]|%;)*$/i;
 /** A line that starts with a keyword of a block: it can only belong to one opened above it. */
@@ -146,9 +150,13 @@ function continued(line: string, next: string, mode: Separates, header: boolean,
     scan.feed(partOf(body));
     return body;
   }
-  scan.feed(body.slice(leadingWhitespaceLength(body)));
+  const own = body.slice(leadingWhitespaceLength(body));
+  scan.feed(own);
   const command = next[leadingWhitespaceLength(next)] === "/";
-  const sep = mode !== undefined && command && !header && !scan.atSeparator;
+  // A /do or /then that ends the line takes the next line as its first statement: a %; there would
+  // be an empty statement, which tf sends to the world as a blank line.
+  const keyword = KEYWORD_END_RE.test(own);
+  const sep = mode !== undefined && command && !header && !keyword && !scan.atSeparator;
   // Glued onto a % the %; would be %%;, which is text; after a \ in a body, the % would be escaped.
   const added = !sep ? " " : body.endsWith("%") || (mode === "body" && body.endsWith("\\")) ? " %; " : "%; ";
   scan.feed(added);
@@ -160,6 +168,17 @@ function continued(line: string, next: string, mode: Separates, header: boolean,
  * `base`, or undefined if they can't be.
  */
 function joined(lines: string[], base: number, from: number, to: number, mode: Separates): string[] | undefined {
+  // Only lines that start a command of their own and keep their meaning in the joined one: a
+  // separator of their own (%;, %| or %\) was text, or a body's, and would split the block's
+  // statements instead; and a line of text would become the previous command's arguments.
+  let previous = lines[from] ?? "";
+  for (let k = from + 1; k <= to; k += 1) {
+    const line = lines[k] ?? "";
+    if (isCommentLine(line) || isBlankLine(line)) continue;
+    if (OWN_SEPARATOR_RE.test(line)) return undefined;
+    if (!continuesToNextLine(previous) && line[leadingWhitespaceLength(line)] !== "/") return undefined;
+    previous = line;
+  }
   const out = lines.slice(base, to + 1);
   const scan = new SeparatorScanner(mode);
   scan.feed(joinedText(lines, base, from - 1));

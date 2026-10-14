@@ -38,10 +38,10 @@ import type { Range } from "./symbols";
  *    neither is followed.
  */
 
-export type VariableAccess = "set" | "setenv" | "let" | "unset" | "export" | "assign" | "read";
+export type VariableAccess = "set" | "setenv" | "let" | "getopts" | "unset" | "export" | "assign" | "read";
 
 /** How the name is written, which decides what a rename may turn it into. */
-export type VariableForm = "command" | "percent" | "percent-braced" | "expr-braced" | "expr-bare";
+export type VariableForm = "command" | "percent" | "percent-braced" | "expr-braced" | "expr-bare" | "option-letter";
 
 export interface VariableOccurrence {
   name: string;
@@ -133,9 +133,13 @@ export function readSelector(s: string, i: number): Selector | undefined {
   return { name: selector, nameStart: start, nameEnd: i };
 }
 
-/** A `%;` or `%|` statement separator at `i` (one `%`, not part of a longer run). */
+/**
+ * A `%;` or `%|` statement separator at `i`. A longer run (`%%;`) is text at this level but a
+ * separator one level down, in a `/def` or `/eval` inside the body, which is where an expression
+ * around it is read; so it ends a statement here too.
+ */
 function isSeparatorAt(s: string, i: number): boolean {
-  return s[i] === "%" && (s[i + 1] === ";" || s[i + 1] === "|") && s[i - 1] !== "%";
+  return s[i] === "%" && (s[i + 1] === ";" || s[i + 1] === "|");
 }
 
 /** Where the statement holding `i` ends: at the next separator, or the end of the text. */
@@ -170,6 +174,8 @@ interface Found {
   access: VariableAccess;
   form: VariableForm;
   offset: number;
+  /** How much of the text it covers, when that isn't the name: getopts()' option letter. */
+  length?: number;
 }
 
 const COMMAND_RE = /(^|[\s;|(])\/(set|setenv|let|unset|export)(?=\s|$)/gi;
@@ -226,6 +232,18 @@ function percents(s: string, from: number, to: number, escapes: boolean, found: 
   }
 }
 
+/**
+ * Where the substitution whose selector starts at `i` (at its `{`, or just past a bare `%`) ends,
+ * its `-default` and closing `}` included (varsub(): a braced default runs to the `}`, a bare
+ * one to the next blank).
+ */
+function substitutionEnd(s: string, i: number, to: number): number {
+  if (s[i] === "{") return matching(s, i, to, "{", "}");
+  let k = Math.max(readSelector(s, i)?.nameEnd ?? i, i);
+  if (s[k] === "-") while (k < to && s[k] !== " " && s[k] !== "\t" && !isSeparatorAt(s, k)) k += 1;
+  return k;
+}
+
 /** Variable names in the expression `s[from, to)`. `%` substitutions are left to percents(). */
 function expression(s: string, from: number, to: number, found: Found[]): void {
   let i = from;
@@ -236,11 +254,15 @@ function expression(s: string, from: number, to: number, found: Found[]): void {
     } else if (c === "%") {
       let j = i;
       while (s[j] === "%") j += 1;
-      i = j === i + 1 ? Math.max(readSelector(s, j)?.nameEnd ?? j, j) : j;
+      i = Math.max(substitutionEnd(s, j, to), j);
     } else if (c === "{") {
       const sel = readSelector(s, i);
       if (sel?.name !== undefined) found.push({ name: sel.name, access: "read", form: "expr-braced", offset: sel.nameStart });
-      i = Math.max(sel?.nameEnd ?? i + 1, i + 1);
+      i = Math.max(substitutionEnd(s, i, to), i + 1);
+    } else if (c === "/" && isNameFirst(s[i + 1]) && (i === from || s[i - 1] === " " || s[i - 1] === "\t")) {
+      // A command name where a `%;` is missing: tf warns "possibly missing '%;'", and it's no variable.
+      i += 1;
+      while (isNameChar(s[i])) i += 1;
     } else if (c === "$") {
       if (s[i + 1] === "(") i = matching(s, i + 1, to, "(", ")");
       else if (s[i + 1] === "{") i = matching(s, i + 1, to, "{", "}");
@@ -254,9 +276,17 @@ function expression(s: string, from: number, to: number, found: Found[]): void {
     } else if (isNameFirst(c)) {
       const start = i;
       while (isNameChar(s[i])) i += 1;
+      // Part of a name built at run time (`cylon%i`, `kbwarned_%1`, `_kb_stack_%{n}_top`): not this variable.
+      if (s[start - 1] === "}" || s[start - 1] === "]" || (s[i] === "%" && !isSeparatorAt(s, i)) || s[i] === "$" || s[i] === "{") {
+        continue;
+      }
       let k = i;
       while (s[k] === " " || s[k] === "\t") k += 1;
-      if (s[k] === "(") continue; // a function call (expr.c unary_expr())
+      if (s[k] === "(") {
+        // A function call (expr.c unary_expr()). getopts("ab:", ...) sets a local opt_a and opt_b.
+        if (s.slice(start, i) === "getopts") getopts(s, k + 1, to, found);
+        continue;
+      }
       let b = start - 1;
       while (s[b] === " " || s[b] === "\t") b -= 1;
       const prefix = (s[b] === "+" && s[b - 1] === "+") || (s[b] === "-" && s[b - 1] === "-");
@@ -265,6 +295,22 @@ function expression(s: string, from: number, to: number, found: Found[]): void {
     } else {
       i += 1;
     }
+  }
+}
+
+/**
+ * getopts()' first argument names its options: each letter is a local `opt_<letter>`, set in the
+ * calling macro's scope (expr.c FN_getopts: setlocalstrvar() and friends), and a `:`, `#` or `@`
+ * after one says what kind of value it takes. Only a literal string can be read.
+ */
+function getopts(s: string, i: number, to: number, found: Found[]): void {
+  while (s[i] === " " || s[i] === "\t") i += 1;
+  const quote = s[i];
+  if (quote !== '"' && quote !== "'" && quote !== "`") return;
+  for (let k = i + 1; k < to && s[k] !== quote; k += 1) {
+    const c = s[k] as string;
+    if (c === "\\") return;
+    if (/[A-Za-z]/.test(c)) found.push({ name: `opt_${c}`, access: "getopts", form: "option-letter", offset: k, length: 1 });
   }
 }
 
@@ -308,17 +354,18 @@ function entryVariables(entry: LogicalEntry, index: number): VariableOccurrence[
     .sort((a, b) => a.offset - b.offset);
 
   const inBody = (f: Found): boolean => body >= 0 && f.offset >= body;
-  const lets = unique.filter((f) => f.access === "let" && inBody(f));
+  const binds = (f: Found): boolean => f.access === "let" || f.access === "getopts";
+  const lets = unique.filter((f) => binds(f) && inBody(f));
   const local = `local:${index}`;
   const out: VariableOccurrence[] = [];
   for (const f of unique) {
     let scope = "global";
-    if (f.access === "let") scope = local;
+    if (binds(f)) scope = local;
     else if ((f.access === "read" || f.access === "assign") && inBody(f)) {
       if (lets.some((l) => l.name === f.name && l.offset < f.offset)) scope = local;
     }
     const first = entry.offsetMap[f.offset];
-    const last = entry.offsetMap[f.offset + f.name.length - 1];
+    const last = entry.offsetMap[f.offset + (f.length ?? f.name.length) - 1];
     // A name split across a `\`-continued line has no single range to point at.
     if (!first || !last || first.line !== last.line) continue;
     out.push({

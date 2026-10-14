@@ -99,6 +99,21 @@ describe("findVariables", () => {
     expect(show(text)).toEqual(["read:v@0:27", "read:w@0:44"]);
   });
 
+  it("skips names built at run time, a substitution's default, and a command name in an expression", () => {
+    const text = "/def -i a = /test cy%n := kb_%1 + x_%{n}_top + {y-z} + (%{2-w} =~ '') /echo\n";
+    expect(findVariables(text).map((v) => `${v.access}:${v.name}`)).toEqual(["read:n", "read:n", "read:y"]);
+  });
+
+  it("ends an expression at a %%; too, which is a separator one level down", () => {
+    const text = "/def -i a = /eval /while (x) /test %_body%%; /done%%; /echo y\n";
+    expect(findVariables(text).map((v) => `${v.access}:${v.name}`)).toEqual(["read:x", "read:_body"]);
+  });
+
+  it("reads getopts()' letters as the macro's local opt_ variables", () => {
+    const text = '/def -i a = /if (!getopts("qb:", "")) /return%; /endif%; /echo %opt_q %{opt_b}\n/def -i b = /echo %opt_q\n';
+    expect(show(text)).toEqual(["getopts:opt_q@0:27 local", "getopts:opt_b@0:28 local", "read:opt_q@0:64 local", "read:opt_b@0:72 local", "read:opt_q@1:19"]);
+  });
+
   it("follows `\\`-continued lines to the right physical line", () => {
     const text = ["/def -i a = \\", "    /let x=1%; \\", "    /echo %x", ""].join("\n");
     expect(show(text)).toEqual(["let:x@1:9 local", "read:x@2:11 local"]);

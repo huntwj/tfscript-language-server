@@ -3,7 +3,7 @@ import { SPECIAL_VARIABLES } from "./data/variables.generated";
 import { evalMode, shortened, type Source } from "./loadCommands";
 import { isTfSpace, splitLogicalEntries, type LogicalEntry } from "./logicalEntries";
 import { macroBodyStart, parseRegions, type ExpressionRegion, type Statement, type StructureMode, type SubLevel } from "./structure";
-import type { Range } from "./symbols";
+import { defOptionsEnd, type Range } from "./symbols";
 
 /**
  * Every place a file names a tf variable, and which variable each one means.
@@ -541,8 +541,10 @@ function nextWord(s: string, i: number, end: number): { start: number; end: numb
 /**
  * `/for VAR START END COMMAND`: stdlib.tf's /for runs `/@eval /let VAR=START%%; /while (...)
  * COMMAND%%; ...`, so COMMAND is read as a macro body, in the scope of that /eval, where VAR is a
- * local, inside the scopes of whatever ran the /for. The words are split after the statement's
- * own substitution, so `/for i 0 $[n - 1] ...` has END `$[n - 1]`.
+ * local, inside the scopes of whatever ran the /for. START is that /let's value and END is read in
+ * `/while ( VAR <= END )`, so they are read there too: a substitution in START, an expression in
+ * END. The words are split after the statement's own substitution, so `/for i 0 $[n - 1] ...` has
+ * END `$[n - 1]`.
  */
 function forCommand(w: Walk, st: Statement, argStart: number): void {
   const src = handedOn(w, st, argStart);
@@ -551,10 +553,14 @@ function forCommand(w: Walk, st: Statement, argStart: number): void {
   const first = v && nextWord(s, v.end, s.length);
   const last = first && nextWord(s, first.end, s.length);
   const command = last && nextWord(s, last.end, s.length);
-  if (!v || !command || !isVariableName(s.slice(v.start, v.end))) return;
+  if (!v || !first || !last || !command || !isVariableName(s.slice(v.start, v.end))) return;
   const chain = [newScope(w, "for"), ...callerChain(w, st)];
+  // START is read as the /let's value, before VAR exists: in the scopes around the loop.
+  walk(inner(w, slice(src, first.start, first.end), chain.slice(1)), "body");
   const where = { start: src.map[v.start] as number, end: (src.map[v.end - 1] as number) + 1 };
   w.found.push({ name: s.slice(v.start, v.end), access: "let", form: "loop-variable", ...where, from: -Infinity, chain });
+  const end = inner(w, slice(src, last.start, last.end), chain);
+  expression(end, 0, end.src.text.length);
   walk(inner(w, slice(src, command.start, s.length), chain), "body");
 }
 
@@ -562,8 +568,9 @@ function forCommand(w: Walk, st: Statement, argStart: number): void {
  * `/repeat [-options] COUNT COMMAND`: process.c compiles COMMAND as a macro body (SUB_MACRO). It
  * normally runs later, from the top level, seeing no local of the macro that ran the /repeat; with
  * `-S` it runs at once, inside that macro, and with `-P` its first run does (newproc()), so those
- * see the macro's locals. (So does any /repeat while the `lpquote` variable is on; that isn't
- * followed.)
+ * see the macro's locals. A time option (`-0`, `-1:30`) sets the timing too, and procopt() keeps
+ * the last one given: `-S -0` runs later, `-0 -S` at once. (Any /repeat while the `lpquote`
+ * variable is on also runs once at once; that isn't followed.)
  */
 function repeatCommand(w: Walk, st: Statement, argStart: number): void {
   const src = handedOn(w, st, argStart);
@@ -571,7 +578,12 @@ function repeatCommand(w: Walk, st: Statement, argStart: number): void {
   let now = false;
   let word = nextWord(s, 0, s.length);
   while (word && s[word.start] === "-") {
-    if (/^-[@SPn]*[SP][@SPn]*$/.test(s.slice(word.start, word.end))) now = true;
+    const opt = s.slice(word.start, word.end);
+    if (/^-[@SPn]+$/.test(opt)) {
+      for (const flag of opt.slice(1)) if (flag === "S" || flag === "P") now = true;
+    } else if (/^-[0-9.:]/.test(opt)) {
+      now = false;
+    }
     word = nextWord(s, word.end, s.length);
   }
   const command = word && nextWord(s, word.end, s.length);
@@ -629,11 +641,21 @@ function statement(w: Walk, st: Statement, skip: Uint8Array): void {
     repeatCommand(w, st, argStart);
   } else if (MACRO_DEFINER.test(word) && st.level === "full") {
     // A definition inside a substituted body: its own body is read again, as the macro will see
-    // it, in a scope of its own. (It runs whenever it is called; called from the macro that
-    // defines it, it would see that macro's locals too, which isn't followed.)
-    const body = macroBodyStart(s.slice(st.start, st.end));
-    if (body >= 0) walk(inner(w, handOff(w.src, st.start + body, st.end, st.level), [newScope(w, "def")]), "body");
+    // it, in a scope of its own. It runs whenever it is called; when the macro defining it calls
+    // it, it sees that macro's locals too (proven), so then it is read inside those scopes.
+    const text = s.slice(st.start, st.end);
+    const body = macroBodyStart(text);
+    if (body < 0) return;
+    const name = word === "def" ? text.slice(defOptionsEnd(text, text.search(/def/i) + 3), body - 1).trim() : "";
+    const outer = name && callsMacro(s, name) ? callerChain(w, st) : [];
+    walk(inner(w, handOff(w.src, st.start + body, st.end, st.level), [newScope(w, "def"), ...outer]), "body");
   }
+}
+
+/** Whether `text` runs `/name` somewhere (not `/@name`, which runs the built-in). */
+function callsMacro(text: string, name: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[\\s;|(])/${escaped}(?=[\\s%)]|$)`, "i").test(text);
 }
 
 /** The strings inside each `$[...]` and condition, which tf doesn't substitute (`$["%Y"]` stays `%Y`). */

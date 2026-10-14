@@ -229,6 +229,31 @@ describe("/for and /repeat", () => {
     expect(scoped("/def -i t = /let s=0%; /for i 0 $[n - 1] /test s += i\n")).toEqual(["let:s L", "let:i L:for", "read:n", "assign:s L", "read:i L:for"]);
   });
 
+  it("takes the last /repeat timing option given", () => {
+    // Real tf: -S -0 and -P -1 ran later and printed the global; -0 -S ran at once, the local.
+    expect(scoped("/def -i r = /let x=L%; /repeat -S -0 1 /echo %%x\n")).toEqual(["let:x L", "read:x"]);
+    expect(scoped("/def -i r = /let x=L%; /repeat -P -1 1 /echo %%x\n")).toEqual(["let:x L", "read:x"]);
+    expect(scoped("/def -i r = /let x=L%; /repeat -0 -S 1 /echo %%x\n")).toEqual(["let:x L", "read:x L"]);
+    expect(scoped("/def -i r = /let x=L%; /repeat -nS 1 /echo %%x\n")).toEqual(["let:x L", "read:x L"]);
+  });
+
+  it("reads /for's START and END in the scopes around the loop", () => {
+    // Real tf: /for i 1 n and /for i %%{lo} 3 used the body's /let n and /let lo.
+    expect(scoped("/def -i t = /let n=3%; /for i 1 n /echo%; /for j %%{lo} 3 /echo\n")).toEqual([
+      "let:n L",
+      "let:i L:for",
+      "read:n L",
+      "let:j L:for",
+      "read:lo",
+    ]);
+  });
+
+  it("reads a nested /def's body in its definer's scopes when the definer calls it", () => {
+    // Real tf: /def outer = /let w=OUTER%; /def innerm = ... %%w%; /innerm printed OUTER.
+    expect(scoped("/def -i outer = /let w=O%; /def -i innerm = /echo %%w%; /innerm\n")).toEqual(["let:w L", "read:w L"]);
+    expect(scoped("/def -i outer = /let w=O%; /def -i innerm = /echo %%w\n")).toEqual(["let:w L", "read:w"]);
+  });
+
   it("takes a quote in a %{...} default or a $(...) as just a character", () => {
     // Real tf: these printed "it's E", "don't L" and "it's E": the later %%x still read.
     expect(scoped("/def -i q1 = /let x=L%; /eval /let x=E%%; /say q1 %{y-it's} %%x\n")).toEqual([

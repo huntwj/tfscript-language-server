@@ -613,3 +613,23 @@ describe("undefined macros, when files change", () => {
     expect(d?.message).toContain(`the first ${MAX_WALKED_FILES} tf files of this folder`);
   });
 });
+
+describe("macroNameTaken", () => {
+  const files: Record<string, string> = {
+    [p("lib", "stdlib.tf")]: "/def -i stdthing = /echo\n",
+    [p("lib", "kbstack.tf")]: "/def -i kb_push = /echo\n",
+    [p("ws", "tfrc")]: "/load main.tf\n",
+    [p("ws", "main.tf")]: "/def go = /echo go\n",
+    [p("ws", "other.tf")]: "/def go_extracted = /echo\n/def build = /def ~body_%1 = /echo\n",
+  };
+
+  it("counts this file's macros, the load path's, the library's and the rest of the folder's", () => {
+    const fs = memoryFs(files);
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    index.setSettings(p("ws"), { libraryPath: p("lib") });
+    const taken = index.macroNameTaken(p("ws", "main.tf"), "/def go = /echo go\n/def mine = /echo\n");
+    expect(["go", "mine", "stdthing", "kb_push", "go_extracted", "build", "~body_x"].filter((n) => !taken(n))).toEqual([]);
+    expect(taken("go_extracted2")).toBe(false);
+  });
+});

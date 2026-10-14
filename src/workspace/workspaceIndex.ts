@@ -345,6 +345,19 @@ export class WorkspaceIndex {
   }
 
   /**
+   * Whether a macro name (lower case) is already defined where `file` runs: in it, on its load
+   * path, anywhere else in its workspace folder, or in tf's library. For naming a new macro, so it
+   * doesn't redefine one: as generous as the undefined-macro check, a name built when a /def runs
+   * (`/def ~body_%1`) takes every name it could make.
+   */
+  macroNameTaken(file: string, text: string): (name: string) => boolean {
+    const { folder, graph, settings } = this.contextFor(file);
+    const sets: MacroNames[] = [this.macroNamesOf(file, text), ...graph.files.map((f) => this.macroNamesOf(f.path, f.text))];
+    for (const e of this.macroContext(file, folder, graph, settings).elsewhere ?? []) sets.push(e.defs);
+    return (name) => sets.some((d) => d.names.has(name) || d.prefixes.some((p) => name.startsWith(p)));
+  }
+
+  /**
    * Every tf script under a workspace folder (`walkTfFiles`), until a watched file changes:
    * walking the folder on every keystroke cost seconds in a big tree. Capped, so a folder like a
    * home directory can't take forever. A folder that isn't a workspace folder (a loose file's own

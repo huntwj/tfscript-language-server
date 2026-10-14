@@ -145,6 +145,8 @@ interface Open {
   keyword: "if" | "while";
   start: number;
   end: number;
+  /** Where the current part of its body (after a condition, /then, /do or /else) starts. */
+  body?: number;
 }
 
 function isNameChar(ch: string | undefined): boolean {
@@ -372,15 +374,18 @@ class Parser {
           case "then":
             if (this.block !== "if" && this.block !== "elseif") this.unexpected(word, stmtStart, kwEnd);
             this.block = "then";
+            this.bodyStarts();
             continue;
           case "do":
             if (this.block !== "while") this.unexpected(word, stmtStart, kwEnd);
             this.block = "do";
+            this.bodyStarts();
             continue;
           case "else":
           case "elseif":
             if (this.block !== "then") this.unexpected(word, stmtStart, kwEnd);
             this.block = word;
+            if (word === "else") this.bodyStarts();
             if (word === "else" && this.isStatEnd(this.i)) this.blankLine(label, this.i);
             continue;
           case "endif":
@@ -411,6 +416,7 @@ class Parser {
           this.conditionEnd = { at: this.i, keyword };
           if (this.isStatEnd(this.i)) this.blankLine(`${keyword} (...)`, this.i);
           this.block = this.block === "while" ? "do" : "then";
+          this.bodyStarts();
           continue;
         }
         this.statement(subs);
@@ -438,6 +444,12 @@ class Parser {
     } while (this.i < this.s.length);
   }
 
+  /** The innermost open block's current body part starts here. */
+  private bodyStarts(): void {
+    const open = this.open[this.open.length - 1];
+    if (open) open.body = this.i;
+  }
+
   private openBlock(keyword: "if" | "while", start: number, end: number, subs: number): void {
     const outer = this.block;
     this.block = keyword;
@@ -448,7 +460,12 @@ class Parser {
     const to = this.i + 1;
     // Where a missing /endif or /done would go: the end of the body, or before the $(...)'s ).
     const where = this.cmdsub > 0 ? "before the )" : this.mode === "top" ? "at the end of the line" : "at the end of the body";
-    const closer = (word: string): IssueFix => ({ title: `Add %; /${word} ${where}`, edits: [this.appendStatement(this.i, word)] });
+    // Not when that part of the body is empty: after /if (x), /else or /while (x) the %; would
+    // send a blank line, and an empty /while loops forever.
+    const body = (this.open[this.open.length - 1] as Open).body;
+    const empty = body !== undefined && this.s.slice(body, this.i).trim() === "";
+    const closer = (word: string): IssueFix | undefined =>
+      empty ? undefined : { title: `Add %; /${word} ${where}`, edits: [this.appendStatement(this.i, word)] };
     const conditionList = (word: string, then: string): IssueDetail => ({
       message: `This /${word}'s condition list has no /${then}.`,
       label: `no /${then}`,

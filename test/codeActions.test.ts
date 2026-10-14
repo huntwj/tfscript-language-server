@@ -218,6 +218,15 @@ describe("rule fixes", () => {
     expect(getCodeActions(text, WHOLE_FILE).map((a) => a.title)).toEqual(["Join these lines with \\"]);
   });
 
+  it("doesn't close a block whose body is empty, which would send a blank line or loop forever", () => {
+    const top = ["/while (1)", "  /echo x", ""].join("\n");
+    expect(getCodeActions(top, WHOLE_FILE).map((a) => a.title)).not.toContain("Add %; /done at the end of the line");
+    for (const body of ["/def a = /if (1)\n", "/def a = /while (1)\n", "/def a = /if (1) /echo a%; /else\n", "/def a = /if /test 1%; /then\n"]) {
+      expect(getCodeActions(body, WHOLE_FILE).filter((a) => a.title.startsWith("Add %; /"))).toEqual([]);
+    }
+    expect(getCodeActions("/def a = /while (1) /echo x\n", WHOLE_FILE).map((a) => a.title)).toEqual(["Add %; /done at the end of the body"]);
+  });
+
   it("gives every line of an indented run the same fix", () => {
     const text = ["/def -i a = /echo one", "    /echo two", "    /echo three", "    /echo four", ""].join("\n");
     for (const line of [1, 2, 3]) expect(getCodeActions(text, at(line, 2)).map((a) => a.title)).toEqual(["Join these lines with \\"]);

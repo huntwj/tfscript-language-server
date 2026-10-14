@@ -1,12 +1,15 @@
 import type { LogicalEntry } from "../logicalEntries";
+import type { IssueDetail } from "../structure";
 
 export type Severity = "error" | "warning" | "information";
 
-/** Offset range within `entry.text`, used by entry-scoped rules. */
-export interface EntryMatch {
+/**
+ * Offset range within `entry.text`, used by entry-scoped rules. The optional details (a label for
+ * the span, a hover explanation, related spans and a fix) use offsets into `entry.text` too.
+ */
+export interface EntryMatch extends IssueDetail {
   start: number;
   end: number;
-  message: string;
 }
 
 /** A direct document position, used by file-scoped rules (they see raw lines, not offsets). */

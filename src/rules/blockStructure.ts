@@ -15,6 +15,6 @@ export const blockStructure: EntryRule = {
   check(entry): EntryMatch[] {
     return entryStructure(entry)
       .filter((i) => i.kind === "block")
-      .map(({ start, end, message }) => ({ start, end, message }));
+      .map(({ kind: _kind, ...match }) => match);
   },
 };

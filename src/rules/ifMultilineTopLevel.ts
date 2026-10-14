@@ -20,6 +20,6 @@ export const ifMultilineTopLevel: EntryRule = {
   check(entry): EntryMatch[] {
     return entryStructure(entry)
       .filter((i) => i.kind === "if-top")
-      .map(({ start, end, message }) => ({ start, end, message }));
+      .map(({ kind: _kind, ...match }) => match);
   },
 };

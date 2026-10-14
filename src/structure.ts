@@ -41,12 +41,55 @@ export type StructureKind =
   /** A %; right after /if (...) or /else, which sends a blank line to the world. */
   | "blank-line";
 
-export interface StructureIssue {
+/** A span of the checked text with a note on it, shown as a related location. */
+export interface IssueNote {
+  start: number;
+  end: number;
+  message: string;
+}
+
+/** Replace `start`..`end` with `newText` (an insertion when they are equal). */
+export interface IssueEdit {
+  start: number;
+  end: number;
+  newText: string;
+}
+
+export interface IssueFix {
+  title: string;
+  edits: IssueEdit[];
+}
+
+/**
+ * What a diagnostic can say beyond its one-sentence message: a short label for the marked span,
+ * a prose explanation for the hover, other spans that take part, and a mechanical fix.
+ */
+export interface IssueDetail {
+  message: string;
+  label?: string;
+  explanation?: string;
+  related?: IssueNote[];
+  fix?: IssueFix;
+}
+
+export interface StructureIssue extends IssueDetail {
   kind: StructureKind;
   /** Offsets into the text given to `checkStructure`. */
   start: number;
   end: number;
-  message: string;
+}
+
+/** `issue` with every offset moved by `by`. */
+export function shiftIssue<T extends StructureIssue>(issue: T, by: number): T {
+  return {
+    ...issue,
+    start: issue.start + by,
+    end: issue.end + by,
+    ...(issue.related ? { related: issue.related.map((n) => ({ ...n, start: n.start + by, end: n.end + by })) } : {}),
+    ...(issue.fix
+      ? { fix: { ...issue.fix, edits: issue.fix.edits.map((e) => ({ ...e, start: e.start + by, end: e.end + by })) } }
+      : {}),
+  };
 }
 
 const KEYWORDS = new Set([
@@ -90,6 +133,11 @@ function isNameChar(ch: string | undefined): boolean {
 
 function isDigit(ch: string | undefined): boolean {
   return ch !== undefined && ch >= "0" && ch <= "9";
+}
+
+/** `text` as a Markdown code span, for the hover explanations (which are Markdown). */
+function code(text: string): string {
+  return text.includes("`") ? `\`\` ${text} \`\`` : `\`${text}\``;
 }
 
 function charName(ch: string): string {
@@ -151,9 +199,32 @@ class Parser {
     return { word, end, next };
   }
 
-  private fail(kind: StructureKind, start: number, end: number, message: string): never {
-    this.issues.push({ kind, start, end: Math.max(end, start + 1), message });
+  private fail(kind: StructureKind, start: number, end: number, detail: string | IssueDetail): never {
+    const d = typeof detail === "string" ? { message: detail } : detail;
+    this.issues.push({ kind, start, end: Math.max(end, start + 1), ...d });
     throw new Stop();
+  }
+
+  /** Where to insert a `%;` so it ends the statement before `p`: after its last non-blank. */
+  private separatorBefore(p: number): IssueEdit {
+    let q = p;
+    while (q > 0 && isTfSpace(this.s[q - 1])) q -= 1;
+    // Glued onto a % it would make %%;, which is text.
+    if (q === p || this.s[q - 1] === "%") return { start: p, end: p, newText: "%; " };
+    return { start: q, end: q, newText: "%;" };
+  }
+
+  /** Insert `text` at `p`, pulled back over the blanks before it (the end of a statement). */
+  private insertAtEnd(p: number, text: string): IssueEdit {
+    let q = p;
+    while (q > 0 && isTfSpace(this.s[q - 1])) q -= 1;
+    return { start: q, end: q, newText: text };
+  }
+
+  /** The innermost open /if or /while, as a related note. */
+  private openNote(): IssueNote[] {
+    const open = this.open[this.open.length - 1];
+    return open ? [{ start: open.start, end: open.end, message: `this /${open.keyword}` }] : [];
   }
 
   /**
@@ -164,7 +235,7 @@ class Parser {
   private blockError(
     start: number,
     end: number,
-    problem: string,
+    problem: IssueDetail,
     fix: string | undefined,
     kind: StructureKind = "block",
     searchTo = start,
@@ -173,18 +244,43 @@ class Parser {
     const fixer = fix ? this.mids.find((m) => m.word === fix && m.start > since && m.start < searchTo) : undefined;
     // Point at the first keyword of that statement: in "/echo a /else /echo b /endif" it is the /else.
     const mid = fixer && this.mids.find((m) => m.stmt === fixer.stmt && m.start > since);
-    if (mid) {
+    if (fixer && mid) {
       if (fix === "endif" && LET_ASSIGNMENT_RE.test(this.s.slice(mid.stmt, mid.start))) throw new Stop();
-      const where = mid.command ? `the /${mid.command} statement` : "the statement before it";
-      this.fail(
-        "block",
-        mid.start,
-        mid.end,
-        `/${mid.word} is part of ${where}, not a keyword: tf only reads keywords at the start of a ` +
-          `statement. Put %; before it.`,
-      );
+      this.fail("block", mid.start, mid.end, this.midKeyword(mid, fixer, since));
     }
     this.fail(kind, start, end, problem);
+  }
+
+  /** A keyword swallowed by the statement it sits in, which leaves its block unfinished. */
+  private midKeyword(mid: MidKeyword, fixer: MidKeyword, since: number): IssueDetail {
+    const expression = ["test", "return", "result"].includes(mid.command);
+    const what = !mid.command ? "the text before it" : expression ? `the /${mid.command} expression` : `the /${mid.command} command`;
+    const consequence: Record<string, string> = {
+      endif: "the /if is never closed",
+      done: "the /while is never closed",
+      then: "the /if never reaches its /then",
+      do: "the /while never reaches its /do",
+    };
+    const swallowed = this.mids.filter((m) => m.stmt === mid.stmt && m.start > since);
+    const words = swallowed.map((m) => `/${m.word}`);
+    const list = words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}` : `${words[0]}`;
+    const reads = expression
+      ? `${code(`/${mid.command}`)} reads its expression up to the next ${code("%;")}, so ${code(`/${mid.word}`)} becomes part of the expression.`
+      : mid.command
+        ? `There is no ${code("%;")} before ${code(`/${mid.word}`)}, so ${code(`/${mid.command}`)} takes it, and everything after it up to the next ${code("%;")}, as its own text.`
+        : `There is no ${code("%;")} before ${code(`/${mid.word}`)}, so it is read as part of the text before it.`;
+    return {
+      message: `/${mid.word} here is not a keyword: it is part of ${what}, so ${consequence[fixer.word] ?? "its block is never finished"}.`,
+      label: `part of ${what}`,
+      explanation:
+        `tf only reads a keyword at the start of a statement, and statements are separated by ${code("%;")}. ` +
+        `${reads} Put ${code("%;")} before each keyword that should start a statement.`,
+      related: [
+        ...this.openNote(),
+        ...(fixer !== mid ? [{ start: fixer.start, end: fixer.end, message: `/${fixer.word} is text too` }] : []),
+      ],
+      fix: { title: `Put %; before ${list}`, edits: swallowed.map((m) => this.separatorBefore(m.start)) },
+    };
   }
 
   private list(subsIn: number): void {
@@ -266,12 +362,14 @@ class Parser {
         const after = special === "if" ? "/endif" : special === "while" ? "/done" : "";
         let end = this.i + 1;
         while (end < this.s.length && !isTfSpace(this.s[end]) && !this.isStatEnd(end)) end += 1;
-        this.fail(
-          "block",
-          this.i,
-          end,
-          after ? `Nothing can follow ${after} in the same statement. Put %; before this.` : "Put %; before this to start a new statement.",
-        );
+        this.fail("block", this.i, end, {
+          message: after ? `Text after ${after} needs a %; before it.` : "This text needs a %; before it.",
+          label: "needs a %; before it",
+          explanation: after
+            ? `${code(after)} ends its statement, so the next command has to start a new one, after a ${code("%;")}.`
+            : `The statement before it has ended, so this has to start a new one, after a ${code("%;")}.`,
+          fix: { title: "Put %; before it", edits: [this.separatorBefore(this.i)] },
+        });
       }
     } while (this.i < this.s.length);
   }
@@ -284,29 +382,60 @@ class Parser {
     // Where the list stopped: /endif or /done if it closed, else whatever block it was in.
     const ended = this.block as Block;
     const to = this.i + 1;
+    // Where a missing /endif or /done would go: the end of the body, or before the $(...)'s ).
+    const where = this.cmdsub > 0 ? "before the )" : "at the end of the body";
+    const closer = (word: string): IssueFix => ({ title: `Add %; /${word} ${where}`, edits: [this.insertAtEnd(this.i, `%; /${word}`)] });
+    const conditionList = (word: string, then: string): IssueDetail => ({
+      message: `This /${word}'s condition list has no /${then}.`,
+      label: `no /${then}`,
+      explanation:
+        `When ${code(`/${word}`)} is followed by commands instead of a ${code("(condition)")}, they are its condition, up to ` +
+        `a ${code(`/${then}`)} at the start of a statement: ${code(`/${word} /test x%; /${then} ...`)}`,
+    });
     if (keyword === "if") {
       if (ended === "if" || ended === "elseif") {
-        this.blockError(start, end, "This /if's condition list has no /then.", "then", "block", to);
+        this.blockError(start, end, conditionList("if", "then"), "then", "block", to);
       } else if (ended === "then" || ended === "else") {
         const top = this.mode === "top" && this.cmdsub === 0 && this.i >= this.s.length;
         this.blockError(
           start,
           end,
           top
-            ? "/if has no matching /endif in the same top-level command. tf reads a file one command per " +
-                "line (after joining any \\-continued lines), so /if and /endif must end up in that same " +
-                "joined line: either on one line with %;, or continued with a trailing \\ on every line but " +
-                "the last."
-            : "This /if has no /endif.",
+            ? {
+                message: "This /if has no /endif in the same command.",
+                label: "no /endif on this line",
+                explanation:
+                  `tf reads a file one command per line, after joining lines that end in ${code("\\")}. An ${code("/if")} ` +
+                  `and its ${code("/endif")} have to end up in the same command: either on one line, separated with ` +
+                  `${code("%;")}, or with a trailing ${code("\\")} on every line but the last.`,
+              }
+            : {
+                message: "This /if has no /endif.",
+                label: "never closed",
+                explanation: `An ${code("/if")} needs an ${code("/endif")} later in the same macro body, at the start of a statement (after a ${code("%;")}).`,
+                fix: closer("endif"),
+              },
           "endif",
           top ? "if-top" : "block",
           to,
         );
       }
     } else if (ended === "while") {
-      this.blockError(start, end, "This /while's condition list has no /do.", "do", "block", to);
+      this.blockError(start, end, conditionList("while", "do"), "do", "block", to);
     } else if (ended === "do") {
-      this.blockError(start, end, "This /while has no /done.", "done", "block", to);
+      this.blockError(
+        start,
+        end,
+        {
+          message: "This /while has no /done.",
+          label: "never closed",
+          explanation: `A ${code("/while")} needs a ${code("/done")} later in the same macro body, at the start of a statement (after a ${code("%;")}).`,
+          fix: closer("done"),
+        },
+        "done",
+        "block",
+        to,
+      );
     }
     this.open.pop();
     this.dropMids(start);
@@ -320,15 +449,43 @@ class Parser {
 
   private unexpected(word: string, start: number, end: number): never {
     const outer = this.block;
-    let problem = `/${word} ${describeBlock(outer)} doesn't belong to anything here.`;
-    if (word === "then" && outer === "then") problem = "/then after an /if (...) condition: the condition already acts as the /then.";
-    else if (word === "do" && outer === "do") problem = "/do after a /while (...) condition: the condition already acts as the /do.";
-    else if (word === "else" && outer === "else") problem = "A second /else in the same /if.";
-    else if (word === "elseif" && outer === "else") problem = "/elseif after /else: /else must come last.";
-    else if (outer === "if" || outer === "elseif") problem = `/${word} before the /then of a condition list (/if /test ...%; /then ...).`;
-    else if (outer === "while") problem = `/${word} before the /do of a condition list (/while /test ...%; /do ...).`;
+    const opener = word === "do" || word === "done" ? "while" : "if";
+    const verb = word === "endif" || word === "done" ? "close" : "belong to";
+    const where = outer ? `: it is ${describeBlock(outer)}` : "";
+    const problem: IssueDetail = {
+      message: `This /${word} has no /${opener} to ${verb}${where}.`,
+      label: `no /${opener} to ${verb}`,
+      related: this.openNote(),
+    };
+    // The keyword itself plus the blanks after it, for a fix that drops it.
+    let next = end;
+    while (isTfSpace(this.s[next])) next += 1;
+    const drop: IssueFix = { title: `Remove /${word}`, edits: [{ start, end: next, newText: "" }] };
+    if ((word === "then" && outer === "then") || (word === "do" && outer === "do")) {
+      const keyword = word === "then" ? "if" : "while";
+      problem.message = `This /${word} is not needed: the (condition) after /${keyword} already ends it.`;
+      problem.label = "not needed";
+      problem.explanation =
+        `${code(`/${keyword} (condition)`)} takes the next statement as its body, so this ${code(`/${word}`)} is read as ` +
+        `the first statement of the body, where tf doesn't expect it. ${code(`/${word}`)} only follows a condition list: ` +
+        `${code(`/${keyword} /test x%; /${word} ...`)}`;
+      problem.fix = drop;
+    } else if (word === "else" && outer === "else") {
+      problem.message = "This is a second /else in the same /if.";
+      problem.label = "second /else";
+    } else if (word === "elseif" && outer === "else") {
+      problem.message = "This /elseif comes after /else: /else has to be last.";
+      problem.label = "after /else";
+    } else if (outer === "if" || outer === "elseif" || outer === "while") {
+      const [keyword, then] = outer === "while" ? ["while", "do"] : ["if", "then"];
+      problem.message = `This /${word} comes before the /${then} of the condition list.`;
+      problem.label = `before the /${then}`;
+      problem.explanation = `A condition list runs up to ${code(`/${then}`)} at the start of a statement: ${code(`/${keyword} /test x%; /${then} ...`)}`;
+    }
     if (this.mode === "top" && !outer && (word === "endif" || word === "else" || word === "elseif")) {
-      problem += " If it belongs to an /if on an earlier line, join the lines with a trailing \\.";
+      problem.explanation =
+        `tf reads a file one command per line, after joining lines that end in ${code("\\")}. If this belongs to an ` +
+        `${code("/if")} on an earlier line, end every line from that ${code("/if")} to here with a trailing ${code("\\")}.`;
     }
     // Only a missing /then or /do can explain a keyword turning up early in a condition list.
     const fix = outer === "if" || outer === "elseif" ? "then" : outer === "while" ? "do" : undefined;
@@ -341,8 +498,12 @@ class Parser {
       kind: "blank-line",
       start: at,
       end: at + 2,
-      message:
-`${sep} straight after ${after} ends an empty statement, which sends a blank line to the world. Drop the ${sep}.`,
+      message: `This ${sep} sends a blank line to the world.`,
+      label: "ends an empty statement",
+      explanation:
+        `${code(after)} takes the next statement as its body. A ${code(sep)} straight after it ends an empty statement ` +
+        "there, and tf sends an empty statement to the world as a blank line. Drop it.",
+      fix: { title: `Remove the ${sep}`, edits: [{ start: at, end: at + 2, newText: "" }] },
     });
   }
 
@@ -378,7 +539,7 @@ class Parser {
       if (!(e instanceof Stop)) throw e;
     }
     // tf reports an error in a fixed expression but carries on compiling.
-    for (const issue of sub.issues) this.issues.push({ ...issue, start: issue.start + start, end: issue.end + start });
+    for (const issue of sub.issues) this.issues.push(shiftIssue(issue, start));
   }
 
   /** Statement text, as `expand()` scans it, up to a separator, the end, or a `$(...)`'s `)`. */
@@ -467,8 +628,18 @@ class Parser {
           percent,
           this.i,
           star || pee || n === 0
-            ? "A leading - only goes with a positive number or L (%-1, %-L2), not with *, P or 0."
-            : "%- starts a substitution (%-1, %-L), but no selector follows it. Write %%- for a literal %-.",
+            ? {
+                message: "A leading - only goes with a positive number or L (%-1, %-L2), not with *, P or 0.",
+                label: "- not allowed here",
+              }
+            : {
+                message: "%- starts a substitution, but no parameter follows it. Write %%- for a literal %-.",
+                label: "not a substitution",
+                explanation:
+                  `In a macro body, ${code("%-")} always starts a substitution of the parameters after one, like ` +
+                  `${code("%-1")} (all but the first) or ${code("%-L")} (all but the last). ${code("%%")} writes a literal ${code("%")}.`,
+                fix: { title: "Write %%- for a literal %-", edits: [{ start: percent, end: percent, newText: "%" }] },
+              },
         );
       }
     }
@@ -502,13 +673,22 @@ class Parser {
       // bad-substitution-selector already explains a substitution glued onto the selector.
       if (!hasDefault && (s[this.i] === "%" || s[this.i] === "$")) throw new Stop();
       const ch = s[this.i] as string;
+      const close: IssueFix = { title: "Close it with }", edits: [this.insertAtEnd(this.i, "}")] };
       this.fail(
         "bracket",
         percent,
         percent + 2,
         this.i < s.length && !this.isStatEnd(this.i)
-          ? `This %{ needs its } before the ${charName(ch)}: a %{...} name can't contain one.`
-          : "This %{ is never closed: add }.",
+          ? {
+              message: `This %{ needs its } before the ${charName(ch)}.`,
+              label: "not closed",
+              explanation:
+                `${code("%{...}")} holds the name of a variable or parameter, and a name can't contain a ${charName(ch)}. ` +
+                `To put text after the substitution, close it first: ${code("%{name} text")}.`,
+              related: [{ start: this.i, end: this.i + 1, message: `the name stops at this ${charName(ch)}` }],
+              fix: { title: `Close it with } before the ${charName(ch)}`, edits: [{ start: this.i, end: this.i, newText: "}" }] },
+            }
+          : { message: "This %{ is never closed: add }.", label: "never closed", fix: close },
       );
     }
   }
@@ -530,7 +710,13 @@ class Parser {
       this.block = outer;
       this.cmdsub -= 1;
       this.dropMids(dollar);
-      if (s[this.i] !== ")") this.fail("bracket", dollar, dollar + 2, "This $( is never closed: add ).");
+      if (s[this.i] !== ")") {
+        this.fail("bracket", dollar, dollar + 2, {
+          message: "This $( is never closed: add ).",
+          label: "never closed",
+          fix: { title: "Close it with ) at the end", edits: [this.insertAtEnd(this.i, ")")] },
+        });
+      }
       this.i += 1;
     } else {
       this.macsub(dollar);
@@ -568,7 +754,13 @@ class Parser {
       }
     }
     if (bracket) {
-      if (s[this.i] !== "}") this.fail("bracket", dollar, dollar + 2, "This ${ is never closed: add }.");
+      if (s[this.i] !== "}") {
+        this.fail("bracket", dollar, dollar + 2, {
+          message: "This ${ is never closed: add }.",
+          label: "never closed",
+          fix: { title: "Close it with }", edits: [this.insertAtEnd(this.i, "}")] },
+        });
+      }
       this.i += 1;
     } else if (s[this.i] === "$") {
       this.i += 1;
@@ -589,7 +781,7 @@ class Parser {
    */
   expression(close: "]" | ")" | undefined, open: number, keyword?: string): void {
     const s = this.s;
-    let depth = 0;
+    const parens: number[] = [];
     while (this.i < s.length) {
       const ch = s[this.i] as string;
       if (ch === '"' || ch === "'" || ch === "`") {
@@ -597,7 +789,13 @@ class Parser {
         this.i += 1;
         while (this.i < s.length && s[this.i] !== ch) this.i += s[this.i] === "\\" ? 2 : 1;
         if (this.i >= s.length) {
-          this.fail("bracket", quote, quote + 1, `This string is never closed: add the closing ${ch}.`);
+          this.fail("bracket", quote, quote + 1, {
+            message: `This string is never closed: add the closing ${ch}.`,
+            label: "never closed",
+            explanation:
+              `Inside an expression (${code("$[...]")}, a condition or ${code("/test")}), ${code(ch)} starts a string that ` +
+              `runs to the next ${code(ch)}. This one runs to the end of the body, taking any ${code("]")} or ${code(")")} with it.`,
+          });
         }
         this.i += 1;
         continue;
@@ -613,26 +811,29 @@ class Parser {
         this.varsub(this.i);
         continue;
       }
-      if (ch === "(") depth += 1;
+      if (ch === "(") parens.push(this.i);
       else if (ch === ")") {
-        if (depth === 0) {
+        if (parens.length === 0) {
           if (close === ")") {
             this.i += 1;
             return;
           }
-          this.fail(
-            "bracket",
-            this.i,
-            this.i + 1,
-            close === "]"
-              ? "This ) has no matching ( inside the $[...]."
-              : "This ) has no matching (.",
-          );
+          this.fail("bracket", this.i, this.i + 1, {
+            message: close === "]" ? "This ) has no matching ( inside the $[...]." : "This ) has no matching (.",
+            label: "no matching (",
+            fix: { title: "Remove the )", edits: [{ start: this.i, end: this.i + 1, newText: "" }] },
+          });
         }
-        depth -= 1;
+        parens.pop();
       } else if (ch === "]" && close === "]") {
-        if (depth > 0) {
-          this.fail("bracket", this.i, this.i + 1, "A ( in this $[...] is never closed: add ) before the ].");
+        if (parens.length > 0) {
+          const paren = parens[parens.length - 1] as number;
+          this.fail("bracket", this.i, this.i + 1, {
+            message: "A ( in this $[...] is never closed: add ) before the ].",
+            label: "the $[...] ends here",
+            related: [{ start: paren, end: paren + 1, message: "this ( is never closed" }],
+            fix: { title: "Add ) before the ]", edits: [this.insertAtEnd(this.i, ")".repeat(parens.length))] },
+          });
         }
         this.i += 1;
         return;
@@ -640,16 +841,25 @@ class Parser {
       this.i += 1;
     }
     if (close === "]") {
-      this.fail("bracket", open, open + 2, "This $[ is never closed: add ].");
+      this.fail("bracket", open, open + 2, {
+        message: "This $[ is never closed: add ].",
+        label: "never closed",
+        explanation: `A ${code("$[")} runs to its matching ${code("]")}, which has to come before the next ${code("%;")}.`,
+        fix: { title: "Close it with ] at the end of the statement", edits: [this.insertAtEnd(this.i, "]")] },
+      });
     } else if (close === ")") {
-      this.fail(
-        "bracket",
-        open,
-        open + 1,
-        `The ${keyword ?? ""} condition's ( is never closed: add ).`,
-      );
-    } else if (depth > 0) {
-      this.fail("bracket", open, s.length, "A ( in this expression is never closed: add ).");
+      this.fail("bracket", open, open + 1, {
+        message: `The ${keyword ?? ""} condition's ( is never closed: add ).`,
+        label: "never closed",
+      });
+    } else if (parens.length > 0) {
+      const paren = parens[parens.length - 1] as number;
+      this.fail("bracket", open, s.length, {
+        message: "A ( in this expression is never closed: add ).",
+        label: "never closed",
+        related: [{ start: paren, end: paren + 1, message: "this ( is never closed" }],
+        fix: { title: "Add ) at the end", edits: [this.insertAtEnd(s.length, ")".repeat(parens.length))] },
+      });
     }
   }
 }
@@ -695,7 +905,7 @@ export function entryStructure(entry: LogicalEntry): StructureIssue[] {
     const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(entry.text) : -1;
     if (body >= 0) {
       for (const issue of checkStructure(entry.text.slice(body), "body")) {
-        issues.push({ ...issue, start: issue.start + body, end: issue.end + body });
+        issues.push(shiftIssue(issue, body));
       }
     }
     cache.set(entry, issues);

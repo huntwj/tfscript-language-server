@@ -15,6 +15,6 @@ export const unclosedSubstitution: EntryRule = {
   check(entry): EntryMatch[] {
     return entryStructure(entry)
       .filter((i) => i.kind === "bracket")
-      .map(({ start, end, message }) => ({ start, end, message }));
+      .map(({ kind: _kind, ...match }) => match);
   },
 };

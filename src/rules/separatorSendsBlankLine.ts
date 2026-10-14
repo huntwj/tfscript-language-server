@@ -12,6 +12,6 @@ export const separatorSendsBlankLine: EntryRule = {
   check(entry): EntryMatch[] {
     return entryStructure(entry)
       .filter((i) => i.kind === "blank-line")
-      .map(({ start, end, message }) => ({ start, end, message }));
+      .map(({ kind: _kind, ...match }) => match);
   },
 };

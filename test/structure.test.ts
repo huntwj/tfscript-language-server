@@ -25,8 +25,8 @@ describe("checkStructure in a macro body", () => {
 
   it("explains the swallowed keyword", () => {
     const [found] = checkStructure("/if (1) /echo yes /else /echo no /endif", "body");
-    expect(found?.message).toContain("/else is part of the /echo statement");
-    expect(found?.message).toContain("Put %; before it.");
+    expect(found?.message).toBe("/else here is not a keyword: it is part of the /echo command, so the /if is never closed.");
+    expect(found?.explanation).toContain("Put `%;` before each keyword");
   });
 
   it("reports keywords with no block to belong to", () => {
@@ -44,7 +44,7 @@ describe("checkStructure in a macro body", () => {
   it("says what is unclosed and how to close it, in plain words", () => {
     expect(checkStructure('/echo $["abc]', "body")[0]?.message).toBe('This string is never closed: add the closing ".');
     expect(checkStructure("/echo $[1+2", "body")[0]?.message).toBe("This $[ is never closed: add ].");
-    expect(checkStructure("/echo %{x y}", "body")[0]?.message).toBe("This %{ needs its } before the space: a %{...} name can't contain one.");
+    expect(checkStructure("/echo %{x y}", "body")[0]?.message).toBe("This %{ needs its } before the space.");
   });
 
   it("knows a condition list needs %; before its /then", () => {

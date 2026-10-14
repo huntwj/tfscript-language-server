@@ -120,6 +120,10 @@ describe("findVariables", () => {
   });
 });
 
+/** Each occurrence with its scope: "L" for the body's own, then the kind of each inner scope. */
+const scoped = (text: string): string[] =>
+  findVariables(text).map((v) => `${v.access}:${v.name}${v.scope === "global" ? "" : ` ${v.scope.replace(/^local:\d+/, "L").replace(/\d+/g, "")}`}`);
+
 describe("scopes", () => {
   it("makes a read local only after a /let of the same name in the same body", () => {
     const text = "/def -i a = /echo %x%; /let x=1%; /echo %x {y}%; /test x := 2%; /set x=3%; /unset x\n/def -i b = /echo %x\n";
@@ -150,6 +154,49 @@ describe("scopes", () => {
       "let:y local",
       "read:y",
     ]);
+  });
+
+  it("keeps a /let inside /eval, $(...) or a nested /def to its own scope", () => {
+    // Real tf: after /eval /let zork=EV, and after $(/let zork=CS), the body's %zork read the global.
+    expect(scoped("/def -i a = /eval /let zork=1%%; /echo %%zork%; /echo %zork\n")).toEqual([
+      "let:zork L:eval",
+      "read:zork L:eval",
+      "read:zork",
+    ]);
+    expect(scoped("/def -i a = /echo $(/let zork=3%; /echo %zork)%; /echo %zork\n")).toEqual([
+      "let:zork L:cmdsub",
+      "read:zork L:cmdsub",
+      "read:zork",
+    ]);
+    expect(scoped("/def -i a = /def -i b = /let zork=2%%; /echo %%zork%; /echo %zork\n")).toEqual([
+      "let:zork L:def",
+      "read:zork L:def",
+      "read:zork",
+    ]);
+  });
+
+  it("lets /eval text and a $(...) see the macro's own locals", () => {
+    expect(scoped("/def -i a = /let z=1%; /eval /echo %%z%; /echo $(/echo %z)\n")).toEqual(["let:z L", "read:z L", "read:z L"]);
+  });
+});
+
+describe("/for and /repeat", () => {
+  it("reads a /for command as a macro body, with its variable local to the loop", () => {
+    // Real tf: a top-level /for i 1 1 /echo %zork read the global zork, and %i the loop's i.
+    expect(scoped("/for i 1 1 /echo %zork %i\n")).toEqual(["let:i L:for", "read:zork", "read:i L:for"]);
+    // Real tf: in a body, %%zork read the body's /let zork (the /for runs inside the macro).
+    expect(scoped("/def -i a = /let zork=L%; /for j 1 1 /echo %%zork %%j\n")).toEqual([
+      "let:zork L",
+      "let:j L:for",
+      "read:zork L",
+      "read:j L:for",
+    ]);
+  });
+
+  it("reads a /repeat command as a macro body that runs later, seeing no local of the macro", () => {
+    // Real tf: %%zork read the global, %zork (substituted by the body first) the local.
+    expect(scoped("/def -i a = /let zork=L%; /repeat -0 1 /echo %%zork %zork\n")).toEqual(["let:zork L", "read:zork", "read:zork L"]);
+    expect(scoped("/repeat -0.5 i /echo %zork\n")).toEqual(["read:zork"]);
   });
 });
 

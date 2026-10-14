@@ -38,18 +38,21 @@ import type { Range } from "./symbols";
  *    matches (macro.c), so its names are reads; `-t`, `-h`, `-T`, `-w` and the rest are
  *    patterns and names, not substituted.
  *  - A run of two or more `%`s is text one level down: `%%{w}` in a `/def` inside a body becomes
- *    `%{w}` in the inner macro. `/eval` and a `/def` inside a body are read again as the level
- *    below sees them, with each run of `%`s one shorter.
+ *    `%{w}` in the inner macro. `/eval`, `/for` and `/repeat` text and a `/def` inside a body are
+ *    read again as the level below sees them, with each run of `%`s one shorter.
+ *  - `/eval` text and a `$(...)` run in a scope of their own inside the running macro's (expand.c
+ *    pushes one for each), so a `/let` there ends with them, while their reads still see the
+ *    macro's locals. `/for VAR ...` runs its command in stdlib's `/@eval /let VAR=...`, so VAR is
+ *    that loop's local and the macro's locals are seen too. `/repeat` compiles its command as a
+ *    macro body and runs it later from the top level (process.c), so it sees none of them; nor
+ *    does a `/def` inside a body, which runs whenever it's called.
  *
  * Approximated, because which scope a read finds depends on how the code runs:
- *  - Each macro body is one scope. A read or assignment in a body counts as local when a `/let`
- *    of the same name ends before it in that body; anything else counts as global.
+ *  - A read or assignment counts as local when a `/let` of the same name has ended before it in
+ *    its own scope or one around it; anything else counts as global.
  *  - tf's scoping is dynamic: a macro also sees the locals of the macro that called it (proven:
- *    a callee's `%y` read the caller's `/let y`). That isn't followed: a read in a body without
- *    its own `/let` counts as global.
- *  - `$(...)` and `/eval` text run in a scope of their own (expand.c pushes one for each; proven
- *    for both), and a `/def` inside a body has its own body; all three count as part of the
- *    macro body around them.
+ *    a callee's `%y` read the caller's `/let y`). That isn't followed here: a read in a body
+ *    without its own `/let` counts as global (rename refuses the cases it would get wrong).
  *  - A `/let` in a branch that doesn't run still counts.
  *  - `/listvar` takes a pattern, and `/for`'s loop variable is set inside stdlib's /for, so
  *    neither is followed.
@@ -200,6 +203,8 @@ interface Found {
   end: number;
   /** For a `/let` or getopts(), where the variable starts to exist: the end of its statement. */
   from?: number;
+  /** The variable scopes it is in, innermost first (see Walk.chain). */
+  chain: string[];
 }
 
 /** What one walk over a text needs: the text, where it came from, and where to put what it finds. */
@@ -207,12 +212,34 @@ interface Walk {
   src: Source;
   found: Found[];
   depth: number;
+  /**
+   * The variable scopes the text runs in, innermost first: a macro body's, then for `/eval` text
+   * and a `/for` command the scopes of what runs them (tf searches every scope of the running
+   * macros, findlocalvar()). Text that runs later on its own, a `/repeat` command or a `/def`'s
+   * body inside a body, starts afresh.
+   */
+  chain: string[];
+  /** Names the next scope opened in this entry. */
+  scopes: { prefix: string; next: number };
+  /** The scopes at each offset of the text, its `$(...)`s' added in front: set by walk(). */
+  chainAt?: (offset: number) => string[];
 }
 
 const at = (w: Walk, start: number, end: number) => ({ start: w.src.map[start] as number, end: (w.src.map[end - 1] as number) + 1 });
 
 function push(w: Walk, name: string, access: VariableAccess, form: VariableForm, start: number, end: number, from?: number): void {
-  w.found.push({ name, access, form, ...at(w, start, end), ...(from === undefined ? {} : { from: w.src.map[from] as number }) });
+  const chain = w.chainAt?.(start) ?? w.chain;
+  w.found.push({ name, access, form, ...at(w, start, end), ...(from === undefined ? {} : { from: w.src.map[from] as number }), chain });
+}
+
+function newScope(w: Walk, kind: string): string {
+  w.scopes.next += 1;
+  return `${w.scopes.prefix}:${kind}${w.scopes.next}`;
+}
+
+/** A walk over `src`, run in `chain`. */
+function inner(w: Walk, src: Source, chain: string[]): Walk {
+  return { src, found: w.found, depth: w.depth + 1, chain, scopes: w.scopes };
 }
 
 /**
@@ -372,9 +399,53 @@ function evalText(w: Walk, st: Statement, argStart: number): void {
     if (!picked) return; // an error: nothing runs
     mode = picked;
   }
-  // A statement tf substitutes hands /eval its text with each run of %s one shorter.
-  const inner = st.level === "keyword" ? slice(w.src, i, st.end) : shortened(w.src, i, st.end);
-  walk({ src: inner, found: w.found, depth: w.depth + 1 }, mode);
+  // /eval runs its text in a scope of its own, inside the running macro's (expand.c).
+  walk(inner(w, handedOn(w, st, i), [newScope(w, "eval"), ...(w.chainAt?.(st.start) ?? w.chain)]), mode);
+}
+
+/** The text a command hands on to run later, `[from, st.end)`: a substituted statement's runs of %s are one shorter. */
+function handedOn(w: Walk, st: Statement, from: number): Source {
+  return st.level === "keyword" ? slice(w.src, from, st.end) : shortened(w.src, from, st.end);
+}
+
+/** The next blank-separated word at or after `i`, before `end`. */
+function nextWord(s: string, i: number, end: number): { start: number; end: number } | undefined {
+  while (i < end && isTfSpace(s[i])) i += 1;
+  if (i >= end) return undefined;
+  const start = i;
+  while (i < end && !isTfSpace(s[i])) i += 1;
+  return { start, end: i };
+}
+
+/**
+ * `/for VAR START END COMMAND`: stdlib.tf's /for runs `/@eval /let VAR=START%%; /while (...)
+ * COMMAND%%; ...`, so COMMAND is read as a macro body, in the scope of that /eval, where VAR is a
+ * local, inside the scopes of whatever ran the /for.
+ */
+function forCommand(w: Walk, st: Statement, argStart: number): void {
+  const s = w.src.text;
+  const v = nextWord(s, argStart, st.end);
+  const first = v && nextWord(s, v.end, st.end);
+  const last = first && nextWord(s, first.end, st.end);
+  const command = last && nextWord(s, last.end, st.end);
+  if (!v || !command || !isVariableName(s.slice(v.start, v.end))) return;
+  const scope = newScope(w, "for");
+  const chain = [scope, ...(w.chainAt?.(st.start) ?? w.chain)];
+  w.found.push({ name: s.slice(v.start, v.end), access: "let", form: "command", ...at(w, v.start, v.end), from: -Infinity, chain });
+  walk(inner(w, handedOn(w, st, command.start), chain), "body");
+}
+
+/**
+ * `/repeat [-options] COUNT COMMAND`: process.c compiles COMMAND as a macro body (SUB_MACRO) and
+ * runs it later, from the top level, so it sees no local of the macro that ran the /repeat.
+ */
+function repeatCommand(w: Walk, st: Statement, argStart: number): void {
+  const s = w.src.text;
+  let word = nextWord(s, argStart, st.end);
+  while (word && s[word.start] === "-") word = nextWord(s, word.end, st.end);
+  const command = word && nextWord(s, word.end, st.end);
+  if (!command) return;
+  walk(inner(w, handedOn(w, st, command.start), [newScope(w, "repeat")]), "body");
 }
 
 /** `/def -E"expr"`: its expression, from the options before the body. */
@@ -410,15 +481,22 @@ function statement(w: Walk, st: Statement, skip: Uint8Array): void {
   if (argStart < st.end && !isTfSpace(s[argStart])) return;
   if (word === "set" || word === "setenv" || word === "let" || word === "unset" || word === "export") {
     command(w, word, st, argStart);
+  } else if (w.depth >= 8) {
+    // Deep enough: text that runs text that runs text isn't read any further.
   } else if (word === "eval") {
-    if (w.depth < 8) evalText(w, st, argStart);
+    evalText(w, st, argStart);
+  } else if (word === "for") {
+    forCommand(w, st, argStart);
+  } else if (word === "repeat") {
+    repeatCommand(w, st, argStart);
   } else if (MACRO_DEFINER.test(word)) {
     const text = s.slice(st.start, st.end);
     const body = macroBodyStart(text);
     if (word === "def") defExpression(w, argStart, body < 0 ? st.end : st.start + body - 1);
-    // A definition inside a substituted body: its own body is read again, as the macro will see it.
-    if (st.level === "full" && body >= 0 && w.depth < 8) {
-      walk({ src: shortened(w.src, st.start + body, st.end), found: w.found, depth: w.depth + 1 }, "body");
+    // A definition inside a substituted body: its own body is read again, as the macro will see
+    // it, in a scope of its own (it runs whenever it's called, not inside this macro).
+    if (st.level === "full" && body >= 0) {
+      walk(inner(w, shortened(w.src, st.start + body, st.end), [newScope(w, "def")]), "body");
     }
   }
 }
@@ -446,8 +524,45 @@ function stringsIn(s: string, expressions: ExpressionRegion[]): Uint8Array {
   return mask;
 }
 
+/**
+ * The scopes at each offset of a walk's text: its own chain, with a scope for each `$(...)` the
+ * offset is in added in front (expand.c pushes one for each command substitution).
+ */
+function scopesOf(w: Walk, cmdsubs: { start: number; end: number }[]): (offset: number) => string[] {
+  if (cmdsubs.length === 0) return () => w.chain;
+  // They nest, so one sweep finds each offset's innermost $(...) and each one's parent.
+  const subs = [...cmdsubs].sort((a, b) => a.start - b.start || b.end - a.end);
+  const owner = new Int32Array(w.src.text.length + 1).fill(-1);
+  const parent: number[] = [];
+  const stack: number[] = [];
+  let k = 0;
+  for (let p = 0; p <= w.src.text.length; p += 1) {
+    while (stack.length > 0 && (subs[stack[stack.length - 1] as number] as { end: number }).end <= p) stack.pop();
+    while (k < subs.length && (subs[k] as { start: number }).start <= p) {
+      parent[k] = stack[stack.length - 1] ?? -1;
+      stack.push(k);
+      k += 1;
+      while (stack.length > 0 && (subs[stack[stack.length - 1] as number] as { end: number }).end <= p) stack.pop();
+    }
+    owner[p] = stack[stack.length - 1] ?? -1;
+  }
+  const names = subs.map(() => newScope(w, "cmdsub"));
+  const chains = new Map<number, string[]>();
+  const chainOf = (i: number): string[] => {
+    if (i < 0) return w.chain;
+    let c = chains.get(i);
+    if (!c) {
+      c = [names[i] as string, ...chainOf(parent[i] as number)];
+      chains.set(i, c);
+    }
+    return c;
+  };
+  return (offset) => chainOf(owner[offset] ?? -1);
+}
+
 function walk(w: Walk, mode: StructureMode): void {
-  const { statements, expressions } = parseRegions(w.src.text, mode);
+  const { statements, expressions, cmdsubs } = parseRegions(w.src.text, mode);
+  w.chainAt = scopesOf(w, cmdsubs);
   const skip = stringsIn(w.src.text, expressions);
   for (const st of statements) statement(w, st, skip);
   for (const ex of expressions) region(w, ex, skip);
@@ -463,29 +578,34 @@ function entryVariables(entry: LogicalEntry, index: number): VariableOccurrence[
   const s = entry.text;
   const found: Found[] = [];
   const src: Source = { text: s, map: Array.from({ length: s.length + 1 }, (_, i) => i) };
-  walk({ src, found, depth: 0 }, "top");
+  const local = `local:${index}`;
+  const scopes = { prefix: local, next: 0 };
+  // A top-level /let is "illegal at top level" in tf; it still gets a scope of its own here.
+  walk({ src, found, depth: 0, chain: [`${local}:top`], scopes }, "top");
   const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(s) : -1;
-  if (body >= 0) walk({ src: slice(src, body, s.length), found, depth: 0 }, "body");
+  if (body >= 0) walk({ src: slice(src, body, s.length), found, depth: 0, chain: [local], scopes }, "body");
 
   // A name can be read twice (an expression inside another one, or a level and the one below):
   // keep the first.
   const seen = new Set<number>();
   const unique = found.filter((f) => !seen.has(f.start) && (seen.add(f.start), true)).sort((a, b) => a.start - b.start);
 
-  // Where each of the body's own variables starts to exist: the end of its first /let.
-  const inBody = (f: Found): boolean => body >= 0 && f.start >= body;
+  // Where each scope's own variables start to exist: the end of the first /let (or getopts()).
   const born = new Map<string, number>();
+  const binds = (f: Found): boolean => f.access === "let" || f.access === "getopts";
   for (const f of unique) {
-    if ((f.access === "let" || f.access === "getopts") && inBody(f) && f.from !== undefined) {
-      born.set(f.name, Math.min(born.get(f.name) ?? Infinity, f.from));
-    }
+    if (!binds(f) || f.from === undefined) continue;
+    const key = `${f.chain[0]}\0${f.name}`;
+    born.set(key, Math.min(born.get(key) ?? Infinity, f.from));
   }
-  const local = `local:${index}`;
   const out: VariableOccurrence[] = [];
   for (const f of unique) {
     let scope = "global";
-    if (f.access === "let" || f.access === "getopts") scope = local;
-    else if ((f.access === "read" || f.access === "assign") && inBody(f) && f.start >= (born.get(f.name) ?? Infinity)) scope = local;
+    if (binds(f)) scope = f.chain[0] as string;
+    else if (f.access === "read" || f.access === "assign") {
+      // The nearest scope whose variable exists by then, as hfindnearestvar() searches.
+      scope = f.chain.find((c) => (born.get(`${c}\0${f.name}`) ?? Infinity) <= f.start) ?? "global";
+    }
     const first = entry.offsetMap[f.start];
     const last = entry.offsetMap[f.end - 1];
     // A name split across a `\`-continued line has no single range to point at.

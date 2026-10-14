@@ -61,6 +61,21 @@
   as a `$[...]`, a `%;` or a `\`, gets the warning without the fix or the promise. Where the command
   holds a `%{`, `${` or `$(` tf can't read at all, the message says `/eval` would reject it and
   names what to fix first.
+- `keyword-mid-statement` takes in `let-swallows-endif` and `block-structure`'s keyword stuck
+  mid-statement (`/echo a /endif`): one rule for a keyword tf reads as text, because only a
+  statement's start can hold one. A `/let` or `/set` value keeps its own wording, `/@set` and
+  `/@let` included. An `/if` a value swallows is reported once: the `/endif`, `/else` or
+  `/elseif` it leaves stray, which is what tf reports, is now its related location rather than a
+  `block-structure` error of its own. Text in a condition list (`/while i < 2 /do ...`) gets no
+  `%;` fix, which would have the text sent to the world.
+- `condition-list-text` (warning): a statement in an `/if`, `/elseif` or `/while` condition list
+  that isn't a command, which tf sends to the world each time the condition is tested, as its
+  own warning says.
+- `keyword-needs-space`: a block keyword glued to a `(` or `/` after it, such as `/if(1)` or
+  `/else/echo b`, which tf runs as a command of that whole name. The fix adds the blank, or `%;`
+  after `/endif`, `/done` or `/break`; none where the `%;` after the condition would then send a
+  blank line. `not-substituted-here` no longer notes the `%;` on such a line, and the
+  undefined-macro check doesn't look for a macro named `if(1)`.
 - "Inline /foo" (`refactor.inline`): replaces a `/foo` call in a macro body with foo's body, and
   "Inline all calls to /foo and remove it" does that for every call in the file and deletes the
   `/def`. It is shown disabled, with the reason, when the body wouldn't run the same in the caller:

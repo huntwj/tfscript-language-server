@@ -153,10 +153,15 @@ for:
 - `~user/...`, which tf takes from that user's home directory whenever the user exists. Only
   when there is no such user does tf open a `~user` folder in its current directory instead; a
   link goes to that folder's file if it exists, since the user's home can't be checked;
-- one with a `%`, `$` or `\` in it, which is substituted when it runs — so a Windows path like
-  `/load C:\x\a.tf` gets none either;
+- one that is substituted when it runs (in a macro body, or under `/eval` at its default level)
+  and has a `%`, `$` or `\` to substitute;
+- one with a `%{...}` outside `/eval`, which load-no-expansion warns about;
+- one with a `\`, so a Windows path like `/load C:\x\a.tf` gets none;
 - a load in a `/def` nested inside another macro's body, which is only text until the outer
   macro runs.
+
+Where tf only shortens runs of `%` (inside a top-level `/if` or `/while`, or under `/eval -son`),
+the link goes to the shortened name, each level's pass made over what the one outside it left.
 
 Settings (folder-scoped in VS Code; any client can send them through `workspace/configuration`
 under `tfscript`):

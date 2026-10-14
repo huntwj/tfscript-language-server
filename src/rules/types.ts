@@ -10,6 +10,8 @@ export type Severity = "error" | "warning" | "information";
 export interface EntryMatch extends IssueDetail {
   start: number;
   end: number;
+  /** In place of the rule's own severity, for a variant that is milder or worse. */
+  severity?: Severity;
 }
 
 /** A span of one physical line. */

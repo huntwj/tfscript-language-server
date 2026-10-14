@@ -54,7 +54,7 @@ function entryDiagnostic(entry: LogicalEntry, match: EntryMatch, code: string, s
   if (match.end <= match.start) return undefined;
   const range = rangeOf(entry, match.start, match.end);
   if (!range) return undefined;
-  const d: TfDiagnostic = { range, message: match.message, code, severity };
+  const d: TfDiagnostic = { range, message: match.message, code, severity: match.severity ?? severity };
   if (match.label) d.label = match.label;
   if (match.explanation) d.explanation = match.explanation;
   const related = (match.related ?? []).flatMap((n) => {

@@ -280,8 +280,9 @@ const CONTINUATION_EXPLANATION =
   `In a file, every command ends at the end of its line, unless the line ends in ${code("\\")}: then tf joins the ` +
   `next line on. So a block has to be complete within one command: on one line with ${code("%;")} between its ` +
   `statements, or on lines that each end in ${code("\\")} but the last. (On a top-level line that starts with ` +
-  `${code("/if")} or ${code("/while")}, ${code("%;")} separates statements, but variables aren't substituted; ` +
-  `put the block in a ${code("/def")} to use them.)`;
+  `${code("/if")} or ${code("/while")}, ${code("%;")} separates statements, but ${code("%")} substitutions such as ` +
+  `${code("%{x}")} aren't done in its commands; a variable in its condition still works. Put the block in a ` +
+  `${code("/def")} to substitute in the commands too.)`;
 
 /**
  * A top-level block still open where its command ends, waiting for `/then`, `/do` (a condition

@@ -16,9 +16,9 @@ interface LspRange {
 let client: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  // `server/` is this extension's own copy of the sibling tfscript-language-server package's
-  // dist/, placed there at build time (scripts/copy-server.js) and packaged into the .vsix —
-  // NOT a relative path into the sibling repo. A relative path like "../../dist/server.js"
+  // `server/` is this extension's own copy of packages/server's dist/, with core nested under its
+  // node_modules, placed there at build time (scripts/copy-server.js) and packaged into the .vsix —
+  // NOT a relative path into the repo. A relative path like "../../packages/server/dist/server.js"
   // only resolves while running this extension unpacked via F5 (where extensionPath is this
   // checkout's own editors/vscode folder); once packaged and installed, VS Code extracts the
   // extension into its own extensions directory, nowhere near the repo that built it, and
@@ -35,7 +35,7 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   // The server speaks LSP over its own stdio (createConnection(ProposedFeatures.all,
-  // process.stdin, process.stdout) in src/server.ts) regardless of how it's launched, so
+  // process.stdin, process.stdout) in packages/server/src/server.ts) regardless of how it's launched, so
   // TransportKind.stdio — not the default ipc — is what actually matches what it does.
   const serverOptions: ServerOptions = {
     run: { module: serverModule, transport: TransportKind.stdio },

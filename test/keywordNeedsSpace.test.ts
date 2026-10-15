@@ -165,19 +165,20 @@ describe("keyword-needs-space", () => {
       }
     });
 
-    // rev-s4e w1-w4, proven in tf: where keyword-needs-space withholds its fix, it stays withheld,
-    // with its advice, and the join said in the message.
-    it("keeps keyword-needs-space's withheld fix withheld across a join", () => {
-      const w1 = "/def g = /while\\\n(0)%; /done\n";
-      expect(getDiagnostics(w1)[0]?.message).toBe(
-        "Line 1 ends in \\, so tf joins the next line on, and tf reads /while(0) as a command named while(0), not as /while: put a space after /while.",
-      );
-      expect(titles(w1)).toEqual([]);
-      const w2 = "/def g = /if (0) /echo a%; /else\\\n(1) /echo b%; /endif\n";
-      expect(getDiagnostics(w2)[0]?.message).toBe(
-        "Line 1 ends in \\, so tf joins the next line on, and tf reads /else(1) as a command named else(1), not as /else: did you mean /elseif (1)?",
-      );
-      expect(titles(w2)).toEqual([]);
+    // rev-s4e w1-w5, proven in tf: where keyword-needs-space withholds its fix, it stays withheld,
+    // with its advice put where it can be followed: before the \, since tf strips a blank at the
+    // start of the next line (rev-s4f w1a, w4a, w5a; s4/wa.tf runs each piece of advice clean).
+    it("keeps keyword-needs-space's withheld fix withheld across a join, with advice that can be followed", () => {
+      for (const [text, message] of [
+        ["/def g = /while\\\n(0)%; /done\n", "reads /while(0) as one command: put a space before the \\, and a command between the (0) and the %;."],
+        ["/def g = /if\\\n(1)%; /echo a%; /endif\n", "reads /if(1) as one command: put a space before the \\, and a command between the (1) and the %;."],
+        ["/def g = /if (0) /echo a%; /else\\\n(1) /echo b%; /endif\n", "reads /else(1) as one command: did you mean /elseif (1)? Then put a space before the \\."],
+        ["/def g = /if /test 1%; /then\\\n(1) /echo b%; /endif\n", "reads /then(1) as one command: /then takes no (condition)."],
+        ["/def g = /if (0) /echo a%; /else\\\n!x%; /endif\n", "reads /else!x as one command: unless a macro named else!x is defined elsewhere, put a space before the \\."],
+      ] as const) {
+        expect(getDiagnostics(text).find((d) => d.code === CODE)?.message, text).toBe(`Line 1 ends in \\, so tf joins the next line on and ${message}`);
+        expect(titles(text), text).toEqual([]);
+      }
     });
 
     it("reads the /@ forms on a line join as their keywords", () => {
@@ -185,9 +186,22 @@ describe("keyword-needs-space", () => {
       expect(titles("/def g = /@if\\\n(1) /echo a%; /@endif\n")).toEqual(["Put a space before the \\ on line 1"]);
     });
 
-    // rev-s4d a3: a call of the macro being defined is a command of its own, as a column-0 /def is.
+    // rev-s4d a3 and rev-s4f c1-c6, proven in tf: a call of the macro being defined is a command of
+    // its own, as a column-0 /def is, whatever the /def's options or the call's arguments, and
+    // ignoring case as tf does. Not /@g, a builtin lookup ("g: not a builtin command"), nor /gg.
     it("puts removing the \\ first before a call of the macro being defined", () => {
-      expect(titles("/def g = /if (1) /echo a%; /endif\\\n;x\n/g\n")).toEqual([`${split} (preferred)`, keep]);
+      for (const text of [
+        "/def g = /if (1) /echo a%; /endif\\\n;x\n/g\n",
+        "/def g = /if (1) /echo a%; /endif\\\n/g x y\n",
+        "/def -i g = /if (1) /echo a%; /endif\\\n/g\n",
+        '/def -p2 -mglob -t"x*" g = /if (1) /echo a%; /endif\\\n/g\n',
+        "/def G = /if (1) /echo a%; /endif\\\n/g\n",
+      ]) {
+        expect(titles(text), text).toEqual([`${split} (preferred)`, keep]);
+      }
+      for (const text of ["/def g = /if (1) /echo a%; /endif\\\n/@g\n", "/def g = /if (1) /echo a%; /endif\\\n/gg\n"]) {
+        expect(titles(text), text).toEqual([`${keep} (preferred)`, split]);
+      }
     });
 
     // s4/cm.tf and rev-s4e v1, v2, proven in tf.

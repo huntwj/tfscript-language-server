@@ -241,7 +241,8 @@ function unjoinGluedKeywords(text: string, entries: LogicalEntry[], diagnostics:
       // A column-0 /def, or a call of the macro being defined (`/g` after `/def g = ...`: rev-s4d
       // a3), is a command of its own.
       const defined = entry && definedMacro(entry)?.toLowerCase();
-      const calls = /^\/@?([^\s%]+)/.exec(next)?.[1]?.toLowerCase();
+      // Not /@g: one @ looks only for a builtin, and tf says "g: not a builtin command" (rev-s4f c1).
+      const calls = /^\/([^\s%@]+)/.exec(next)?.[1]?.toLowerCase();
       const ownCommand = /^\/@?def\b/i.test(next) || (!!defined && calls === defined);
       const sameBody = !ownCommand && (/^[ \t\f\v]/.test(next) || next.endsWith("\\") || !!entry?.isDefBody || !!entry?.isOtherMacroBody);
       d.fix = sameBody ? keep : split;
@@ -253,13 +254,34 @@ function unjoinGluedKeywords(text: string, entries: LogicalEntry[], diagnostics:
       d.fix = keep;
       delete d.alternative;
     } else if (!d.fix) {
-      // Where keyword-needs-space withholds its fix on purpose (/else(1), /do(1), or a %; straight
-      // after the condition: rev-s4e w1-w4), its message and advice stand, with the join said.
-      d.message = `Line ${line} ends in \\, so tf joins the next line on, and ${d.message}`;
+      // Where keyword-needs-space withholds its fix on purpose, it is withheld here too, with its own
+      // advice put where it can be followed: a blank at the start of the next line is stripped, so
+      // it goes before the \ (rev-s4e w1-w5, rev-s4f w1a, w4a, w5a).
+      const rest = next.trimStart();
+      const paren = rest.startsWith("(") ? parenthesized(rest) : "";
+      const head = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command`;
+      if (paren && word === "else") d.message = `${head}: did you mean /elseif ${paren}? Then put a space before the \\.`;
+      else if (paren && (word === "then" || word === "do")) d.message = `${head}: /${word} takes no (condition).`;
+      else if (paren) d.message = `${head}: put a space before the \\, and a command between the ${paren} and the %;.`;
+      else d.message = `${head}: unless a macro named ${glued.slice(1)} is defined elsewhere, put a space before the \\.`;
     } else {
       d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put a space before the \\.`;
       d.fix = { title: `Put a space before the \\ on line ${line}`, edits: [{ range: { start: at, end: at }, newText: " " }] };
       delete d.alternative;
     }
   }
+}
+
+/** The `(...)` that `text` starts with, up to its matching `)` (strings skipped); "" if it never closes. */
+function parenthesized(text: string): string {
+  let depth = 0;
+  for (let p = 0; p < text.length; p += 1) {
+    const ch = text[p];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      p += 1;
+      while (p < text.length && text[p] !== ch) p += text[p] === "\\" ? 2 : 1;
+    } else if (ch === "(") depth += 1;
+    else if (ch === ")" && --depth === 0) return text.slice(0, p + 1);
+  }
+  return "";
 }

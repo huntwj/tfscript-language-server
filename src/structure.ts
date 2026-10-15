@@ -942,7 +942,9 @@ class Parser {
           explanation: after
             ? `${code(after)} ends its statement, so the next command has to start a new one, after a ${code("%;")}.`
             : `The statement before it has ended, so this has to start a new one, after a ${code("%;")}.`,
-          fix: { title: "Put %; before it", edits: [this.separatorBefore(this.i)] },
+          // Only before a command: text after a %; would be a statement sent to the world (rev-s4b
+          // g08 `/endif)`, g14 `/endif "x"`).
+          ...(this.s[this.i] === "/" ? { fix: { title: "Put %; before it", edits: [this.separatorBefore(this.i)] } } : {}),
         });
       }
     } while (this.i < this.s.length);

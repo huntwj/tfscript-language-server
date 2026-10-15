@@ -138,6 +138,17 @@ describe("structural fixes", () => {
     expect(getCodeActions(paren, WHOLE_FILE)).toEqual([]);
   });
 
+  // Second review of step 4 (rev-s4b g08, g14), proven in tf: with a %; the text is a statement,
+  // sent to the world. A command after /endif keeps its fix.
+  it("puts %; after an /endif only before a command, not before text", () => {
+    for (const text of ["/def a = /if (1) /echo x%; /endif)\n", '/def a = /if (1) /echo x%; /endif "x"\n']) {
+      const [d] = getDiagnostics(text);
+      expect(d?.message, text).toBe("Text after /endif needs a %; before it.");
+      expect(d?.fix, text).toBeUndefined();
+    }
+    expect(getDiagnostics("/def a = /if (1) /echo x%; /endif /echo y\n")[0]?.fix?.title).toBe("Put %; before it");
+  });
+
   it("blames a second /then on the (condition) only when one comes straight before it", () => {
     const [list] = getDiagnostics("/def a = /if /test a%; /then /echo a%; /then /echo b%; /endif\n");
     expect(list?.message).toBe("This /then is inside the /if's body, where it doesn't belong: /then only ends a condition list.");

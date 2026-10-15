@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 /** The built server, as an editor runs it (vitest's global setup builds it first). */
-export const SERVER = fileURLToPath(new URL("../dist/server.js", import.meta.url));
+export const SERVER = fileURLToPath(new URL("../packages/server/dist/server.js", import.meta.url));
 
 interface Message {
   id?: number;

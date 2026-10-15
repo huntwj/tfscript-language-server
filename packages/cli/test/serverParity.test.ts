@@ -2,7 +2,7 @@ import { readdirSync } from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
-import { serverDiagnostics } from "../../server/test/lspClient";
+import { serverDiagnostics } from "../../../test-support/lspClient";
 import { runBin, WS } from "./fixtures";
 
 interface LspDiagnostic {

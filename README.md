@@ -424,8 +424,8 @@ packages/server/          tfscript-language-server: the LSP server, built on cor
   test/
     completions.test.ts   completion in every cursor context
     watching.test.ts, lspSymbols.test.ts, lspFolding.test.ts  unit tests for those
-    publishedDiagnostics.test.ts  the built server's diagnostics over stdio (lspClient.ts), on
-                          the fixture workspace in fixtures/
+    publishedDiagnostics.test.ts  the built server's diagnostics over stdio, on the shared
+                          fixture workspace
 packages/cli/             @tfscript/cli: `tfscript check`, the server's diagnostics from the
                           command line, built on core (see "Command line" below)
   src/
@@ -436,6 +436,9 @@ packages/cli/             @tfscript/cli: `tfscript check`, the server's diagnost
   test/
     bin.test.ts          the built bin, end to end
     serverParity.test.ts  the built CLI and server report the same diagnostics and fixes
+test-support/             what the server's and the CLI's tests share: a fixture workspace
+                          (fixtures/ws, with a tf library in fixtures/tflib) and lspClient.ts,
+                          a minimal LSP client that drives the built server over stdio
 editors/vscode/           the VS Code extension, which bundles the server
 scripts/
   check-corpus-live.js  slow, Docker-backed: cross-checks this engine against real tf

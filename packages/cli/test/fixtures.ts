@@ -4,8 +4,8 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { nodeHost, type CheckHost } from "../src/check";
 
-/** The server's fixture workspace: one folder (ws) with a tfrc, and a tf library beside it (tflib). */
-export const FIXTURES = fileURLToPath(new URL("../../server/test/fixtures/", import.meta.url));
+/** The shared fixture workspace (test-support/fixtures): one folder (ws) with a tfrc, and a tf library beside it (tflib). */
+export const FIXTURES = fileURLToPath(new URL("../../../test-support/fixtures/", import.meta.url));
 export const WS = path.join(FIXTURES, "ws");
 export const LIBRARY_SETTINGS = { libraryPath: "../tflib" };
 

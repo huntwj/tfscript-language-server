@@ -5,9 +5,9 @@ import { describe, expect, it } from "vitest";
 import { getDiagnostics, type TfDiagnostic } from "@tfscript/core/diagnostics";
 import { codeHref, findCode } from "@tfscript/core/rules/table";
 import { WorkspaceIndex } from "@tfscript/core/workspace/workspaceIndex";
-import { serverDiagnostics } from "./lspClient";
+import { serverDiagnostics } from "../../../test-support/lspClient";
 
-const FIXTURES = fileURLToPath(new URL("./fixtures/", import.meta.url));
+const FIXTURES = fileURLToPath(new URL("../../../test-support/fixtures/", import.meta.url));
 const WS = path.join(FIXTURES, "ws");
 const SETTINGS = { libraryPath: "../tflib" };
 const files = readdirSync(WS)

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SymbolKind } from "vscode-languageserver/node";
-import { getDocumentSymbols, toDocumentSymbol } from "../src/symbols";
+import { getDocumentSymbols } from "../src/symbols";
 
 function names(text: string): string[] {
   return getDocumentSymbols(text).map((s) => s.name);
@@ -141,25 +140,5 @@ describe("ranges", () => {
   it("falls back to the command word for an anonymous trigger's selection range", () => {
     const [sym] = getDocumentSymbols('  /def -t"x" = /echo\n');
     expect(sym?.selectionRange).toEqual({ start: { line: 0, character: 2 }, end: { line: 0, character: 3 } });
-  });
-});
-
-describe("toDocumentSymbol", () => {
-  it("maps kinds onto LSP symbol kinds", () => {
-    const text = ["/def a = /echo", "/alias b c", "/bind d = /e", "/hook F = /g", "/trig h = /i", ""].join("\n");
-    const kinds = getDocumentSymbols(text).map((s) => toDocumentSymbol(s).kind);
-    expect(kinds).toEqual([
-      SymbolKind.Function,
-      SymbolKind.Function,
-      SymbolKind.Key,
-      SymbolKind.Event,
-      SymbolKind.Event,
-    ]);
-  });
-
-  it("keeps the selection range inside the full range", () => {
-    const [sym] = getDocumentSymbols("/def -i foo = /echo\n").map(toDocumentSymbol);
-    expect(sym?.selectionRange.start.line).toBeGreaterThanOrEqual(sym!.range.start.line);
-    expect(sym?.selectionRange.end.character).toBeLessThanOrEqual(sym!.range.end.character);
   });
 });

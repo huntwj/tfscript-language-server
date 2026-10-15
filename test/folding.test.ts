@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FoldingRangeKind } from "vscode-languageserver/node";
-import { getFoldingRanges, toFoldingRange } from "../src/folding";
+import { getFoldingRanges } from "../src/folding";
 
 describe("continued entries", () => {
   it("folds a backslash-continued /def body as one region", () => {
@@ -65,20 +64,5 @@ describe("comment runs", () => {
       { startLine: 2, endLine: 3 },
       { startLine: 4, endLine: 5, kind: "comment" },
     ]);
-  });
-});
-
-describe("toFoldingRange", () => {
-  it("maps onto LSP folding range kinds", () => {
-    expect(toFoldingRange({ startLine: 0, endLine: 2 })).toEqual({
-      startLine: 0,
-      endLine: 2,
-      kind: FoldingRangeKind.Region,
-    });
-    expect(toFoldingRange({ startLine: 0, endLine: 2, kind: "comment" })).toEqual({
-      startLine: 0,
-      endLine: 2,
-      kind: FoldingRangeKind.Comment,
-    });
   });
 });

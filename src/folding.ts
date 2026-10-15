@@ -1,4 +1,3 @@
-import { FoldingRange, FoldingRangeKind } from "vscode-languageserver/node";
 import { isCommentLine, splitLogicalEntries, splitRawLines } from "./logicalEntries";
 
 /**
@@ -46,12 +45,4 @@ export function getFoldingRanges(text: string): TfFoldingRange[] {
   closeRun(lines.length - 1);
 
   return ranges.sort((a, b) => a.startLine - b.startLine);
-}
-
-export function toFoldingRange(range: TfFoldingRange): FoldingRange {
-  return {
-    startLine: range.startLine,
-    endLine: range.endLine,
-    ...(range.kind === "comment" ? { kind: FoldingRangeKind.Comment } : { kind: FoldingRangeKind.Region }),
-  };
 }

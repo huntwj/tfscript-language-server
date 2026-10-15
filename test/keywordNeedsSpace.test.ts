@@ -52,8 +52,12 @@ describe("keyword-needs-space", () => {
 
   it("offers no blank where the %; after the condition would send a blank line", () => {
     const d = first("/while(0)%; /done");
-    expect(d?.message).toBe("tf reads /while(0) as a command named while(0), not as /while: put a space after /while.");
+    expect(d?.message).toBe("tf reads /while(0) as a command named while(0), not as /while: put a space after /while, and a command between the (0) and the %;.");
     expect(d?.fix).toBeUndefined();
+    // rev-s4g x8, proven in tf: the advice followed runs.
+    expect(first("/def g = /if(1)%; /echo a%; /endif")?.message).toBe(
+      "tf reads /if(1) as a command named if(1), not as /if: put a space after /if, and a command between the (1) and the %;.",
+    );
   });
 
   it("leaves a macro whose name only starts with a keyword alone", () => {
@@ -205,12 +209,21 @@ describe("keyword-needs-space", () => {
     });
 
     // rev-s4f c7, proven in tf: a call of it whose line goes on in a \ carries the chain on, so the
-    // %; reading comes first (removing the \ gives "g/echo: no such command"), and the word named
-    // stops at that \.
-    it("keeps the %; first before a call of the macro that carries the chain on", () => {
+    // %; reading comes first (removing the \ gives "g/echo: no such command"). The word named is
+    // tf's own, across every join (rev-s4g c7: /list shows /endif/g/echo; c8: "break/x/y").
+    it("keeps the %; first before a call of the macro that carries the chain on, and names tf's whole word", () => {
       const text = "/def g = /if (1) /echo a%; /endif\\\n/g\\\n/echo b\n";
-      expect(getDiagnostics(text).find((d) => d.code === CODE)?.message).toContain("reads /endif/g as one command");
+      expect(getDiagnostics(text).find((d) => d.code === CODE)?.message).toContain("reads /endif/g/echo as one command");
       expect(titles(text)).toEqual([`${keep} (preferred)`, split]);
+      const c8 = "/def g = /while (i<2) /test ++i%; /break\\\n/x\\\n/y%; /done\n";
+      expect(getDiagnostics(c8).find((d) => d.code === CODE)?.message).toContain("reads /break/x/y as one command");
+    });
+
+    // rev-s4g x0, proven in tf: with nothing after the (1), the advice is the space alone.
+    it("asks for a command after the condition only where a %; follows it", () => {
+      expect(getDiagnostics("/def g = /if\\\n(1)\n").find((d) => d.code === CODE)?.message).toBe(
+        "Line 1 ends in \\, so tf joins the next line on and reads /if(1) as one command: put a space before the \\.",
+      );
     });
 
     // s4/cm.tf and rev-s4e v1, v2, proven in tf.

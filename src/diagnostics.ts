@@ -227,8 +227,9 @@ function unjoinGluedKeywords(text: string, entries: LogicalEntry[], diagnostics:
     let m = n + 1;
     while (m < lines.length && isCommentLine(lines[m] ?? "")) m += 1;
     const next = lines[m] ?? "";
-    // The word tf runs, up to a blank, a %, or the \ that joins the line after on (rev-s4f c7).
-    const glued = keyword + (next.trimStart().match(/^[^\s%\\]*/)?.[0] ?? "");
+    // The word tf runs, as it reads it: up to a blank or a %, and on across each further join where
+    // the word runs to a line's final \ (rev-s4g c7: /endif/g/echo, c8: /break/x/y).
+    const glued = keyword + joinedWord(lines, m);
     const at = { line: n, character: raw.length - 1 };
     const word = keyword.replace(/^\/@?/, "").toLowerCase();
     const keep = { title: `Put %; before the \\ on line ${line}`, edits: [{ range: { start: at, end: at }, newText: "%;" }] };
@@ -264,7 +265,9 @@ function unjoinGluedKeywords(text: string, entries: LogicalEntry[], diagnostics:
       const head = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command`;
       if (paren && word === "else") d.message = `${head}: did you mean /elseif ${paren}? Then put a space before the \\.`;
       else if (paren && (word === "then" || word === "do")) d.message = `${head}: /${word} takes no (condition).`;
-      else if (paren) d.message = `${head}: put a space before the \\, and a command between the ${paren} and the %;.`;
+      // A command between the ) and the %; only where a %; follows it (rev-s4g x0: `(1)` alone).
+      else if (paren && /^[ \t]*%[;|\\]/.test(rest.slice(paren.length))) d.message = `${head}: put a space before the \\, and a command between the ${paren} and the %;.`;
+      else if (paren) d.message = `${head}: put a space before the \\.`;
       else d.message = `${head}: unless a macro named ${glued.slice(1)} is defined elsewhere, put a space before the \\.`;
     } else {
       d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put a space before the \\.`;
@@ -286,4 +289,22 @@ function parenthesized(text: string): string {
     else if (ch === ")" && --depth === 0) return text.slice(0, p + 1);
   }
   return "";
+}
+
+/**
+ * The word tf reads from line `m` of a continuation on: its first word (up to a blank or `%`), and,
+ * where that runs to the line's final `\`, on into the next line that isn't a comment, as tf joins
+ * them (`/g\` then `/echo` is `/g/echo`).
+ */
+function joinedWord(lines: string[], m: number): string {
+  let word = "";
+  for (let k = m; k < lines.length; ) {
+    const rest = (lines[k] ?? "").trimStart();
+    const part = /^[^\s%]*/.exec(rest)?.[0] ?? "";
+    if (!part.endsWith("\\") || part.length !== rest.length) return word + part;
+    word += part.slice(0, -1);
+    k += 1;
+    while (k < lines.length && isCommentLine(lines[k] ?? "")) k += 1;
+  }
+  return word;
 }

@@ -714,12 +714,22 @@ class Parser {
     // Other punctuation may be part of a macro's name (`/def done:x`, `/def if!x`: rev-s4b g2), so
     // that is glued-punct, which keyword-needs-space checks against the file's /defs.
     const punct = next !== "(" && next !== "/";
+    // `/if(1)%; ...`: with the blank, the %; straight after the condition would end an empty
+    // statement, so a command goes between them too (rev-s4g x8), as across a line join.
+    const betweenParenAndSeparator = (): string => {
+      if (next !== "(") return "";
+      const after = afterParens(this.s, nameEnd);
+      if (!this.isStatEnd(after)) return "";
+      let close = after;
+      while (close > nameEnd && isTfSpace(this.s[close - 1])) close -= 1;
+      return `, and a command between the ${this.s.slice(nameEnd, close)} and the ${this.s.slice(after, after + 2)}`;
+    };
     const advice = noCondition
       ? word === "else"
         ? `did you mean /elseif ${written.slice(nameEnd - start)}?`
         : `/${word} takes no (condition).`
       : !punct
-        ? `put ${ends ? "%;" : "a space"} after /${word}.`
+        ? `put ${ends ? "%;" : "a space"} after /${word}${betweenParenAndSeparator()}.`
         : `unless a macro named ${written.slice(1)} is defined elsewhere, take the ${next} away or put a blank before it.`;
     const issue: StructureIssue = {
       kind: punct ? "glued-punct" : "glued",

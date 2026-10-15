@@ -1,6 +1,6 @@
 # tf scripting rules
 
-<!-- Generated from src/rules/table.ts by scripts/generate-rule-docs.js (npm run docs:rules). Edit the table, not this file. -->
+<!-- Generated from packages/core/src/rules/table.ts by scripts/generate-rule-docs.js (npm run docs:rules). Edit the table, not this file. -->
 
 The rules of tf's macro language that this server checks, grouped by the rule in tf that each one comes from. Each rule is proven by running real tf, by the cases named under it in the private notes repo's `tests/tfscript/cases/`, and explained by the tf source cited, under `tinyfugue/src/`. A claim no case runs is listed under "Not run", with where it comes from. Each diagnostic code has its own heading here, which its link in the editor goes to.
 

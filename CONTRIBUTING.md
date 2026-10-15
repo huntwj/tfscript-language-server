@@ -31,13 +31,16 @@ from a plain clone of this repo. If you have a case you believe is real tf behav
 
 - `npm install && npm run build && npm test` should pass. `npm test` is fast and needs no
   external tools; it's what CI runs.
-- Match the existing style in `src/rules/`: one rule per file, a doc comment citing exactly
-  where its behavior was confirmed (a tf source function, a proven test case, or both), and a
-  regression test for any bug fixed.
-- A new diagnostic code goes in the rule table, `src/rules/table.ts`, under the rule section it
-  comes from, with a summary and its proof (`test/ruleTable.test.ts` fails otherwise). Then run
-  `npm run docs:rules`, which regenerates `docs/rules.md`, the README's rule table and the files
-  under `docs/generated/` (`test/ruleDocs.test.ts` fails while they are out of date).
+- The analysis lives in `packages/core` (`@tfscript/core`, no LSP dependency) and the LSP server
+  in `packages/server`; each package's tests are in its own `test/` directory.
+- Match the existing style in `packages/core/src/rules/`: one rule per file, a doc comment
+  citing exactly where its behavior was confirmed (a tf source function, a proven test case, or
+  both), and a regression test for any bug fixed.
+- A new diagnostic code goes in the rule table, `packages/core/src/rules/table.ts`, under the
+  rule section it comes from, with a summary and its proof
+  (`packages/core/test/ruleTable.test.ts` fails otherwise). Then run `npm run docs:rules`, which
+  regenerates `docs/rules.md`, the README's rule table and the files under `docs/generated/`
+  (`packages/core/test/ruleDocs.test.ts` fails while they are out of date).
 - `scripts/check-corpus-live.js` and `scripts/extract-command-tables.js` only run inside the
   maintainer's own workspace layout (a sibling private notes checkout, Docker, `uv`) — you
   don't need either of them to contribute; they're documented for transparency about how

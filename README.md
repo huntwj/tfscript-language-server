@@ -29,7 +29,7 @@ tf, in the sibling `~/ai/mud` checkout:
 - `~/ai/mud/tests/tfscript/cases/*.tf` — one script per rule, run against real tf.
 - `~/ai/mud/scripts/tf_script_check.py` (`just tf-script-check`) — loads a script in a
   throwaway tf container and reports what tf says. This is the ground truth; this repo's own
-  diagnostics are tested against it (`test/groundTruth.test.ts` reads that directory directly,
+  diagnostics are tested against it (`packages/core/test/groundTruth.test.ts` reads that directory directly,
   skipped if it is not present as a sibling checkout).
 
 That checkout is a separate, private project (notes and a regression harness for TinyFugue
@@ -39,8 +39,8 @@ proven rule, that's a case to add there first.
 
 ## What's implemented
 
-Diagnostics for the proven rules, each a pure function in `src/rules/`, under one of two shapes
-(`src/rules/types.ts`): an `EntryRule` scans one `LogicalEntry` and returns offset ranges into its
+Diagnostics for the proven rules, each a pure function in `packages/core/src/rules/`, under one of two shapes
+(`packages/core/src/rules/types.ts`): an `EntryRule` scans one `LogicalEntry` and returns offset ranges into its
 joined text; a `FileRule` scans the whole file and returns positions directly, as the line-by-line
 state machines that mirror `load_file()`'s own `new_cmd`/`last_cmd_line` tracking do
 (`indented-line-after-command`, `backslash-not-last`). `diagnostics.ts` drives both
@@ -51,11 +51,11 @@ view of the file gets truncated, since tf never reads past the line it aborts on
 Each code belongs to one section of [docs/rules.md](docs/rules.md), the rules of tf it comes from
 (R1 Lines to R9 Load paths): the rule in plain sentences, the tf source and cases that prove it,
 and the fix. That page, this table, each code's hover text and link in the editor, and the rule
-list and skill under `docs/generated/` are all generated from one table, `src/rules/table.ts`
-(`npm run docs:rules`; `test/ruleDocs.test.ts` fails while a copy is out of date).
+list and skill under `docs/generated/` are all generated from one table, `packages/core/src/rules/table.ts`
+(`npm run docs:rules`; `packages/core/test/ruleDocs.test.ts` fails while a copy is out of date).
 
 <!-- rule-table:start -->
-<!-- Generated from src/rules/table.ts by scripts/generate-rule-docs.js (npm run docs:rules). Edit the table, not this file. -->
+<!-- Generated from packages/core/src/rules/table.ts by scripts/generate-rule-docs.js (npm run docs:rules). Edit the table, not this file. -->
 
 | Section | id | What it catches |
 | --- | --- | --- |
@@ -83,11 +83,11 @@ list and skill under `docs/generated/` are all generated from one table, `src/ru
 `missing-continuation`, `block-structure`, `keyword-mid-statement`, `condition-list-text`,
 `keyword-needs-space`, `substitution-syntax`, `expression-syntax`, `substitution-in-expression`
 and `empty-statement` share one model of tf's compiler,
-`src/structure.ts` (`list()`, `statement()` and the substitution scanners in `expand.c`): it reads
+`packages/core/src/structure.ts` (`list()`, `statement()` and the substitution scanners in `expand.c`): it reads
 keywords only at the start of a statement, follows nesting, and knows that a top-level line
 substitutes nothing while a macro body does. It reports only the first error in a body, as tf stops
 compiling there. The substitution, expression and empty-statement rules run it over every text
-`src/substitution.ts` finds tf reading, so they see `/eval` and `/repeat` text too.
+`packages/core/src/substitution.ts` finds tf reading, so they see `/eval` and `/repeat` text too.
 
 Every diagnostic has a one-sentence message for the Problems pane, saying the problem and, where
 there is one, the fix, and a hover in the style of Rust's compiler errors: the source lines with
@@ -98,11 +98,11 @@ Most have a quick fix: a missing `%;`, `/endif`, `/done`, `]`, `}` or `)`; a str
 `%%-` for a literal `%-`; `(...)` for a redundant `$[...]`; `/eval` in front of a top-level
 command; deleting the whitespace after a `\`; commenting out a line that isn't a command, or
 deleting the byte order mark that stops it being one. A top-level `/if` or `/while` spread over several lines, and an indented line that
-looks like it continues the one above, get their lines joined with `\` (`src/joinFix.ts`): how
+looks like it continues the one above, get their lines joined with `\` (`packages/core/src/joinFix.ts`): how
 far to join, and where a joint needs a `%;`, is found by trying it, and a join is only offered if
 it leaves no new problem.
 
-`src/logicalEntries.ts` is the part worth reading first: it models tf's file loader
+`packages/core/src/logicalEntries.ts` is the part worth reading first: it models tf's file loader
 (`tinyfugue/src/command.c`'s `load_file()`), confirmed by reading that function and then
 checking live with `tf-script-check`, not from scripting.md alone:
 
@@ -149,7 +149,7 @@ A macro is usually defined in a different file from the one that calls it, and o
 the calling file says where: your tfrc `/require`s `alias.tf` and then loads your script, which
 just uses `/alias`. So the server replays tf's own startup, the way tf itself would read it:
 `stdlib.tf` first, then your tfrc (or whatever entry files you configure), following each
-top-level `/load` and `/require` in order (`src/workspace/loadGraph.ts`). A file then knows
+top-level `/load` and `/require` in order (`packages/core/src/workspace/loadGraph.ts`). A file then knows
 every macro defined anywhere on that path. The resolution rules were proven against real tf,
 not taken from the manual:
 
@@ -175,7 +175,7 @@ not taken from the manual:
   paths go through it. A Unix path tf won't find that no mapping covers gets a hint to add one.
 
 The same rules make each `/load` and `/require` filename a link to the file tf would open
-(`src/documentLinks.ts`). A load that runs while the file loads — a top-level command, or one a
+(`packages/core/src/documentLinks.ts`). A load that runs while the file loads — a top-level command, or one a
 top-level `/eval` runs — in a file the load path reaches links to what the walk found, with any
 `TFPATH` or `HOME` a tfrc set before it, including one whose path is built from variables
 (`/eval /load %{dir}/x.tf`) when the walk knew them. A load in a macro body runs whenever the macro does, and
@@ -268,7 +268,7 @@ Two diagnostics need the workspace:
 tf's library files are read from your installation at runtime, never copied into this
 package, so their `;;;` doc comments show up in hover without any licensing question. The same
 goes for `tf-help` in that directory, the file tf's own `/help` reads: hover takes each
-command's usage and first description paragraph from it (`src/workspace/tfHelp.ts`). A macro
+command's usage and first description paragraph from it (`packages/core/src/workspace/tfHelp.ts`). A macro
 from a library file your path never loads still gets a hover, with a hint to `/require` it. A
 file no entry path reaches sees only what `stdlib.tf` loads. When a file is reached more than
 once, its first load sets its place in the order; every load site is recorded, for a future
@@ -276,7 +276,7 @@ once, its first load sets its place in the order; every load site is recorded, f
 
 ## Command data (drives completion and hover)
 
-`src/data/` is the completion data: `ALL_COMMANDS` (`commands.ts`) lists every
+`packages/core/src/data/` is the completion data: `ALL_COMMANDS` (`commands.ts`) lists every
 top-level command name this engine knows, each tagged with where it came from. tf's
 "commands" are not one table — found while starting this:
 
@@ -290,20 +290,20 @@ top-level command name this engine knows, each tagged with where it came from. t
   what a user actually types: **`/echo`, `/for` and `/addworld` are stdlib macros, not
   builtins.** A command list built only from the C tables would be missing them.
 
-Hover also shows each command's usage synopsis, from `src/data/commandUsages.generated.ts`,
+Hover also shows each command's usage synopsis, from `packages/core/src/data/commandUsages.generated.ts`,
 extracted from `tinyfugue/htmldoc/commands/*.html`. Only the synopses come from there:
 TinyFugue's documentation is GPL and this project is MIT, so the one-line descriptions live
-in the hand-written `src/data/commandDescriptions.ts` instead. Fill in entries there; an
+in the hand-written `packages/core/src/data/commandDescriptions.ts` instead. Fill in entries there; an
 empty one falls back to the installed `tf-help` when `tfscript.libraryPath` (or `TFLIBDIR`)
 points at a tf library, and to no description otherwise. With a library configured, most
 entries can simply stay empty. A macro defined in the file being edited documents
 itself: hover shows the `;;;` comment lines directly above its `/def` (stdlib.tf's own
 convention), so `;;` notes and commented-out `;/` code are left out.
 
-The `src/data/*.generated.ts` files are produced by `scripts/extract-command-tables.js`
+The `packages/core/src/data/*.generated.ts` files are produced by `scripts/extract-command-tables.js`
 from a sibling `tinyfugue/` checkout (run `npm run build` first, then
 `node scripts/extract-command-tables.js`, by hand after a tinyfugue update) and checked in,
-so the server itself never needs that checkout at runtime. `test/commandsData.test.ts`
+so the server itself never needs that checkout at runtime. `packages/core/test/commandsData.test.ts`
 re-parses the same sources directly (not through `dist/`, so it never needs a prior build),
 when present, and fails on drift — the same sync-check shape as the private notes repo's own
 `tinyfugue.pin.json`.
@@ -314,7 +314,7 @@ few need) with their argument synopses from `htmldoc/topics/functions.html`; and
 `variables.generated.ts`, tf's special variables from `src/varlist.h` with their type,
 default, and the values an enum or flag variable takes (`enumlist.h`, `variable.c`).
 
-`src/completions.ts` uses all of it, by where the cursor is (`src/expressions.ts`):
+`packages/server/src/completions.ts` uses all of it, by where the cursor is (`packages/core/src/expressions.ts`):
 
 - after `/`: tf's command names (lowercase, as every real script writes them, though the C
   tables store uppercase) and your own macros;
@@ -334,87 +334,99 @@ come from the installed `tf-help`'s entries for them, as for commands.
 ## Layout
 
 ```
-src/
-  logicalEntries.ts   splits a document into tf's "one command per (joined) line" units
-  rules/              one file per diagnostic rule, plus the shared Rule type
-  diagnostics.ts       runs every rule over every entry, maps offsets back to positions
-  server.ts            LSP server entry point (stdio): wires everything below to the protocol
-  expressions.ts       where the cursor is: a command, a %{...}, a /set, or an expression and
-                        the function call in it
-  completions.ts        getCompletions(text, position, context) for each of those
-  signatureHelp.ts     command and function synopses with the current argument highlighted
-  expressionHover.ts   hover for functions, special variables and selectors
-  semanticTokens.ts    names coloured by what they resolve to
-  formatting.ts        re-indents and splits macro bodies, changing only whitespace tf ignores
-  symbols.ts           getDocumentSymbols(text): one symbol per macro-defining entry; /def
-                        names follow macro.c's macro_spec() option grammar
-  folding.ts           getFoldingRanges(text): continued entries and comment runs
-  selectionRange.ts    getSelectionRanges(text, positions): word, substitution, expression,
-                        statement, block, macro body, command and file, from the parser's model
-  codeActions.ts       getCodeActions(text, range): each diagnostic's own fix, offered once
-                        (recomputed server-side)
-  bodyLayout.ts        getRefactorActions(text, range): split a macro body onto separate lines,
-                        or join one onto a single line, when tf would run the same program
-  extractMacro.ts      getExtractActions(text, range): move selected statements of a macro body
-                        to a new /def and call it, when tf would run the same
-  inlineMacro.ts       getInlineActions(text, range): replace a call with the macro's body, or
-                        every call and the /def, when tf would run the same
-  documentLinks.ts     the filename in each /load and /require, as tf parses the command
-  joinFix.ts           the fixes that join lines with \, found by trying candidates
-  explain.ts           a diagnostic's hover: the source excerpt with its spans marked, the
-                        explanation, and the lines after its fix
-  navigation.ts        getHover / getDefinition / getReferences: macro lookup (case-insensitive,
-                        like tf), across files when given a NavContext; /@name always means the
-                        built-in; getDocumentHighlights for the name under the cursor
-  variables.ts         findVariables(text): every variable a file names, and whether it is a
-                        global or a macro body's own /let (or getopts()) local
-  variableNavigation.ts  definition, references, rename and highlights for those
-  callHierarchy.ts     incoming and outgoing calls between macros: /name statements and
-                        name(...) in expressions
-  workspace/           loadGraph.ts (tf's load order, statically), settings.ts (tfscript.*
-                        settings and their defaults), workspaceIndex.ts (per-folder graphs,
-                        unsaved edits, library files) — see "Load paths" above
-  data/                commands, functions, special variables and selectors, with usage
-                        synopses and descriptions — see "Command data" above
-test/
-  diagnostics.test.ts   unit tests per rule
-  logicalEntries.test.ts  regression tests for comment lines, backslash continuation, and CRLF
-  completions.test.ts   completion in every cursor context
-  signatureHelp.test.ts, expressionHover.test.ts, semanticTokens.test.ts, formatting.test.ts
-                        unit tests for those modules
-  symbols.test.ts, folding.test.ts, codeActions.test.ts, navigation.test.ts  unit tests for
-                        the four above
-  bodyLayout.test.ts    split and join: layouts, when they aren't offered, and round trips
-  extractMacro.test.ts  extract to a new macro: what moves, the call left behind, and why not
-  inlineMacro.test.ts   inline a macro: the body in place of the call, the layout, and why not
-  units.test.ts         the statements and blocks of a body, and the list each runs in
-  codeActionRouting.test.ts  which kinds of code action a request gets, and when
-  endOfFile.test.ts     a final newline, a command the file ends inside, incomplete-continuation
-  missingContinuation.test.ts  a top-level block cut off at the end of its line, reported once
-                        with the lines that were meant to be part of it
-  bodyContinuesWithoutBackslash.test.ts  a body ending in %; with a command on the next line
-  variables.test.ts, variableNavigation.test.ts, highlights.test.ts  variable scopes,
-                        lookups, rename and highlights
-  documentLinks.test.ts  which /load and /require filenames link, and where to
-  callHierarchy.test.ts  what counts as a call, and who calls what
-  loadGraph.test.ts, workspace.test.ts  load order and path resolution (each rule proven
-                        against real tf), settings defaults, cross-file navigation
-  tokenize.test.ts       unit tests for extract-command-tables.js's shell-style tokenizer
-  indentedLineAfterCommand.test.ts, backslashAndAbort.test.ts  unit tests for the two
-                        whole-file rules plus not-a-command's abort/truncation
-                        behaviour (the third FileRule-shaped case, hand-wired — see above)
-  groundTruth.test.ts   runs every case in ~/ai/mud/tests/tfscript/cases/ through this
-                        engine and checks it against that file's own ;; expect: header
-  tinyfugueLibCorpus.test.ts  regression guard over tinyfugue/lib/tf/*.tf — the primary real-
-                        script corpus (tf's own bundled scripts; read-only, upstream's)
-  wotmudCorpus.test.ts  regression guard over ~/ai/wotmud/tf/*.tf (real, in-use scripts from
-                        a sibling project; read-only, never edit that repo from here)
-  commandsData.test.ts  sync-checks src/data/*.generated.ts against a sibling tinyfugue/
-                        checkout, when present
+packages/core/            @tfscript/core: the analysis, with no LSP dependency
+  src/
+    logicalEntries.ts   splits a document into tf's "one command per (joined) line" units
+    rules/              one file per diagnostic rule, plus the shared Rule type
+    diagnostics.ts       runs every rule over every entry, maps offsets back to positions
+    expressions.ts       where the cursor is: a command, a %{...}, a /set, or an expression and
+                          the function call in it
+    functionSynopses.ts  a function's synopses, for signature help, hover and completion
+    signatureHelp.ts     command and function synopses with the current argument highlighted
+    expressionHover.ts   hover for functions, special variables and selectors
+    semanticTokens.ts    names coloured by what they resolve to
+    formatting.ts        re-indents and splits macro bodies, changing only whitespace tf ignores
+    symbols.ts           getDocumentSymbols(text): one symbol per macro-defining entry; /def
+                          names follow macro.c's macro_spec() option grammar
+    folding.ts           getFoldingRanges(text): continued entries and comment runs
+    selectionRange.ts    getSelectionRanges(text, positions): word, substitution, expression,
+                          statement, block, macro body, command and file, from the parser's model
+    codeActions.ts       getCodeActions(text, range): each diagnostic's own fix, offered once
+                          (recomputed server-side)
+    bodyLayout.ts        getRefactorActions(text, range): split a macro body onto separate lines,
+                          or join one onto a single line, when tf would run the same program
+    extractMacro.ts      getExtractActions(text, range): move selected statements of a macro body
+                          to a new /def and call it, when tf would run the same
+    inlineMacro.ts       getInlineActions(text, range): replace a call with the macro's body, or
+                          every call and the /def, when tf would run the same
+    documentLinks.ts     the filename in each /load and /require, as tf parses the command
+    joinFix.ts           the fixes that join lines with \, found by trying candidates
+    explain.ts           a diagnostic's hover: the source excerpt with its spans marked, the
+                          explanation, and the lines after its fix
+    navigation.ts        getHover / getDefinition / getReferences: macro lookup (case-insensitive,
+                          like tf), across files when given a NavContext; /@name always means the
+                          built-in; getDocumentHighlights for the name under the cursor
+    variables.ts         findVariables(text): every variable a file names, and whether it is a
+                          global or a macro body's own /let (or getopts()) local
+    variableNavigation.ts  definition, references, rename and highlights for those
+    callHierarchy.ts     incoming and outgoing calls between macros: /name statements and
+                          name(...) in expressions
+    workspace/           loadGraph.ts (tf's load order, statically), settings.ts (tfscript.*
+                          settings and their defaults), workspaceIndex.ts (per-folder graphs,
+                          unsaved edits, library files) — see "Load paths" above
+    data/                commands, functions, special variables and selectors, with usage
+                          synopses and descriptions — see "Command data" above
+  test/
+    diagnostics.test.ts   unit tests per rule
+    logicalEntries.test.ts  regression tests for comment lines, backslash continuation, and CRLF
+    signatureHelp.test.ts, expressionHover.test.ts, semanticTokens.test.ts, formatting.test.ts
+                          unit tests for those modules
+    symbols.test.ts, folding.test.ts, codeActions.test.ts, navigation.test.ts  unit tests for
+                          the four above
+    bodyLayout.test.ts    split and join: layouts, when they aren't offered, and round trips
+    extractMacro.test.ts  extract to a new macro: what moves, the call left behind, and why not
+    inlineMacro.test.ts   inline a macro: the body in place of the call, the layout, and why not
+    units.test.ts         the statements and blocks of a body, and the list each runs in
+    codeActionRouting.test.ts  which kinds of code action a request gets, and when
+    endOfFile.test.ts     a final newline, a command the file ends inside, incomplete-continuation
+    missingContinuation.test.ts  a top-level block cut off at the end of its line, reported once
+                          with the lines that were meant to be part of it
+    bodyContinuesWithoutBackslash.test.ts  a body ending in %; with a command on the next line
+    variables.test.ts, variableNavigation.test.ts, highlights.test.ts  variable scopes,
+                          lookups, rename and highlights
+    documentLinks.test.ts  which /load and /require filenames link, and where to
+    callHierarchy.test.ts  what counts as a call, and who calls what
+    loadGraph.test.ts, workspace.test.ts  load order and path resolution (each rule proven
+                          against real tf), settings defaults, cross-file navigation
+    tokenize.test.ts       unit tests for extract-command-tables.js's shell-style tokenizer
+    indentedLineAfterCommand.test.ts, backslashAndAbort.test.ts  unit tests for the two
+                          whole-file rules plus not-a-command's abort/truncation
+                          behaviour (the third FileRule-shaped case, hand-wired — see above)
+    groundTruth.test.ts   runs every case in ~/ai/mud/tests/tfscript/cases/ through this
+                          engine and checks it against that file's own ;; expect: header
+    tinyfugueLibCorpus.test.ts  regression guard over tinyfugue/lib/tf/*.tf — the primary real-
+                          script corpus (tf's own bundled scripts; read-only, upstream's)
+    wotmudCorpus.test.ts  regression guard over ~/ai/wotmud/tf/*.tf (real, in-use scripts from
+                          a sibling project; read-only, never edit that repo from here)
+    commandsData.test.ts  sync-checks src/data/*.generated.ts against a sibling tinyfugue/
+                          checkout, when present
+packages/server/          tfscript-language-server: the LSP server, built on core
+  src/
+    server.ts            LSP server entry point (stdio): wires core and the modules below to the
+                          protocol
+    completions.ts       getCompletions(text, position, context) for each cursor context core's
+                          expressions.ts finds
+    watching.ts          which files the client watches, and what a change to one means
+    lspSymbols.ts, lspFolding.ts  core's symbols and folding ranges as LSP types
+    rejections.ts        logs an unhandled promise rejection instead of exiting
+  test/
+    completions.test.ts   completion in every cursor context
+    watching.test.ts, lspSymbols.test.ts, lspFolding.test.ts  unit tests for those
+editors/vscode/           the VS Code extension, which bundles the server
 scripts/
   check-corpus-live.js  slow, Docker-backed: cross-checks this engine against real tf
                         (tf-script-check) for each configured corpus. Not part of `npm test`.
-  extract-command-tables.js  regenerates src/data/*.generated.ts from tinyfugue/; run by
+  extract-command-tables.js  regenerates packages/core/src/data/*.generated.ts from tinyfugue/; run by
                         hand after a tinyfugue update.
 ```
 
@@ -422,9 +434,9 @@ scripts/
 
 ```sh
 npm install
-npm run build          # tsc -> dist/
+npm run build          # tsc -b -> packages/core/dist/, packages/server/dist/
 npm test               # vitest, fast, no Docker
-node dist/server.js     # run the server directly (speaks LSP over stdio)
+node packages/server/dist/server.js  # run the server directly (speaks LSP over stdio)
 ```
 
 The server advertises `completionProvider` (triggered on `/` and `{`), `documentSymbolProvider`,
@@ -450,7 +462,7 @@ To build it from source instead (needs Node/npm only for this build step, not to
 result — see `editors/vscode/README.md` for why):
 
 ```sh
-npm install && npm run build       # the root server, first
+npm install && npm run build       # core and the server, from the repo root, first
 cd editors/vscode
 npm install
 npm run package   # -> tfscript-vscode.vsix (bundles its own copy of the server)
@@ -459,13 +471,13 @@ code --install-extension tfscript-vscode.vsix
 
 ### Other editors
 
-Point your LSP client at `node dist/server.js` for `.tf` files. For example, in Neovim with
+Point your LSP client at `node packages/server/dist/server.js` for `.tf` files. For example, in Neovim with
 the built-in LSP client:
 
 ```lua
 vim.lsp.start({
   name = "tfscript",
-  cmd = { "node", "/absolute/path/to/tfscript-language-server/dist/server.js" },
+  cmd = { "node", "/absolute/path/to/tfscript-language-server/packages/server/dist/server.js" },
   filetypes = { "tf" },
 })
 ```

@@ -5,7 +5,7 @@
  */
 import { MAYBE_INTENTIONAL, RULE_SECTIONS, RULES_DOC_URL, WHEN_CODE_RUNS, sectionSlug, type RuleSection } from "./table";
 
-const GENERATED = "<!-- Generated from src/rules/table.ts by scripts/generate-rule-docs.js (npm run docs:rules). Edit the table, not this file. -->";
+const GENERATED = "<!-- Generated from packages/core/src/rules/table.ts by scripts/generate-rule-docs.js (npm run docs:rules). Edit the table, not this file. -->";
 
 const CASES_DIR = "~/ai/mud/tests/tfscript/cases/";
 
@@ -148,7 +148,7 @@ export function renderSkill(): string {
     "Exit 1 means tf printed a syntax error, missing file, unknown command or warning. Feed trigger scripts the server " +
       "lines that should fire them. To learn a new rule, write a case in `tests/tfscript/cases/` (`;; expect: " +
       "clean|problem`, `;; run: ...`, `;; rule: ...`), run `just test-tfscript`, then add it to the rule table in the " +
-      "language server's `src/rules/table.ts` and regenerate this file. Only write a rule down after a test proved it; " +
+      "language server's `packages/core/src/rules/table.ts` and regenerate this file. Only write a rule down after a test proved it; " +
       "an untested rule from memory has already been wrong once.",
     "",
   );

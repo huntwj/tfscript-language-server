@@ -2,18 +2,19 @@
 
 A thin client: this extension has no logic of its own beyond starting
 [`vscode-languageclient`](https://www.npmjs.com/package/vscode-languageclient) pointed at a
-bundled copy of the sibling `tfscript-language-server` package's own `dist/` — see
-`src/extension.ts` and `scripts/copy-server.js`. That copy is a real, on-disk copy made at
-build time, not a relative path into the sibling repo: once packaged, VS Code extracts this
-extension into its own extensions directory (e.g. `~/.vscode/extensions/...`), nowhere near
-the repo that built it, so a path like `../../dist/server.js` (which *does* work when running
-this extension unpacked via F5) would resolve to nothing there.
+bundled copy of the `tfscript-language-server` package's own `dist/` (`packages/server` in this
+repo), with the `@tfscript/core` analysis it requires (`packages/core`) under
+`server/node_modules/` — see `src/extension.ts` and `scripts/copy-server.js`. That copy is a
+real, on-disk copy made at build time, not a relative path into the repo: once packaged, VS Code
+extracts this extension into its own extensions directory (e.g. `~/.vscode/extensions/...`),
+nowhere near the repo that built it, so a path like `../../packages/server/dist/server.js`
+(which *does* work when running this extension unpacked via F5) would resolve to nothing there.
 
 `vscode-languageserver` and `vscode-languageserver-textdocument` are listed as this package's
-own dependencies too, even though they look like they belong only to the root package — the
+own dependencies too, even though they look like they belong only to the server package — the
 copied `server/server.js` still needs to `require()` them at runtime, and Node resolves that
 by walking up from `server/`'s own location, which only finds them if they're installed in
-*this* package's `node_modules`, not the root repo's.
+*this* package's `node_modules`, not the repo root's.
 
 Running the extension needs no separately-installed Node or npm: VS Code forks the bundled
 server using its own Node/Electron runtime (`vscode-languageclient`'s `TransportKind.stdio`
@@ -86,5 +87,5 @@ rule it out as a variable.
 ## Developing
 
 Open this `editors/vscode` folder in VS Code and press F5 (`.vscode/launch.json` builds first,
-then launches an Extension Development Host). That host still needs the root server built
+then launches an Extension Development Host). That host still needs core and the server built
 (`npm run build` at the repo root) — the extension doesn't rebuild it for you.

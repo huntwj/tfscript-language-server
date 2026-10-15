@@ -3,7 +3,7 @@ name: tf-scripting
 description: Use when writing, editing, reviewing or debugging TinyFugue scripts (.tf files, /def macros, triggers, hooks, /load, /log, /eval) - tf's macro language breaks in ways ordinary scripting intuition does not predict, and a script that loads silently can still be broken.
 ---
 
-<!-- Generated from src/rules/table.ts by scripts/generate-rule-docs.js (npm run docs:rules). Edit the table, not this file. -->
+<!-- Generated from packages/core/src/rules/table.ts by scripts/generate-rule-docs.js (npm run docs:rules). Edit the table, not this file. -->
 
 # TinyFugue scripting
 
@@ -169,4 +169,4 @@ From `~/ai/mud` (use `MSYS_NO_PATHCONV=1` in Git Bash for container paths):
     ... --cmd "/macroname arg"                                          # run a macro after loading
     ... --all                                                           # show every % line tf prints
 
-Exit 1 means tf printed a syntax error, missing file, unknown command or warning. Feed trigger scripts the server lines that should fire them. To learn a new rule, write a case in `tests/tfscript/cases/` (`;; expect: clean|problem`, `;; run: ...`, `;; rule: ...`), run `just test-tfscript`, then add it to the rule table in the language server's `src/rules/table.ts` and regenerate this file. Only write a rule down after a test proved it; an untested rule from memory has already been wrong once.
+Exit 1 means tf printed a syntax error, missing file, unknown command or warning. Feed trigger scripts the server lines that should fire them. To learn a new rule, write a case in `tests/tfscript/cases/` (`;; expect: clean|problem`, `;; run: ...`, `;; rule: ...`), run `just test-tfscript`, then add it to the rule table in the language server's `packages/core/src/rules/table.ts` and regenerate this file. Only write a rule down after a test proved it; an untested rule from memory has already been wrong once.

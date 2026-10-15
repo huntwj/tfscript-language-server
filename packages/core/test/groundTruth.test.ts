@@ -26,6 +26,8 @@ const ELSEWHERE: Record<string, string> = {
   "load-not-loader-dir.tf": "unresolved-load, from the load path",
   // tf warns that the macro conflicts with the builtin, but it works, so invalid-macro-name leaves it alone.
   "builtin-redefined.tf": "nothing: redefining a builtin that isn't reserved works",
+  // The problem is in its ;; run: command (a /load of a missing file), not in the file's own text.
+  "long-message-not-cut-by-wrap.tf": "nothing: the case checks tf-script-check, through its run command",
 };
 
 describeOrSkip("ground truth (~/ai/mud/tests/tfscript/cases)", () => {

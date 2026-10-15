@@ -71,9 +71,11 @@
   `block-structure` error of its own. Elsewhere it is just text: `/set msg=use /if to branch` was an
   error, and its fix broke the line. A keyword such a value takes in a block that still closes is
   a warning: tf runs `/if (1) /set a=1 /else /set b=2%; /endif` without a word, with the `/else` in
-  a's value; where its fix clears what tf stops at, it is the error instead. The `%;` fix is offered
-  only where it runs as meant, without sending text or adding an empty statement, and never
-  applied by the join fixes' settle step.
+  a's value; where its fix clears what tf stops at, it is the error instead, with the block's own
+  closer offered beside it, since the keyword may be meant as text. Only a name tf takes counts
+  (`/set /else` is tf's "illegal variable name"), read from the statement's own text. The `%;` fix
+  is offered only where it runs as meant, without sending text, adding an empty statement or
+  leaving `/set name` (a query), and never applied by the join fixes' settle step.
 - `condition-list-text` (warning): a statement in an `/if`, `/elseif` or `/while` condition list
   that isn't a command, which tf sends to the world each time the condition is tested, as its
   own warning says.
@@ -81,8 +83,9 @@
   `/else/echo b`, which tf runs as a command of that whole name. The fix adds the blank, or `%;`
   after `/endif`, `/done` or `/break`; none for `/else(`, `/then(` or `/do(`, which take no
   condition (`/else(1)` asks if `/elseif` was meant), nor where the result wouldn't compile. A
-  keyword glued to other punctuation, as in `/endif;`, is a warning, with no fix, unless the file
-  defines a macro of that name (`/def done:x` is one). `not-substituted-here` no longer notes the
+  keyword glued to other punctuation, as in `/endif;`, is a warning, with no fix, unless the
+  file's commands define a macro of that name (`/def done:x` is one; a comment, an `/echo`'s text
+  or a `/def` after the load aborts isn't). `not-substituted-here` no longer notes the
   `%;` on a line starting `/if(`, and the undefined-macro check doesn't look for a macro named
   `if(1)`.
 - `block-structure` no longer offers `%;` before text after an `/endif` or `/done`

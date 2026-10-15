@@ -2,6 +2,7 @@ import * as path from "node:path";
 import type { Position, TfDiagnostic } from "@tfscript/core/diagnostics";
 import { codeHref, findCode } from "@tfscript/core/rules/table";
 import type { CheckedFile } from "./check";
+import { forCommandLine } from "./settingNames";
 
 /** The JSON output's shape; documented in the README. Bump `version` on any change that isn't an added field. */
 export const JSON_VERSION = 1;
@@ -25,6 +26,7 @@ export interface JsonDiagnostic {
   range: JsonRange;
   severity: TfDiagnostic["severity"];
   code: string;
+  /** Core's message, with any tfscript.* setting it names put as the option (forCommandLine()). */
   message: string;
   codeDescription: { href: string } | null;
   /** The titles of the quick fixes an editor offers for it, likelier first. */
@@ -85,7 +87,7 @@ export function formatHuman(files: CheckedFile[], cwd: string): string {
   return inOrder(files, cwd)
     .flatMap((f) =>
       f.diagnostics.map(
-        (d) => `${displayPath(f.file, cwd)}:${d.range.start.line + 1}:${d.range.start.character + 1}: ${d.severity} ${d.code}: ${d.message}\n`,
+        (d) => `${displayPath(f.file, cwd)}:${d.range.start.line + 1}:${d.range.start.character + 1}: ${d.severity} ${d.code}: ${forCommandLine(d.message)}\n`,
       ),
     )
     .join("");
@@ -105,10 +107,10 @@ export function toJsonReport(unordered: CheckedFile[], cwd: string): JsonReport 
         range: range(d.range),
         severity: d.severity,
         code: d.code,
-        message: d.message,
+        message: forCommandLine(d.message),
         codeDescription: findCode(d.code) ? { href: codeHref(d.code) } : null,
         fixes: [d.fix, d.alternative].flatMap((fix) => (fix ? [fix.title] : [])),
-        related: (d.related ?? []).map((r) => ({ range: range(r.range), message: r.message })),
+        related: (d.related ?? []).map((r) => ({ range: range(r.range), message: forCommandLine(r.message) })),
       }),
     );
   });

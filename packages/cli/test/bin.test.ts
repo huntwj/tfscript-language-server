@@ -10,7 +10,7 @@ describe("the built tfscript bin", () => {
         "main.tf:3:24: warning undefined-macro: There's no macro or command /gret: did you mean /greet?",
         "main.tf:3:46: information undefined-macro: /extra is defined in extra.tf, which isn't on this file's load path: add /require extra.tf.",
         "main.tf:4:6: error invalid-macro-name: This /def has no = after its name, so tf takes all of \"oops /echo the\" as the name, which can't hold a space, and defines nothing: put = after oops.",
-        "tfrc:4:7: warning unresolved-load: tf won't find \"missing.tf\": fix the path, or set tfscript.workingDirectory to the folder tf runs in.",
+        "tfrc:4:7: warning unresolved-load: tf won't find \"missing.tf\": fix the path, or give --working-directory the folder tf runs in.",
         "",
       ].join("\n"),
     );

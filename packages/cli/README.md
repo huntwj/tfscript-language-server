@@ -97,7 +97,7 @@ field.
 | `range.start`, `range.end` | `line` and `column` 1-based, `offset` 0-based from the start of the file; columns and offsets count UTF-16 code units, as LSP does. `end` is just after the last character |
 | `severity` | `"error"`, `"warning"` or `"information"` |
 | `code` | the rule's code, as in [docs/rules.md](../../docs/rules.md) |
-| `message` | one sentence: the problem and the fix |
+| `message` | one sentence: the problem and the fix. Where the server's message names a `tfscript.*` setting, this names the option instead (`set tfscript.workingDirectory` is `give --working-directory`) |
 | `codeDescription` | `{ "href" }`, the code's entry in docs/rules.md, or `null` for a code with none |
 | `fixes` | the titles of the quick fixes an editor offers for it, in its order (empty when there is none) |
 | `related` | other places the diagnostic points at, each a `range` and a `message` |

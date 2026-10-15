@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
 import { serverDiagnostics } from "../../../test-support/lspClient";
+import { forCommandLine } from "../src/settingNames";
 import { runBin, WS } from "./fixtures";
 
 interface LspDiagnostic {
@@ -53,10 +54,11 @@ async function fromServer(settings: object) {
         range: range(d.range),
         severity: SEVERITY[d.severity],
         code: d.code,
-        message: d.message,
+        // The CLI names options where the server names settings.
+        message: forCommandLine(d.message),
         codeDescription: d.codeDescription ?? null,
         fixes: actions.filter((a) => a.diagnostics?.some(same)).map((a) => a.title),
-        related: (d.relatedInformation ?? []).map((r) => ({ range: range(r.location.range), message: r.message })),
+        related: (d.relatedInformation ?? []).map((r) => ({ range: range(r.location.range), message: forCommandLine(r.message) })),
       });
     }
   });

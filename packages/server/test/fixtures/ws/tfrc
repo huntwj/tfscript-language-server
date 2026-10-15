@@ -1,0 +1,4 @@
+; The entry file: tf loads it after stdlib.tf.
+/load lib.tf
+/load main.tf
+/load missing.tf

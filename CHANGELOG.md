@@ -65,13 +65,15 @@
   mid-statement (`/echo a /endif`): one rule for a keyword tf reads as text, because only a
   statement's start can hold one. A `/let` or `/set` value keeps its own wording, `/@set` and
   `/@let` included, and gets the same `%;` before each keyword as any command. An `/if` or
-  `/while` read as text is now reported only where tf stops at what it leaves: the `/endif`,
-  `/else` or `/elseif` with no `/if`, which is its related location rather than a
+  `/while` in a `/let`, `/set` or `/setenv` value (`/!set` and `/set name value` included) is now
+  reported only where tf stops at what it leaves, the `/endif`, `/else` or `/elseif` with no `/if`,
+  and a `%;` before it clears that: then the stray is its related location rather than a
   `block-structure` error of its own. Elsewhere it is just text: `/set msg=use /if to branch` was an
-  error, and its fix broke the line. A keyword a `/let` or `/set` value takes in a block that still
-  closes is a warning: tf runs `/if (1) /set a=1 /else /set b=2%; /endif` without a word, with the
-  `/else` in a's value. The `%;` fix is offered only where it runs as meant, and never applied by
-  the join fixes' settle step.
+  error, and its fix broke the line. A keyword such a value takes in a block that still closes is
+  a warning: tf runs `/if (1) /set a=1 /else /set b=2%; /endif` without a word, with the `/else` in
+  a's value; where its fix clears what tf stops at, it is the error instead. The `%;` fix is offered
+  only where it runs as meant, without sending text or adding an empty statement, and never
+  applied by the join fixes' settle step.
 - `condition-list-text` (warning): a statement in an `/if`, `/elseif` or `/while` condition list
   that isn't a command, which tf sends to the world each time the condition is tested, as its
   own warning says.
@@ -79,8 +81,12 @@
   `/else/echo b`, which tf runs as a command of that whole name. The fix adds the blank, or `%;`
   after `/endif`, `/done` or `/break`; none for `/else(`, `/then(` or `/do(`, which take no
   condition (`/else(1)` asks if `/elseif` was meant), nor where the result wouldn't compile. A
-  keyword glued to other punctuation, as in `/endif;`, is reported too, with no fix. `not-substituted-here` no longer notes the `%;` on such a line, and the
-  undefined-macro check doesn't look for a macro named `if(1)`.
+  keyword glued to other punctuation, as in `/endif;`, is a warning, with no fix, unless the file
+  defines a macro of that name (`/def done:x` is one). `not-substituted-here` no longer notes the
+  `%;` on a line starting `/if(`, and the undefined-macro check doesn't look for a macro named
+  `if(1)`.
+- `block-structure` no longer offers `%;` before text after an `/endif` or `/done`
+  (`/endif)`, `/endif "x"`), which would then be sent to the world.
 - "Inline /foo" (`refactor.inline`): replaces a `/foo` call in a macro body with foo's body, and
   "Inline all calls to /foo and remove it" does that for every call in the file and deletes the
   `/def`. It is shown disabled, with the reason, when the body wouldn't run the same in the caller:

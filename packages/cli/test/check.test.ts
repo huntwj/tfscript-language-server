@@ -104,5 +104,7 @@ describe("check", () => {
     expect(unreadable.problems).toEqual(["lib.tf can't be read: check that it is a file you may read."]);
     const noRoot = check({ paths: ["lib.tf"], root: "nowhere", settings: {}, cwd: WS }, testHost());
     expect(noRoot).toEqual({ files: [], problems: ["The root folder nowhere doesn't exist: give --root a folder that does."] });
+    const fileRoot = check({ paths: ["lib.tf"], root: "tfrc", settings: {}, cwd: WS }, testHost());
+    expect(fileRoot).toEqual({ files: [], problems: ["The root tfrc is a file, not a folder: give --root the folder that holds it."] });
   });
 });

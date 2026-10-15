@@ -131,7 +131,11 @@ function expand(request: CheckRequest, host: CheckHost, problems: string[]): { f
 export function check(request: CheckRequest, host: CheckHost = nodeHost()): CheckResult {
   const problems: string[] = [];
   const root = path.resolve(request.cwd, request.root ?? ".");
-  if (host.kind(root) !== "dir") {
+  const rootKind = host.kind(root);
+  if (rootKind === "file") {
+    return { files: [], problems: [`The root ${request.root ?? root} is a file, not a folder: give --root the folder that holds it.`] };
+  }
+  if (rootKind !== "dir") {
     return { files: [], problems: [`The root folder ${request.root ?? root} doesn't exist: give --root a folder that does.`] };
   }
   const files = expand(request, host, problems);

@@ -31,8 +31,9 @@ from a plain clone of this repo. If you have a case you believe is real tf behav
 
 - `npm install && npm run build && npm test` should pass. `npm test` is fast and needs no
   external tools; it's what CI runs.
-- The analysis lives in `packages/core` (`@tfscript/core`, no LSP dependency) and the LSP server
-  in `packages/server`; each package's tests are in its own `test/` directory.
+- The analysis lives in `packages/core` (`@tfscript/core`, no LSP dependency), the LSP server
+  in `packages/server` and the `tfscript check` command line in `packages/cli`; each package's
+  tests are in its own `test/` directory.
 - Match the existing style in `packages/core/src/rules/`: one rule per file, a doc comment
   citing exactly where its behavior was confirmed (a tf source function, a proven test case, or
   both), and a regression test for any bug fixed.

@@ -15,7 +15,7 @@ changes whitespace tf ignores, and refactorings that split a macro body onto sep
 join it onto one, extract some of its statements to a new macro, or inline a macro's body
 where it is called. There is a VS Code
 extension (`editors/vscode/`) for syntax highlighting plus everything the server does; other editors can wire up the stdio server
-directly — see "Use".
+directly, and `tfscript check` reports the same diagnostics from the command line — see "Use".
 
 ## Why every rule here is proven against real tf, not taken from the manual
 
@@ -373,7 +373,9 @@ packages/core/            @tfscript/core: the analysis, with no LSP dependency
                           name(...) in expressions
     workspace/           loadGraph.ts (tf's load order, statically), settings.ts (tfscript.*
                           settings and their defaults), workspaceIndex.ts (per-folder graphs,
-                          unsaved edits, library files) — see "Load paths" above
+                          unsaved edits, library files) — see "Load paths" above;
+                          documentDiagnostics.ts (a file's own diagnostics, then its load-path
+                          ones), nodeFileSystem.ts (reading files and walking folders on disk)
     data/                commands, functions, special variables and selectors, with usage
                           synopses and descriptions — see "Command data" above
   test/
@@ -422,6 +424,18 @@ packages/server/          tfscript-language-server: the LSP server, built on cor
   test/
     completions.test.ts   completion in every cursor context
     watching.test.ts, lspSymbols.test.ts, lspFolding.test.ts  unit tests for those
+    publishedDiagnostics.test.ts  the built server's diagnostics over stdio (lspClient.ts), on
+                          the fixture workspace in fixtures/
+packages/cli/             @tfscript/cli: `tfscript check`, the server's diagnostics from the
+                          command line, built on core (see "Command line" below)
+  src/
+    cli.ts               the bin; main.ts runs a command line and gives its exit status
+    args.ts              the options, as tfscript.* settings
+    check.ts             each file's diagnostics, through core's workspace index
+    format.ts            the human and JSON output
+  test/
+    bin.test.ts          the built bin, end to end
+    serverParity.test.ts  the built CLI and server report the same diagnostics and fixes
 editors/vscode/           the VS Code extension, which bundles the server
 scripts/
   check-corpus-live.js  slow, Docker-backed: cross-checks this engine against real tf
@@ -434,8 +448,8 @@ scripts/
 
 ```sh
 npm install
-npm run build          # tsc -b -> packages/core/dist/, packages/server/dist/
-npm test               # vitest, fast, no Docker
+npm run build          # tsc -b -> packages/core/dist/, packages/server/dist/, packages/cli/dist/
+npm test               # vitest, fast, no Docker (builds first, as some tests run the built server and CLI)
 node packages/server/dist/server.js  # run the server directly (speaks LSP over stdio)
 ```
 
@@ -481,6 +495,25 @@ vim.lsp.start({
   filetypes = { "tf" },
 })
 ```
+
+### Command line
+
+`tfscript check` (`packages/cli`) reports what the server would show in an editor, for files and
+folders you name: each file's own diagnostics, then its load-path ones, worked out from a root
+folder (the current one unless `--root` says otherwise) the way the server works them out from a
+workspace folder. The editor's `tfscript.*` settings are options of the same name
+(`--entry-file`, `--library-path`, `--path-mapping`, `--variable`, `--no-undefined-macros` ...).
+It exits 0 when it finds no errors, 1 when it does, and 2 when the command line is wrong or a
+file can't be read; `--max-warnings <n>` makes more than `n` warnings fail too.
+
+```sh
+node packages/cli/dist/cli.js check tfrc scripts/
+# scripts/main.tf:3:24: warning undefined-macro: There's no macro or command /gret: did you mean /greet?
+node packages/cli/dist/cli.js check --format json scripts/   # one JSON report, for tools
+```
+
+The options, the exit status and the JSON shape are in `packages/cli/README.md`. The package is
+private for now; it isn't published to npm.
 
 ### Testing against real scripts
 

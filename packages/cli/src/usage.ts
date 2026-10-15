@@ -38,8 +38,10 @@ Which diagnostics:
   -h, --help                    show this help
   --version                     show the version
 
-Relative paths in the options are relative to the root, as the editor's settings are relative
-to the workspace folder.
+Relative paths in the options are relative to the root, not to the current folder, as the
+editor's settings are relative to the workspace folder. With --root ws, the tfrc in ws is
+--entry-file tfrc, not --entry-file ws/tfrc:
+  tfscript check --root ws --entry-file tfrc ws/
 
 Exit status: 0 when no errors are found, 1 when there are errors (or more warnings than
 --max-warnings), 2 when the command line is wrong or a file can't be checked.

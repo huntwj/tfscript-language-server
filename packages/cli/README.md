@@ -26,8 +26,17 @@ searches a workspace folder: `.tf` files, `tfrc` and `.tfrc`, skipping `.git`, `
 
 The settings are the editor's `tfscript.*` settings, given as options, and core resolves them
 the same way: what isn't given is found as tf would find it (a tfrc in the root, `TFLIBDIR` and
-`TFPATH` from the environment, every diagnostic on). Relative paths in the options are relative
-to the root, as the editor's are relative to the workspace folder. A file outside the root is
+`TFPATH` from the environment, every diagnostic on).
+
+Relative paths in the options are relative to the root, not to the current folder, as the
+editor's settings are relative to the workspace folder. With `--root ws`, the tfrc in `ws` is
+`--entry-file tfrc`, not `--entry-file ws/tfrc`:
+
+```sh
+tfscript check --root ws --entry-file tfrc ws/
+```
+
+The paths to check are relative to the current folder, as usual. A file outside the root is
 seen as the server sees a file outside every workspace folder: in a folder of its own, with the
 default settings.
 

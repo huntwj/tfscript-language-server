@@ -506,6 +506,8 @@ folders you name: each file's own diagnostics, then its load-path ones, worked o
 folder (the current one unless `--root` says otherwise) the way the server works them out from a
 workspace folder. The editor's `tfscript.*` settings are options of the same name
 (`--entry-file`, `--library-path`, `--path-mapping`, `--variable`, `--no-undefined-macros` ...).
+Their relative paths are relative to the root, as the settings are relative to the workspace
+folder: `tfscript check --root ws --entry-file tfrc ws/` names `ws/tfrc`.
 It exits 0 when it finds no errors, 1 when it does, and 2 when the command line is wrong or a
 file can't be read; `--max-warnings <n>` makes more than `n` warnings fail too.
 

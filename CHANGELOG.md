@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The repo is an npm workspaces monorepo: the analysis is `packages/core` (`@tfscript/core`, with
+  no LSP dependency) and the server `packages/server`, still published as
+  `tfscript-language-server` with the same `main` and `bin`. Built from a checkout, the server is
+  now `packages/server/dist/server.js` rather than `dist/server.js`, so an editor pointed at the
+  old path needs the new one. What the server does is unchanged.
 - Each diagnostic's code is a link to its entry in `docs/rules.md`, the rules of tf grouped by
   where they come from (R1 Lines to R9 Load paths), each with the tf source and cases that prove
   it and the fix. Hovering a diagnostic now ends with what its code means. Both come from one

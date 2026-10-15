@@ -46,6 +46,11 @@ describe("the human format", () => {
     expect(displayPath(path.resolve("/elsewhere/b.tf"), CWD)).toBe(path.resolve("/elsewhere/b.tf"));
   });
 
+  it("names a file whose name starts with .. relative, and one above the current folder absolute", () => {
+    expect(displayPath(path.join(CWD, "..x.tf"), CWD)).toBe("..x.tf");
+    expect(displayPath(path.join(CWD, "..", "x.tf"), CWD)).toBe(path.join(CWD, "..", "x.tf"));
+  });
+
   it("sorts by file, then line, then column, keeping core's order at the same place", () => {
     const d = (line: number, character: number, code: string): TfDiagnostic => ({
       range: { start: at(line, character), end: at(line, character) },

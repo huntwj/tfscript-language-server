@@ -53,7 +53,9 @@ export interface JsonReport {
 /** How a file is named in the output: relative to the current folder when inside it, else absolute. */
 export function displayPath(file: string, cwd: string): string {
   const rel = path.relative(cwd, file);
-  return rel === "" || rel.startsWith("..") || path.isAbsolute(rel) ? file : rel;
+  // A name of its own that starts with .. (..x.tf) is still inside; only a .. segment leaves it.
+  const outside = rel === ".." || rel.startsWith(`..${path.sep}`) || rel.startsWith("../");
+  return rel === "" || outside || path.isAbsolute(rel) ? file : rel;
 }
 
 function lineStarts(text: string): number[] {

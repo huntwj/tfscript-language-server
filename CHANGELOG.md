@@ -92,9 +92,11 @@
   from the `/done`; any other keyword glued on so (`/if\`) gets a space before the `\`, unless
   keyword-needs-space withholds its fix there (`/else\` then `(1)`). The line joined on is the next
   one that isn't a comment, as tf reads it.
-- `block-structure` and `missing-continuation` add no closer after a `\` that a CR or whitespace
-  cuts off, nor where a keyword glued on in the block (`/break/done`) is the cause: in tf the closer
-  failed when the macro ran. `not-substituted-here` no longer notes the `%;` on a line starting `/if(`, and the
+- `block-structure` and `missing-continuation` add no closer after the closer itself with a `\`
+  that a CR or whitespace cuts off (`/endif\` and a CR), nor where the closer is glued onto a keyword
+  before it (`/break/done`): in tf the closer failed when the macro ran. Elsewhere it is offered as
+  before. Where keyword-needs-space withholds its fix across a line join, its advice says the space
+  goes before the `\`, since tf strips a blank at the start of the next line. `not-substituted-here` no longer notes the `%;` on a line starting `/if(`, and the
   undefined-macro check doesn't look for a macro named `if(1)`.
 - Fixes are offered where the text after them becomes a statement of its own, which tf sends to
   the world as it does text in a body: `block-structure`'s `%;` after an `/endif` before text,

@@ -13,7 +13,8 @@
   },
   "workspaces": [
     "packages/core",
-    "packages/server"
+    "packages/server",
+    "packages/cli"
   ],
   "scripts": {
     "build": "tsc -b",

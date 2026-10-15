@@ -1,0 +1,46 @@
+/** The package's version (a test checks it matches package.json). */
+export const VERSION = "0.2.0";
+
+export const USAGE = `Usage: tfscript check [options] <file or folder>...
+
+Checks tf scripts and reports what the tfscript language server would: each file's own
+diagnostics, then the ones its load path gives (unresolved-load, undefined-macro), worked out
+from the root folder the way the editor works them out from a workspace folder. A folder is
+searched for .tf files, tfrc and .tfrc, skipping .git, .jj and node_modules.
+
+Output:
+  --format <human|json>         human (the default): one line per diagnostic,
+                                path:line:col: severity code: message. json: one report,
+                                described in the README.
+  --max-warnings <n>            exit 1 when there are more than n warnings
+
+Where tf runs (each is the tfscript.* setting of the same name):
+  --root <folder>               the workspace folder (default: the current folder)
+  --entry-file <file>           a file tf loads after stdlib.tf; repeat for more (entryFiles;
+                                default: a tfrc, .tfrc or tfrc.tf in the root, else ~/.tfrc)
+  --context <name>=<file>       a named way tf starts and a file it loads; repeat for more files
+                                or contexts (contexts)
+  --active-context <name>       which context files are seen through (activeContext)
+  --library-path <folder>       tf's library, holding stdlib.tf (libraryPath; default: TFLIBDIR)
+  --tf-path <folder>            a TFPATH folder; repeat for more (tfPath; default: TFPATH)
+  --working-directory <folder>  tf's current directory (workingDirectory; default: the root)
+  --home-directory <folder>     what ~ means to tf (homeDirectory)
+  --path-mapping <tf>=<local>   where tf's absolute path <tf> is here; repeat for more
+                                (pathMappings)
+  --variable <name>=<value>     a variable set as tf starts; repeat for more (variables)
+
+Which diagnostics:
+  --no-unresolved-loads         leave out unresolved-load (diagnostics.unresolvedLoads)
+  --no-undefined-macros         leave out undefined-macro (diagnostics.undefinedMacros)
+  --ignore-macro <name>         a macro undefined-macro leaves alone, ignoring case, * a
+                                wildcard; repeat for more (diagnostics.ignoreMacros)
+
+  -h, --help                    show this help
+  --version                     show the version
+
+Relative paths in the options are relative to the root, as the editor's settings are relative
+to the workspace folder.
+
+Exit status: 0 when no errors are found, 1 when there are errors (or more warnings than
+--max-warnings), 2 when the command line is wrong or a file can't be checked.
+`;

@@ -1,0 +1,30 @@
+{
+  "name": "@tfscript/cli",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Command line checker for tfscript, TinyFugue's macro language: the language server's diagnostics, for scripts, hooks and CI.",
+  "license": "MIT",
+  "author": "Wil Hunt",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/huntwj/tfscript-language-server.git",
+    "directory": "packages/cli"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "main": "dist/cli.js",
+  "bin": {
+    "tfscript": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "!dist/.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@tfscript/core": "0.2.0"
+  }
+}

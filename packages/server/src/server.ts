@@ -51,7 +51,6 @@ import {
   type TextDocumentPositionParams,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -81,7 +80,8 @@ import { formatText } from "@tfscript/core/formatting";
 import type { RawSettings } from "@tfscript/core/workspace/settings";
 import { fileKey } from "@tfscript/core/workspace/loadGraph";
 import { WorkspaceIndex, type ContextInfo } from "@tfscript/core/workspace/workspaceIndex";
-import { isSkippedDir, relevantChange, watchPlan, Watching } from "./watching";
+import { nodeEnvironment, nodeFileSystem, readFile } from "@tfscript/core/workspace/nodeFileSystem";
+import { relevantChange, watchPlan, Watching } from "./watching";
 import { logUnhandledRejections } from "./rejections";
 
 // Explicit streams rather than relying on a `--stdio`/`--node-ipc`/`--socket` command-line
@@ -91,58 +91,7 @@ const connection = createConnection(ProposedFeatures.all, process.stdin, process
 logUnhandledRejections(process, (text) => process.stderr.write(text));
 const documents = new TextDocuments(TextDocument);
 
-function readFile(file: string): string | undefined {
-  try {
-    return readFileSync(file, "utf8");
-  } catch {
-    return undefined;
-  }
-}
-
-function listTfFiles(dir: string): string[] {
-  try {
-    return readdirSync(dir)
-      .filter((f) => f.endsWith(".tf"))
-      .map((f) => path.join(dir, f));
-  } catch {
-    return [];
-  }
-}
-
-
-/** Stops as soon as it has `limit` files: a big tree isn't read to the end and then cut. */
-function walkTfFiles(dir: string, limit = Infinity): string[] {
-  const out: string[] = [];
-  const visit = (d: string): void => {
-    let entries;
-    try {
-      entries = readdirSync(d, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      if (out.length >= limit) return;
-      const full = path.join(d, e.name);
-      if (e.isDirectory()) {
-        if (!isSkippedDir(e.name)) visit(full);
-      } else if (e.name.endsWith(".tf") || e.name === "tfrc" || e.name === ".tfrc") {
-        out.push(full);
-      }
-    }
-  };
-  visit(dir);
-  return out;
-}
-
-function mtime(file: string): number | undefined {
-  try {
-    return statSync(file).mtimeMs;
-  } catch {
-    return undefined;
-  }
-}
-
-const index = new WorkspaceIndex({ readFile, listTfFiles, walkTfFiles, mtime }, { env: process.env, homedir: homedir(), exists: existsSync });
+const index = new WorkspaceIndex(nodeFileSystem, nodeEnvironment());
 let folders: string[] = [];
 let hasConfiguration = false;
 let canRefreshTokens = false;

@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 import type { FileSystemWatcher } from "vscode-languageserver/node";
 import { fileKey } from "@tfscript/core/workspace/loadGraph";
 import type { ResolvedSettings } from "@tfscript/core/workspace/settings";
+import { isSkippedDir } from "@tfscript/core/workspace/nodeFileSystem";
 
 /**
  * Which file watchers the server asks the client for, and what the index may then trust as
@@ -17,14 +18,6 @@ const DELETE = 4;
 const TF_FILES = "**/{*.tf,tfrc,.tfrc}";
 /** How long the client has to acknowledge a registration before files are checked by modification time instead. */
 export const REGISTER_TIMEOUT_MS = 5000;
-
-/** Folders whose changes don't matter, and whose create and delete events (a jj or git command's) are ignored. */
-export const SKIP_DIRS: ReadonlySet<string> = new Set([".git", ".jj", "node_modules"]);
-
-/** Whether `name` is one of SKIP_DIRS, ignoring case where the file system does (Windows). */
-export function isSkippedDir(name: string): boolean {
-  return SKIP_DIRS.has(process.platform === "win32" ? name.toLowerCase() : name);
-}
 
 export interface WatchPlan {
   watchers: FileSystemWatcher[];

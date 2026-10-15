@@ -46,6 +46,26 @@ describe("keyword-needs-space", () => {
     expect(first("/def g = /if (1) /echo a%; /else/echo b%; /endif")?.fix?.title).toBe("Put a space after /else");
   });
 
+  // rev-s4g u5, proven in tf (s4/ue.tf): /else/echo is no /else, so the /endif closes the /if and the
+  // /while has no /done ("expected /done"); with the space and a /done, it runs clean.
+  it("reports /else/echo in a /while, and the /while's missing /done", () => {
+    const found = all("/def g = /while (0) /if (0) /echo a%; /else/echo b%; /endif");
+    expect(found.map((d) => `${d.code}: ${d.message} [${d.fix?.title}]`)).toEqual([
+      "block-structure: This /while has no /done. [Add %; /done at the end of the body]",
+      `${CODE}: tf reads /else/echo as a command named else/echo, not as /else: put a space after /else. [Put a space after /else]`,
+    ]);
+  });
+
+  // rev-s4g e1, proven in tf (s4/ue.tf): an /endif cut off from its \ by a blank still closes nothing
+  // ("expected /endif"), and no "Add %; /endif" is offered, which would leave the stray \ behind it.
+  it("offers no closer for an /endif followed by a \\ and a blank", () => {
+    const found = getDiagnostics("/set i=0\n/def g = /while (i<3) /test ++i%; /if (1) /echo %% x%; /endif\\ \n");
+    expect(found.map((d) => `${d.code}: ${d.message} [${d.fix?.title}]`)).toEqual([
+      "backslash-not-last: This \\ doesn't continue the line, because whitespace follows it: remove the whitespace. [Remove the whitespace after the \\]",
+      "block-structure: This /if has no /endif. [undefined]",
+    ]);
+  });
+
   it("names the builtin lookup for /@if(", () => {
     expect(first("/@if(1) /echo a%; /@endif")?.message).toBe("tf reads /@if(1) as the builtin command if(1), not as /if: put a space after /if.");
   });

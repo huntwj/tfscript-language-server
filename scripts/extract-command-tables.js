@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Regenerates src/data/*.generated.ts from the tinyfugue source tree (a sibling checkout,
+ * Regenerates packages/core/src/data/*.generated.ts from the tinyfugue source tree (a sibling checkout,
  * read-only — never edit it from here). Run by hand after a tinyfugue update
- * (`node scripts/extract-command-tables.js`); test/commandsData.test.ts re-parses the same
+ * (`node scripts/extract-command-tables.js`); packages/core/test/commandsData.test.ts re-parses the same
  * sources and fails if the checked-in files have drifted, so the server never ships a
  * command table nobody re-derived from source.
  *
@@ -22,7 +22,7 @@ const MUD_DIR = path.resolve(__dirname, "..", "..");
 const TINYFUGUE_SRC = path.join(MUD_DIR, "tinyfugue", "src");
 const STDLIB_TF = path.join(MUD_DIR, "tinyfugue", "lib", "tf", "stdlib.tf");
 const HTMLDOC_COMMANDS = path.join(MUD_DIR, "tinyfugue", "htmldoc", "commands");
-const DATA_DIR =path.join(__dirname, "..", "src", "data");
+const DATA_DIR =path.join(__dirname, "..", "packages", "core", "src", "data");
 
 function extractKeywordTable(expandCText) {
   const block = /keyword_table\[\]\s*=\s*\{([^}]*)\}/.exec(expandCText);
@@ -67,10 +67,10 @@ function tokenize(text) {
 }
 
 // `splitLogicalEntries` defaults to the built dist/ output (for the CLI path below), but
-// takes a parameter so test/commandsData.test.ts can pass src/logicalEntries's own export
+// takes a parameter so packages/core/test/commandsData.test.ts can pass src/logicalEntries's own export
 // directly instead — otherwise that test would silently depend on `npm run build` having
 // already been run, and could validate against a stale dist/ build without noticing.
-function extractStdlibMacros(stdlibText, splitLogicalEntries = require("../dist/logicalEntries").splitLogicalEntries) {
+function extractStdlibMacros(stdlibText, splitLogicalEntries = require("../packages/core/dist/logicalEntries").splitLogicalEntries) {
   const names = new Set();
   for (const entry of splitLogicalEntries(stdlibText)) {
     if (!entry.isDefBody) continue;
@@ -273,7 +273,7 @@ module.exports = {
 };
 
 // Only regenerate the checked-in files when run directly (`node extract-command-tables.js`);
-// test/commandsData.test.ts requires this module for its extraction functions without that
+// packages/core/test/commandsData.test.ts requires this module for its extraction functions without that
 // side effect.
 if (require.main === module) {
   const keywordCommands = extractKeywordTable(

@@ -31,7 +31,7 @@ const TRAILING_COMMAND_WORD = /(?:^|[\s;(])\/(\w*)$/;
 /**
  * Command-name completion: tf commands are conventionally typed lowercase (every example in
  * stdlib.tf, the WoTMUD scripts and the proven test cases is lowercase), even though the C
- * tables store them uppercase — see src/data/commands.ts.
+ * tables store them uppercase — see packages/core/src/data/commands.ts.
  *
  * `linePrefix` is the current line's text up to the cursor. Returns completions only when the
  * cursor sits right after a `/` and optional partial word (so typing in the middle of an

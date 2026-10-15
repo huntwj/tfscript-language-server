@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * Writes the docs generated from the rule table (src/rules/table.ts): docs/rules.md, the README's
+ * Writes the docs generated from the rule table (packages/core/src/rules/table.ts): docs/rules.md, the README's
  * rule table, and the notes page's rule list and the tf-scripting skill under docs/generated/.
- * Run `npm run docs:rules` (it builds first, as this reads dist/) after changing the table;
- * test/ruleDocs.test.ts fails while a checked-in copy is out of date.
+ * Run `npm run docs:rules` (it builds first, as this reads core's dist/) after changing the table;
+ * packages/core/test/ruleDocs.test.ts fails while a checked-in copy is out of date.
  */
 const { mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
 
-const { generatedFiles, withReadmeTable } = require("../dist/rules/render");
+const { generatedFiles, withReadmeTable } = require("../packages/core/dist/rules/render");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 

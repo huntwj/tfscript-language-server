@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SymbolKind } from "vscode-languageserver/node";
 import { toDocumentSymbol } from "../src/lspSymbols";
-import { getDocumentSymbols } from "../src/symbols";
+import { getDocumentSymbols } from "@tfscript/core/symbols";
 
 describe("toDocumentSymbol", () => {
   it("maps kinds onto LSP symbol kinds", () => {

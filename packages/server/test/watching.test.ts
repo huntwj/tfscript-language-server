@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { logUnhandledRejections } from "../src/rejections";
 import { relevantChange, watchPlan, Watching, type WatchPlan } from "../src/watching";
-import type { ResolvedSettings } from "../src/workspace/settings";
+import type { ResolvedSettings } from "@tfscript/core/workspace/settings";
 
 const ROOT = path.resolve("/fake");
 const p = (...parts: string[]) => path.join(ROOT, ...parts);

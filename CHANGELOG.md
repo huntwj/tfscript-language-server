@@ -74,8 +74,9 @@
   a's value; where its fix clears what tf stops at, it is the error instead, with the block's own
   closer offered beside it, since the keyword may be meant as text. Only a name tf takes counts
   (`/set /else` is tf's "illegal variable name"), read from the statement's own text. The `%;` fix
-  is offered only where it runs as meant, without sending text, adding an empty statement or
-  leaving `/set name` (a query), and never applied by the join fixes' settle step.
+  is offered only where it runs as meant, without adding an empty statement or leaving `/set name`
+  (a query), and never applied by the join fixes' settle step. Text it makes a statement of its own
+  is sent to the world, as text in a body is, and the fix is offered all the same.
 - `condition-list-text` (warning): a statement in an `/if`, `/elseif` or `/while` condition list
   that isn't a command, which tf sends to the world each time the condition is tested, as its
   own warning says.
@@ -85,11 +86,15 @@
   condition (`/else(1)` asks if `/elseif` was meant), nor where the result wouldn't compile. A
   keyword glued to other punctuation, as in `/endif;`, is a warning, with no fix, unless the
   file's commands define a macro of that name (`/def done:x` is one; a comment, an `/echo`'s text
-  or a `/def` after the load aborts isn't). `not-substituted-here` no longer notes the
-  `%;` on a line starting `/if(`, and the undefined-macro check doesn't look for a macro named
-  `if(1)`.
-- `block-structure` no longer offers `%;` before text after an `/endif` or `/done`
-  (`/endif)`, `/endif "x"`), which would then be sent to the world.
+  or a `/def` after the load aborts isn't). A keyword glued on by a line join (`/endif\` with a
+  `/def` on the next line) gets two fixes, a `%;` before the `\` or removing it, the likelier one
+  first. `not-substituted-here` no longer notes the `%;` on a line starting `/if(`, and the
+  undefined-macro check doesn't look for a macro named `if(1)`.
+- Fixes are offered where the text after them becomes a statement of its own, which tf sends to
+  the world as it does text in a body: `block-structure`'s `%;` after an `/endif` before text,
+  `not-substituted-here`'s `-son` before text in `/eval` text, and `substitution-syntax`'s `}` for a
+  `%{` cut short by a separator. `not-substituted-here` no longer offers to put the next command on
+  a line of its own across a `\`, which left the `\` behind.
 - "Inline /foo" (`refactor.inline`): replaces a `/foo` call in a macro body with foo's body, and
   "Inline all calls to /foo and remove it" does that for every call in the file and deletes the
   `/def`. It is shown disabled, with the reason, when the body wouldn't run the same in the caller:

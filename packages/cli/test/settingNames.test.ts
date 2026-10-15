@@ -59,7 +59,12 @@ function sources(dir: string): string[] {
 
 describe("the settings core's messages name", () => {
   it("each have an option, and each option is one the parser takes", () => {
-    const named = new Set(sources(CORE_SRC).flatMap((f) => [...readFileSync(f, "utf8").matchAll(SETTING_NAME)].map((m) => m[1] as string)));
+    // tfscript.json (and its schema, tfscript.schema.json) is a file, not a setting.
+    const named = new Set(
+      sources(CORE_SRC)
+        .flatMap((f) => [...readFileSync(f, "utf8").matchAll(SETTING_NAME)].map((m) => m[1] as string))
+        .filter((key) => !/(^|\.)json$/.test(key)),
+    );
     expect(named.size).toBeGreaterThan(5);
     expect([...named].filter((key) => !(key in OPTION_FOR_SETTING))).toEqual([]);
     for (const option of Object.values(OPTION_FOR_SETTING)) expect(Object.keys(OPTIONS)).toContain(option.slice(2));

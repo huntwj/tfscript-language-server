@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/huntwj/tfscript-language-server/main/schemas/tfscript.schema.json",
+  "title": "tfscript.json",
+  "description": "Settings for tfscript, TinyFugue's macro language, outside an editor: the tfscript.* settings without the prefix, plus the Claude Code hook's own. The folder holding this file is the root; relative paths are relative to it.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "entryFiles": {
+      "description": "Files tf loads after stdlib.tf, in order: normally just the tfrc. Default: a tfrc, .tfrc or tfrc.tf in this folder, else ~/.tfrc.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "contexts": {
+      "description": "Named alternatives to entryFiles, each one way tf might be started, with the files it loads.",
+      "type": "object",
+      "additionalProperties": { "type": "array", "items": { "type": "string" } }
+    },
+    "activeContext": {
+      "description": "Which of contexts files are seen through. Default: the first.",
+      "type": "string"
+    },
+    "libraryPath": {
+      "description": "tf's library (TFLIBDIR), holding stdlib.tf. Default: TFLIBDIR from the environment.",
+      "type": "string"
+    },
+    "tfPath": {
+      "description": "TFPATH as tf starts with it. Default: TFPATH from the environment.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "workingDirectory": {
+      "description": "tf's current directory, which relative /load paths resolve against. Default: this folder.",
+      "type": "string"
+    },
+    "homeDirectory": {
+      "description": "What ~ means to tf. Default: your home directory.",
+      "type": "string"
+    },
+    "pathMappings": {
+      "description": "Where tf's absolute paths are here, for a tf that runs somewhere else (a container, WSL, a remote host).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tf", "local"],
+        "properties": {
+          "tf": { "description": "An absolute path as tf sees it.", "type": "string", "pattern": "^/" },
+          "local": { "description": "The folder here it is.", "type": "string" }
+        }
+      }
+    },
+    "variables": {
+      "description": "Variables with a value as tf starts, name to value.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+      "additionalProperties": { "type": "string" }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unresolvedLoads": { "description": "Report /load and /require paths tf wouldn't find. Default: true.", "type": "boolean" },
+        "undefinedMacros": { "description": "Report calls to macros defined nowhere tf can see. Default: true.", "type": "boolean" },
+        "ignoreMacros": {
+          "description": "Macro names the undefined-macro check leaves alone, ignoring case; * is a wildcard.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "claudeCode": {
+      "description": "The Claude Code plugin's hook only: how it reports after an edit.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "description": "Check the files under this tfscript.json after each edit. Default: true.", "type": "boolean" },
+        "warningLimit": { "description": "How many warnings to list; the rest are counted. Errors are always listed. Default: 20.", "type": "integer", "minimum": 0 },
+        "showInformation": { "description": "List information notes too. Default: false.", "type": "boolean" },
+        "timeoutSeconds": { "description": "How long to wait for a check before giving up with a short notice. Default: 10.", "type": "number", "exclusiveMinimum": 0, "maximum": 25 }
+      }
+    }
+  }
+}

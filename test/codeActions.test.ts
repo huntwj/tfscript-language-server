@@ -141,6 +141,16 @@ describe("structural fixes", () => {
 
   // rev-s4b g08, g14: with a %; the text is a statement, sent to the world as text in a body is,
   // and the fix is offered all the same (policy, 2026-10-15).
+  // rev-s4e r1, proven in tf: appended after the CR, "%; /endif" follows a \ that escapes it, and
+  // tf says "endif: no such command or macro". backslash-not-last's advice (save with LF) is the fix.
+  it("adds no closer after a \\ a CR or whitespace cuts off", () => {
+    for (const text of ["/def g = /if (1) /echo a%; /endif\\\r\n/g\r\n", "/def g = /if (1) /echo a%; /endif\\ \n/g\n"]) {
+      const block = getDiagnostics(text).find((d) => d.code === "block-structure");
+      expect(block?.message, JSON.stringify(text)).toBe("This /if has no /endif.");
+      expect(block?.fix, JSON.stringify(text)).toBeUndefined();
+    }
+  });
+
   it("puts %; after an /endif before a command or text", () => {
     for (const text of ["/def a = /if (1) /echo x%; /endif)\n", '/def a = /if (1) /echo x%; /endif "x"\n', "/def a = /if (1) /echo x%; /endif /echo y\n"]) {
       const [d] = getDiagnostics(text);

@@ -997,8 +997,15 @@ class Parser {
     const body = (this.open[this.open.length - 1] as Open).body;
     const empty = body !== undefined && this.s.slice(body, this.i).trim() === "";
     const gluedCloser = (word: string): boolean => this.gluedPunct.some((g) => g.word === word && g.start > start);
+    // Nor after a \ that whitespace or a CR cuts off (backslash-not-last's case): appended after the
+    // CR, the closer would follow a \ that escapes it, and tf says "endif: no such command" (rev-s4e r1).
+    const cutBackslash = (): boolean => {
+      let k = this.i;
+      while (k > 0 && /[ \t\r\f\v]/.test(this.s[k - 1] as string)) k -= 1;
+      return k < this.i && this.s[k - 1] === "\\";
+    };
     const closer = (word: string): IssueFix | undefined =>
-      empty || gluedCloser(word) ? undefined : { title: `Add %; /${word} ${where}`, edits: [this.appendStatement(this.i, word)] };
+      empty || gluedCloser(word) || cutBackslash() ? undefined : { title: `Add %; /${word} ${where}`, edits: [this.appendStatement(this.i, word)] };
     const conditionList = (word: string, then: string): IssueDetail => ({
       message: `This /${word}'s condition list has no /${then}.`,
       label: `no /${then}`,

@@ -155,5 +155,57 @@ describe("keyword-needs-space", () => {
         expect(titles(text), text).toEqual(["Put a space before the \\ on line 1"]);
       }
     });
+
+    // rev-s4e k1-k5, proven in tf: /break ends its statement, but its /while's /done comes later, so
+    // removing the \ cuts the /while off; a %; before the \ is the one fix.
+    it("offers only a %; before the \\ for /break and /@break", () => {
+      for (const text of ["/def g = /while (1) /echo w%; /break\\\n/done\n", "/while (i<3) /test ++i%; /@break\\\n/done\n"]) {
+        expect(titles(text), text).toEqual([keep]);
+        expect(getDiagnostics(text).filter((d) => d.code === CODE)[0]?.message, text).toMatch(/: put %; before the \\\.$/);
+      }
+    });
+
+    // rev-s4e w1-w4, proven in tf: where keyword-needs-space withholds its fix, it stays withheld,
+    // with its advice, and the join said in the message.
+    it("keeps keyword-needs-space's withheld fix withheld across a join", () => {
+      const w1 = "/def g = /while\\\n(0)%; /done\n";
+      expect(getDiagnostics(w1)[0]?.message).toBe(
+        "Line 1 ends in \\, so tf joins the next line on, and tf reads /while(0) as a command named while(0), not as /while: put a space after /while.",
+      );
+      expect(titles(w1)).toEqual([]);
+      const w2 = "/def g = /if (0) /echo a%; /else\\\n(1) /echo b%; /endif\n";
+      expect(getDiagnostics(w2)[0]?.message).toBe(
+        "Line 1 ends in \\, so tf joins the next line on, and tf reads /else(1) as a command named else(1), not as /else: did you mean /elseif (1)?",
+      );
+      expect(titles(w2)).toEqual([]);
+    });
+
+    it("reads the /@ forms on a line join as their keywords", () => {
+      expect(titles("/def g = /@if (1) /echo a%; /@endif\\\n/def h = /echo b\n")).toEqual([`${split} (preferred)`, keep]);
+      expect(titles("/def g = /@if\\\n(1) /echo a%; /@endif\n")).toEqual(["Put a space before the \\ on line 1"]);
+    });
+
+    // rev-s4d a3: a call of the macro being defined is a command of its own, as a column-0 /def is.
+    it("puts removing the \\ first before a call of the macro being defined", () => {
+      expect(titles("/def g = /if (1) /echo a%; /endif\\\n;x\n/g\n")).toEqual([`${split} (preferred)`, keep]);
+    });
+
+    // s4/cm.tf and rev-s4e v1, v2, proven in tf.
+    it("skips # comments, several comment lines, a comment ending in \\, and comments after a CR or form feed", () => {
+      for (const text of [
+        "/def g = /if (1) /echo a%; /endif\\\n# one\n; two\n/def h = /echo b\n",
+        "/def g = /if (1) /echo a%; /endif\\\n; a comment ending in \\\n/def h = /echo b\n",
+        "/def g = /if (1) /echo a%; /endif\\\n\r; c\n/def h = /echo b\n",
+        "/def g = /if (1) /echo a%; /endif\\\n; c\r\n/def h = /echo b\r\n",
+      ]) {
+        expect(getDiagnostics(text).filter((d) => d.code === CODE)[0]?.message, JSON.stringify(text)).toContain("reads /endif/def as one command");
+        expect(titles(text), JSON.stringify(text)).toEqual([`${split} (preferred)`, keep]);
+      }
+      expect(getDiagnostics("/def g = /if\\\n\f# c\n(1) /echo a%; /endif\n")[0]?.message).toContain("reads /if(1) as one command");
+    });
+
+    it("joins nothing past a comment followed by a blank line, which ends the command", () => {
+      expect(getDiagnostics("/def g = /if (1) /echo a%; /endif\\\n; c\n\n/def h = /echo b\n")).toEqual([]);
+    });
   });
 });

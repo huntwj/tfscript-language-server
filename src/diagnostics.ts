@@ -1,4 +1,4 @@
-import { splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
+import { isCommentLine, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { RULES, type Severity } from "./rules";
 import type { EntryMatch, FileFacts, LineMatch, LineSpan } from "./rules/types";
 import { definedMacro } from "./symbols";
@@ -194,19 +194,24 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
  * found end"). The line joined on is the next one that isn't a comment: tf skips a line starting
  * `;` or `#` even inside a continuation (load_file() in command.c; rev-s4d c1, c5, a3).
  *
- * A closer (/endif, /done) or /break ends its statement, so both fixes are offered, either reading
- * being possible: a %; before the `\`, which keeps the next line in the command (`/endif%;\`), and
+ * A closer (/endif, /done) ends its block, so both fixes are offered, either reading being
+ * possible: a %; before the `\`, which keeps the next line in the command (`/endif%;\`), and
  * removing the `\`, which makes it a command of its own. Which goes first depends on what the next
  * line looks like: part of the same body if it is indented, or the chain goes on past it (it ends
- * in `\` too), or the command is a macro body and the next line isn't a column-0 /def; its own
- * command if it starts at column 0 and the chain ends there, or it is a /def. In tf, both run as
- * they read with a column-0 /def after it; with an indented body line, removing the `\` runs that
- * line once at load, and tf warns "possibly missing trailing \" (s4/j3.tf).
+ * in `\` too), or the command is a macro body and the next line isn't a column-0 /def or a call of
+ * the macro being defined; its own command otherwise. In tf, both run as they read with a column-0
+ * /def after it; with an indented body line, removing the `\` runs that line once at load, and tf
+ * warns "possibly missing trailing \" (s4/j3.tf).
+ *
+ * /break ends its statement but not its /while, whose /done comes later: removing the `\` would cut
+ * the /while off from it, so a %; before the `\` is the one fix (rev-s4e k1-k5).
  *
  * Any other keyword (/if, /while, /elseif, /then, /do, /else) goes on into the next line, so the
  * one fix is a blank before the `\`: `/if \` and `(1) ...` read as `/if (1) ...` (rev-s4d c2-c4,
  * s4/k7.tf). Neither a %; nor removing the `\` works there (rev-s4d a1, a2, a5, b2, b3), and a blank
- * at the start of the next line doesn't either, as tf strips it (command.c).
+ * at the start of the next line doesn't either, as tf strips it (command.c). Where keyword-needs-space
+ * withholds its fix on purpose (/else(, /then(, /do(, or a %; straight after the condition), it is
+ * withheld here too, with the join said in the message (rev-s4e w1-w4).
  */
 function unjoinGluedKeywords(text: string, entries: LogicalEntry[], diagnostics: TfDiagnostic[]): void {
   let lines: string[] | undefined;
@@ -220,26 +225,41 @@ function unjoinGluedKeywords(text: string, entries: LogicalEntry[], diagnostics:
     if (!raw.endsWith("\\") || !/^\/@?[A-Za-z]+$/.test(keyword)) continue;
     const line = n + 1;
     let m = n + 1;
-    while (m < lines.length && /^[ \t]*[;#]/.test(lines[m] ?? "")) m += 1;
+    while (m < lines.length && isCommentLine(lines[m] ?? "")) m += 1;
     const next = lines[m] ?? "";
     const glued = keyword + (next.trimStart().match(/^[^\s%]*/)?.[0] ?? "");
     const at = { line: n, character: raw.length - 1 };
-    if (!/^\/@?(?:endif|done|break)$/i.test(keyword)) {
+    const word = keyword.replace(/^\/@?/, "").toLowerCase();
+    const keep = { title: `Put %; before the \\ on line ${line}`, edits: [{ range: { start: at, end: at }, newText: "%;" }] };
+    if (word === "endif" || word === "done") {
+      d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put %; before the \\, or remove the \\.`;
+      const split = {
+        title: `Remove the \\ at the end of line ${line}`,
+        edits: [{ range: { start: at, end: { line: n, character: raw.length } }, newText: "" }],
+      };
+      const entry = entries.find((e) => e.startLine <= n && n <= e.endLine);
+      // A column-0 /def, or a call of the macro being defined (`/g` after `/def g = ...`: rev-s4d
+      // a3), is a command of its own.
+      const defined = entry && definedMacro(entry)?.toLowerCase();
+      const calls = /^\/@?([^\s%]+)/.exec(next)?.[1]?.toLowerCase();
+      const ownCommand = /^\/@?def\b/i.test(next) || (!!defined && calls === defined);
+      const sameBody = !ownCommand && (/^[ \t\f\v]/.test(next) || next.endsWith("\\") || !!entry?.isDefBody || !!entry?.isOtherMacroBody);
+      d.fix = sameBody ? keep : split;
+      d.alternative = sameBody ? split : keep;
+    } else if (word === "break") {
+      // /break ends its statement, but its /while's /done always comes later: removing the \ would
+      // cut the /while off from it (rev-s4e k2, k4). A %; before the \ is the one fix.
+      d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put %; before the \\.`;
+      d.fix = keep;
+      delete d.alternative;
+    } else if (!d.fix) {
+      // Where keyword-needs-space withholds its fix on purpose (/else(1), /do(1), or a %; straight
+      // after the condition: rev-s4e w1-w4), its message and advice stand, with the join said.
+      d.message = `Line ${line} ends in \\, so tf joins the next line on, and ${d.message}`;
+    } else {
       d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put a space before the \\.`;
       d.fix = { title: `Put a space before the \\ on line ${line}`, edits: [{ range: { start: at, end: at }, newText: " " }] };
       delete d.alternative;
-      continue;
     }
-    d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put %; before the \\, or remove the \\.`;
-    const keep = { title: `Put %; before the \\ on line ${line}`, edits: [{ range: { start: at, end: at }, newText: "%;" }] };
-    const split = {
-      title: `Remove the \\ at the end of line ${line}`,
-      edits: [{ range: { start: at, end: { line: n, character: raw.length } }, newText: "" }],
-    };
-    const entry = entries.find((e) => e.startLine <= n && n <= e.endLine);
-    const columnZeroDef = /^\/@?def\b/i.test(next);
-    const sameBody = !columnZeroDef && (/^[ \t]/.test(next) || next.endsWith("\\") || !!entry?.isDefBody || !!entry?.isOtherMacroBody);
-    d.fix = sameBody ? keep : split;
-    d.alternative = sameBody ? split : keep;
   }
 }

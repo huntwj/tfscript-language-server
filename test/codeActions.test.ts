@@ -139,15 +139,14 @@ describe("structural fixes", () => {
     expect(applyEdits(paren, getCodeActions(paren, WHOLE_FILE)[0]!.edits)).toBe("/def a = /if (1) /echo x%; /endif%; )\n");
   });
 
-  // Second review of step 4 (rev-s4b g08, g14), proven in tf: with a %; the text is a statement,
-  // sent to the world. A command after /endif keeps its fix.
-  it("puts %; after an /endif only before a command, not before text", () => {
-    for (const text of ["/def a = /if (1) /echo x%; /endif)\n", '/def a = /if (1) /echo x%; /endif "x"\n']) {
+  // rev-s4b g08, g14: with a %; the text is a statement, sent to the world as text in a body is,
+  // and the fix is offered all the same (policy, 2026-10-15).
+  it("puts %; after an /endif before a command or text", () => {
+    for (const text of ["/def a = /if (1) /echo x%; /endif)\n", '/def a = /if (1) /echo x%; /endif "x"\n', "/def a = /if (1) /echo x%; /endif /echo y\n"]) {
       const [d] = getDiagnostics(text);
       expect(d?.message, text).toBe("Text after /endif needs a %; before it.");
-      expect(d?.fix, text).toBeUndefined();
+      expect(d?.fix?.title, text).toBe("Put %; before it");
     }
-    expect(getDiagnostics("/def a = /if (1) /echo x%; /endif /echo y\n")[0]?.fix?.title).toBe("Put %; before it");
   });
 
   it("blames a second /then on the (condition) only when one comes straight before it", () => {

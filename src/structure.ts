@@ -1557,9 +1557,10 @@ class Parser {
         });
       }
       // Cut short by a separator with the } it was written with after it (`%{y-%;}`): a } before the
-      // separator would leave that one to be sent to the world (review rev-s2c q8m), so no fix.
+      // separator leaves that one to be sent to the world, as text in a body is (review rev-s2c
+      // q8m), but the fix is offered all the same (policy, 2026-10-15; proven in tf, s4/n1.tf).
       const cutShort = this.isStatEnd(this.i) && s.indexOf("}", this.i) >= 0;
-      const close: IssueFix | undefined = cutShort ? undefined : { title: "Close it with }", edits: [this.insertAtEnd(this.i, "}")] };
+      const close: IssueFix = { title: cutShort ? `Close it with } before the ${s.slice(this.i, this.i + 2)}` : "Close it with }", edits: [this.insertAtEnd(this.i, "}")] };
       this.fail(
         "substitution",
         percent,
@@ -1581,7 +1582,8 @@ class Parser {
                 explanation:
                   `${code(s.slice(this.i, this.i + 2))} ends the statement, even inside a ${code(`${opener}...}`)}, so tf ` +
                   `never reaches the ${code("}")} after it, and rejects the ${code(opener)}. Closing it before the separator ` +
-                  `would leave that ${code("}")} to be sent to the world.`,
+                  `leaves that ${code("}")} after it, which tf sends to the world.`,
+                fix: close,
               }
             : { message: `This ${opener} is never closed: add }.`, label: "never closed", fix: close },
       );

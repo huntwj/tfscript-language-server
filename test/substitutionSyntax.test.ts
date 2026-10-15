@@ -43,10 +43,12 @@ describe("substitution-syntax: a selector with another substitution glued on", (
 
   // Proven live (s2/r/cs.tf): %{y-%;} is "unmatched { or illegal character '%'", and closing it
   // before the %; (%{y-}%;}) sends the } to the world.
-  it("offers no fix for a %{ cut short by a separator before its own }", () => {
+  // The } after the %; is then a statement sent to the world, as text in a body is: offered all the
+  // same (policy, 2026-10-15; proven in tf, s4/n1.tf).
+  it("offers to close a %{ cut short by a separator before its own }", () => {
     const [d] = syntax("/def c1 = /echo C1:%{y-%;}\n");
     expect(d?.message).toBe("This %{ is cut short by the %; before its }: a separator ends the statement, even inside a substitution.");
-    expect(d?.fix).toBeUndefined();
+    expect(d?.fix?.title).toBe("Close it with } before the %;");
   });
 });
 

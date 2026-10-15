@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, realpathSync, statSync } from "node:fs";
 import * as path from "node:path";
 import type { TfDiagnostic } from "@tfscript/core/diagnostics";
 import { documentDiagnostics } from "@tfscript/core/workspace/documentDiagnostics";
@@ -21,7 +21,7 @@ export interface CheckRequest {
 }
 
 export interface CheckedFile {
-  /** Absolute. */
+  /** Absolute, as it was named (through any link). */
   file: string;
   text: string;
   diagnostics: TfDiagnostic[];
@@ -43,6 +43,8 @@ export interface CheckHost {
    * junction or a symbolic link), which the walk doesn't follow.
    */
   linksFolders(dir: string): boolean;
+  /** Where `p` really is, through any links (junctions, symbolic links), or `p` if that can't be told. */
+  realpath(p: string): string;
 }
 
 function linksFolders(dir: string): boolean {
@@ -77,21 +79,29 @@ export const nodeHost = (): CheckHost => ({
     }
   },
   linksFolders,
+  realpath: (p) => {
+    try {
+      return realpathSync.native(p);
+    } catch {
+      return p;
+    }
+  },
 });
 
 /**
  * The files `paths` name: a file as it is (whatever its name, so a tfrc counts), a folder's tf
  * scripts as the server's workspace walk finds them (`.tf`, `tfrc` and `.tfrc`, skipping .git,
  * .jj and node_modules, and not following a link to a folder inside it), in name order. Each
- * file once.
+ * file once, however it is reached: two names through links for one file are the first.
  */
-function expand(request: CheckRequest, host: CheckHost, problems: string[]): string[] {
+function expand(request: CheckRequest, host: CheckHost, problems: string[]): { file: string; real: string }[] {
   const seen = new Set<string>();
-  const out: string[] = [];
-  const add = (f: string): void => {
-    if (seen.has(fileKey(f))) return;
-    seen.add(fileKey(f));
-    out.push(f);
+  const out: { file: string; real: string }[] = [];
+  const add = (file: string): void => {
+    const real = host.realpath(file);
+    if (seen.has(fileKey(real))) return;
+    seen.add(fileKey(real));
+    out.push({ file, real });
   };
   for (const given of request.paths) {
     const p = path.resolve(request.cwd, given);
@@ -125,17 +135,20 @@ export function check(request: CheckRequest, host: CheckHost = nodeHost()): Chec
     return { files: [], problems: [`The root folder ${request.root ?? root} doesn't exist: give --root a folder that does.`] };
   }
   const files = expand(request, host, problems);
+  // Whether a file is in the root, and where its loads lead, is worked out from where each really
+  // is, so a file named through a link (or a root that is one) is placed as the file itself.
+  const realRoot = host.realpath(root);
   const index = new WorkspaceIndex(host.fs, host.environment);
-  index.setFolders([root]);
-  index.setSettings(root, request.settings);
+  index.setFolders([realRoot]);
+  index.setSettings(realRoot, request.settings);
   const checked: CheckedFile[] = [];
-  for (const file of files) {
-    const text = host.fs.readFile(file);
+  for (const { file, real } of files) {
+    const text = host.fs.readFile(real);
     if (text === undefined) {
       problems.push(`${path.relative(request.cwd, file) || file} can't be read: check that it is a file you may read.`);
       continue;
     }
-    checked.push({ file, text, diagnostics: documentDiagnostics(text, file, index) });
+    checked.push({ file, text, diagnostics: documentDiagnostics(text, real, index) });
   }
   return { files: checked, problems };
 }

@@ -24,6 +24,26 @@ describe("links", () => {
     ]);
   });
 
+  it("checks a file once, however many links name it", () => {
+    const result = check({ paths: [path.join("wsj", "tfrc"), path.join(WS, "tfrc"), "wsj"], settings: {}, cwd: TMP }, testHost());
+    expect(result.files.map((f) => path.relative(TMP, f.file))).toEqual([
+      path.join("wsj", "tfrc"),
+      path.join("wsj", "extra.tf"),
+      path.join("wsj", "lib.tf"),
+      path.join("wsj", "main.tf"),
+    ]);
+  });
+
+  it("places a file in the root by where it really is", () => {
+    const direct = codes(check({ paths: [path.join(WS, "main.tf")], root: WS, settings: LIBRARY_SETTINGS, cwd: TMP }, testHost()));
+    // In the root, the library setting applies, so /std_helper is found.
+    expect(direct).toEqual(["main.tf:4 error invalid-macro-name", "main.tf:3 warning undefined-macro", "main.tf:3 information undefined-macro"]);
+    expect(codes(check({ paths: [path.join("wsj", "main.tf")], root: WS, settings: LIBRARY_SETTINGS, cwd: TMP }, testHost()))).toEqual(direct);
+    expect(codes(check({ paths: [path.join(WS, "main.tf")], root: "wsj", settings: LIBRARY_SETTINGS, cwd: TMP }, testHost()))).toEqual(direct);
+    // Outside the root, it has the default settings: no library, so /std_helper is undefined too.
+    expect(codes(check({ paths: [path.join("wsj", "main.tf")], root: "empty", settings: LIBRARY_SETTINGS, cwd: TMP }, testHost()))).toHaveLength(4);
+  });
+
   it("searches a folder named through a link", () => {
     const result = check({ paths: ["wsj"], settings: {}, cwd: TMP }, testHost());
     expect(result.files.map((f) => path.basename(f.file))).toEqual(["extra.tf", "lib.tf", "main.tf", "tfrc"]);

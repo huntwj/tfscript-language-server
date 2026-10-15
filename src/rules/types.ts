@@ -43,7 +43,7 @@ export interface FileFacts {
 }
 
 export interface EntryRule {
-  /** Matches the case-id style used in scripting.md and tests/tfscript/cases/. */
+  /** The diagnostic code; src/rules/table.ts puts each one in a rule section. */
   id: string;
   severity: Severity;
   scope: "entry";

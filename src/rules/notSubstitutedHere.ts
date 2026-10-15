@@ -6,7 +6,7 @@ import { entrySubstitution, type ContextStatement, type EvalLevel, type LevelOpt
 import type { EntryRule, EntryMatch } from "./types";
 
 /**
- * Rule 4 (scripting.md): text tf doesn't substitute, where it was surely meant to be. tf reads a
+ * R2, substitution level (src/rules/table.ts): text tf doesn't substitute, where it was surely meant to be. tf reads a
  * plain top-level line without substitution, a top-level `/if` or `/while` line with only `%;`
  * separating, and `/eval -soff` and `-son` text the same ways (substitution.ts has the table, and
  * the proofs). So:

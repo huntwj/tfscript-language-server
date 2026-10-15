@@ -48,7 +48,7 @@ export interface LogicalEntry {
    * is substituted on every iteration (`/for i 0 2 /nosuchcmd_%{i}` raised three distinctly
    * named "no such command" errors — nosuchcmd_0, nosuchcmd_1, nosuchcmd_2 — not one). So a
    * `/for` body is exempt from the same rule a `/def` body is, just for a different reason:
-   * a `/def` body is deferred (rule 1), a `/for` body is substituted eagerly but per
+   * a `/def` body is deferred ("when code runs" in docs/rules.md), a `/for` body is substituted eagerly but per
    * iteration, not by load_file()'s single top-level pass. (Which text tf substitutes, `/for`
    * and `/repeat` included, is substitution.ts's table; this flag is the load graph's.)
    */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findMacroCalls, findVariables, readSelector } from "../src/variables";
+import { timeBudget } from "./timeBudget";
 
 const show = (text: string): string[] =>
   findVariables(text).map((v) => `${v.access}:${v.name}@${v.range.start.line}:${v.range.start.character}${v.scope === "global" ? "" : " local"}`);
@@ -354,9 +355,9 @@ describe("cost", () => {
     return performance.now() - t0;
   };
   it("stays linear on long statements", () => {
-    expect(timed(`/def -i a = ${"/test x ".repeat(20000)}\n`)).toBeLessThan(1000);
-    expect(timed(`/def -i a = /if (${"x ".repeat(50000)}\n`)).toBeLessThan(1000);
-    expect(timed(`/def -i a = ${"/set a=1 ".repeat(20000)}\n`)).toBeLessThan(1000);
+    expect(timed(`/def -i a = ${"/test x ".repeat(20000)}\n`)).toBeLessThan(timeBudget(1000));
+    expect(timed(`/def -i a = /if (${"x ".repeat(50000)}\n`)).toBeLessThan(timeBudget(1000));
+    expect(timed(`/def -i a = ${"/set a=1 ".repeat(20000)}\n`)).toBeLessThan(timeBudget(1000));
   });
 });
 

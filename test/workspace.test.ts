@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { getDefinition, getHover, getReferences, getRenameEdits, prepareRename } from "../src/navigation";
 import { resolveSettings, toLocalPath, type Environment } from "../src/workspace/settings";
 import { MAX_WALKED_FILES, WorkspaceIndex } from "../src/workspace/workspaceIndex";
+import { timeBudget } from "./timeBudget";
 
 const ROOT = path.resolve("/fake");
 const p = (...parts: string[]) => path.join(ROOT, ...parts);
@@ -400,7 +401,7 @@ describe("undefined macros, cost", () => {
       index.setOverlay(file, edited);
       index.loadPathDiagnostics(file, edited);
     }
-    expect((performance.now() - started) / 20).toBeLessThan(50);
+    expect((performance.now() - started) / 20).toBeLessThan(timeBudget(50));
     expect(calls.walks).toBe(walks);
   });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getDiagnostics } from "../src/diagnostics";
+import { timeBudget } from "./timeBudget";
 
 /**
  * Fixtures below mirror the proven cases in ~/ai/mud/tests/tfscript/cases/ (ground truth is
@@ -257,14 +258,14 @@ describe("not-substituted-here (rule 4)", () => {
     const start = Date.now();
     expect(getDiagnostics(`/echo %{x} %{y ${"%; ".repeat(20000)}\n`).length).toBe(20000);
     expect(getDiagnostics(`/eval -soff /echo a${"%; /echo b".repeat(20000)}\n`).length).toBe(20000);
-    expect(Date.now() - start).toBeLessThan(3000);
+    expect(Date.now() - start).toBeLessThan(timeBudget(3000));
   });
 
   // Review rev-s2d perf.js: each `%; /if` read the rest of the statement, 8000 of them in 20 s.
   it("checks only so many %; /if splits of one statement, offering no more", () => {
     const start = Date.now();
     const diags = getDiagnostics(`/echo a${"%; /if (1) /echo b%; /endif".repeat(8000)}\n`);
-    expect(Date.now() - start).toBeLessThan(3000);
+    expect(Date.now() - start).toBeLessThan(timeBudget(3000));
     expect(diags.filter((d) => d.fix?.title === "Put the next command on a line of its own")).toHaveLength(64);
   });
 
@@ -382,7 +383,7 @@ describe("let-swallows-endif (rule 5)", () => {
     const text = `/def a = ${"/let x=1 /endif%; ".repeat(5000)}\n`;
     const start = Date.now();
     getDiagnostics(text);
-    expect(Date.now() - start).toBeLessThan(500);
+    expect(Date.now() - start).toBeLessThan(timeBudget(500));
   });
 });
 

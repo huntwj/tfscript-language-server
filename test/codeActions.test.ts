@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getCodeActions, type Range, type TfTextEdit } from "../src/codeActions";
 import { getDiagnostics } from "../src/diagnostics";
+import { timeBudget } from "./timeBudget";
 
 const WHOLE_FILE: Range = { start: { line: 0, character: 0 }, end: { line: 9999, character: 0 } };
 
@@ -321,7 +322,7 @@ describe("rule fixes", () => {
     const lines = Array.from({ length: 3000 }, (_, i) => ["/while (1)", "  /if (x) /echo /done", "  /echo /endif"][i % 3] as string);
     const start = Date.now();
     getCodeActions(`${lines.join("\n")}\n`, WHOLE_FILE);
-    expect(Date.now() - start).toBeLessThan(1000);
+    expect(Date.now() - start).toBeLessThan(timeBudget(1000));
   });
 
   it("still joins a macro body's line with a %; of its own, which keeps its meaning in the body", () => {

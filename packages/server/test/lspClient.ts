@@ -114,9 +114,15 @@ export interface PublishedDiagnostics {
 /**
  * What the built server publishes for each of `files`, opened one at a time, in a workspace whose
  * only folder is `folder` and whose tfscript settings are `settings`. The environment is the
- * test's, without TFLIBDIR and TFPATH, so the user's own installation doesn't leak in.
+ * test's, without TFLIBDIR and TFPATH, so the user's own installation doesn't leak in. `each`, if
+ * given, runs once a file's diagnostics are in, while the file is open, to ask the server more.
  */
-export async function serverDiagnostics(folder: string, files: string[], settings: object): Promise<Map<string, unknown[]>> {
+export async function serverDiagnostics(
+  folder: string,
+  files: string[],
+  settings: object,
+  each?: (client: LspClient, uri: string, diagnostics: unknown[]) => Promise<void>,
+): Promise<Map<string, unknown[]>> {
   const env = { ...process.env };
   delete env.TFLIBDIR;
   delete env.TFPATH;
@@ -138,7 +144,9 @@ export async function serverDiagnostics(folder: string, files: string[], setting
     const fileUri = pathToFileURL(file).href;
     const published = client.waitFor((m) => m.method === "textDocument/publishDiagnostics" && (m.params as PublishedDiagnostics).uri === fileUri);
     client.notify("textDocument/didOpen", { textDocument: { uri: fileUri, languageId: "tf", version: 1, text: readFileSync(file, "utf8") } });
-    out.set(file, ((await published).params as PublishedDiagnostics).diagnostics);
+    const diagnostics = ((await published).params as PublishedDiagnostics).diagnostics;
+    out.set(file, diagnostics);
+    await each?.(client, fileUri, diagnostics);
   }
   await client.close();
   return out;

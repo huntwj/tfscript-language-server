@@ -1,4 +1,4 @@
-import { functionSynopses } from "./completions";
+import { functionSynopses } from "./functionSynopses";
 import { FUNCTIONS } from "./data/functions.generated";
 import { SELECTORS } from "./data/selectors";
 import type { TfVariable } from "./data/types";

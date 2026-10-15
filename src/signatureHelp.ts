@@ -1,4 +1,4 @@
-import { functionSynopses } from "./completions";
+import { functionSynopses } from "./functionSynopses";
 import { COMMAND_DESCRIPTIONS } from "./data/commandDescriptions";
 import { FUNCTIONS } from "./data/functions.generated";
 import { functionHelpEntry } from "./expressionHover";

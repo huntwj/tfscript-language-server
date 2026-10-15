@@ -2,9 +2,10 @@ import { CompletionItem, CompletionItemKind, InsertTextFormat } from "vscode-lan
 import { ALL_COMMANDS, RESERVED_MACRO_NAMES, type CommandSource } from "./data/commands";
 import { FUNCTIONS } from "./data/functions.generated";
 import { SELECTORS } from "./data/selectors";
-import type { TfFunction, TfVariable } from "./data/types";
+import type { TfVariable } from "./data/types";
 import { SPECIAL_VARIABLES } from "./data/variables.generated";
 import { cursorContext, textBefore } from "./expressions";
+import { functionSynopses } from "./functionSynopses";
 import { isCommentLine, splitRawLines } from "./logicalEntries";
 import type { NavContext } from "./navigation";
 import { getDocumentSymbols, type Position } from "./symbols";
@@ -38,15 +39,6 @@ const TRAILING_COMMAND_WORD = /(?:^|[\s;(])\/(\w*)$/;
  */
 export function getCommandCompletions(linePrefix: string): CompletionItem[] | null {
   return TRAILING_COMMAND_WORD.test(linePrefix) ? COMMAND_ITEMS : null;
-}
-
-/** `regmatch(s1, s2)`, or one made from the argument counts when htmldoc has none. */
-export function functionSynopses(f: TfFunction): string[] {
-  if (f.synopses) return f.synopses;
-  const args = Array.from({ length: f.min }, (_, i) => `arg${i + 1}`);
-  if (f.max === null) args.push("...");
-  else if (f.max > f.min) args.push(`[${f.max - f.min} more]`);
-  return [`${f.name}(${args.join(", ")})`];
 }
 
 function variableDetail(v: TfVariable): string {

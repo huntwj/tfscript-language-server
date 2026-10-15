@@ -272,8 +272,13 @@ interface MidKeyword {
  */
 export const TAKES_COMMANDS = /^(?:def|edit|bind|hook|gag|hilite|trig|trigc|trigp|trigpc|alias|repeat|at|quote|eval|for|not)$/;
 
-/** A /let or /set assignment, whose value takes the rest of the statement (keyword-mid-statement's own wording). */
-const LET_ASSIGNMENT_RE = /^\/@?(let|set)\b\s+[^\s=]+\s*=/i;
+/**
+ * A /let, /set or /setenv assignment, whose value takes the rest of the statement
+ * (keyword-mid-statement's own wording): `name=value` or `name value`, with any `@` or `!` prefix
+ * (`/@set` and `/!set` are /set too). Proven in tf (rev-s4b w13, w18: `/!set x13=1 /else ...` and
+ * `/set x18 1 /else ...` take the /else into the value).
+ */
+const LET_ASSIGNMENT_RE = /^\/[@!]*(let|set|setenv)\b\s+[^\s=]+(?:\s*=|\s+\S)/i;
 
 /** How keyword-mid-statement names what took a keyword: "the /set value", "the /echo command", ... */
 export function swallower(s: string, stmt: number, command: string): string {
@@ -474,6 +479,8 @@ class Parser {
   stopped = false;
   /** /ifs and /endifs swallowed by a /let or /set value (for keyword-mid-statement). */
   readonly swallowed: Swallowed[] = [];
+  /** For each "keyword-warning" issue, its keyword and what took it, should it turn out to be the error (parseSettled()). */
+  readonly warned = new Map<StructureIssue, { word: string; what: string; command: string }>();
   /** Every statement and block, in the order each one ended, with the list it is in. */
   readonly units: Unit[] = [];
   readonly lists: UnitList[] = [];
@@ -611,15 +618,16 @@ class Parser {
 
   /**
    * Whether separateSwallowed() would leave text that isn't a command as a statement of its own,
-   * after a swallowed `/endif` or `/done`: `/echo use /endif to close` would send "to close" to the
-   * world (rev-s4 s13). Then there is no fix.
+   * after a swallowed keyword: `/echo use /endif to close` would send "to close" to the world
+   * (rev-s4 s13), `/set h=use /else branch` "branch" (rev-s4b x11). An /elseif's (condition) is
+   * no text. Then there is no fix.
    */
   private leavesText(swallowed: MidKeyword[]): boolean {
     return swallowed.some((m) => {
-      if (m.word !== "endif" && m.word !== "done") return false;
       let k = m.end;
       while (isTfSpace(this.s[k])) k += 1;
-      return k < this.s.length && !this.isStatEnd(k) && !this.isCmdsubEnd(k) && this.s[k] !== "/";
+      if (k >= this.s.length || this.isStatEnd(k) || this.isCmdsubEnd(k) || this.s[k] === "/") return false;
+      return !(m.word === "elseif" && this.s[k] === "(");
     });
   }
 
@@ -1345,8 +1353,9 @@ class Parser {
         }
         // An /if or /while read as text is just text, unless the block it would have opened is what
         // a later keyword needed (pairSwallowed()). Where %; doesn't separate, it can be nothing else.
-        // Not in a command's commands: `/def %1 = /if ... %; /else` is the inner macro's (tintin.tf).
-        if (kw && (kw.word === "if" || kw.word === "while") && subs >= NEWLINE && !TAKES_COMMANDS.test(command)) {
+        // Only in a /let, /set or /setenv value: in other text, as `/echo see /if (x) for help`, a %;
+        // before it would turn the text into a command, and send "for help" (rev-s4b p01, x05).
+        if (kw && (kw.word === "if" || kw.word === "while") && subs >= NEWLINE && LET_ASSIGNMENT_RE.test(s.slice(stmtStart))) {
           const mid: MidKeyword = { start: this.i, end: kw.end, word: kw.word, command, stmt: stmtStart, taken: false };
           this.swallowed.push({ start: this.i, end: kw.end, word: kw.word, stmt: stmtStart, command, edits: this.separateSwallowed([mid]) });
         }
@@ -1384,7 +1393,7 @@ class Parser {
       const words = group.map((x) => `/${x.word}`);
       const list = words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}` : `${words[0]}`;
       const what = swallower(this.s, m.stmt, m.command);
-      this.issues.push({
+      const issue: StructureIssue = {
         kind: "keyword-warning",
         start: m.start,
         end: m.end,
@@ -1395,7 +1404,9 @@ class Parser {
           `${takesTheRest(m.command, m.word, what)} The block still closes, so tf loads this without an error, but ` +
           `${code(`/${m.word}`)} is never the block's.`,
         ...(this.leavesText(group) ? {} : { fix: { title: `Put %; before ${list}`, edits: this.separateSwallowed(group) } }),
-      });
+      };
+      this.issues.push(issue);
+      this.warned.set(issue, { word: m.word, what, command: m.command });
     }
   }
 
@@ -1839,58 +1850,124 @@ function unedited(pos: number, edits: IssueEdit[]): number {
   return pos - delta;
 }
 
-/** The first stop in `s` with `edits` applied, as an offset into `s`; Infinity if there is none. */
-function stopAfter(s: string, edits: IssueEdit[], mode: StructureMode): number {
-  let t = s;
-  for (const e of [...edits].sort((a, b) => b.start - a.start)) t = t.slice(0, e.start) + e.newText + t.slice(e.end);
-  const p = new Parser(t, mode);
-  p.run();
-  const stop = firstStop(p.issues);
-  return stop ? unedited(stop.start, edits) : Infinity;
+/**
+ * Warnings tf gives as it compiles, which a fix mustn't bring in: an empty statement (`/if (1)%;`,
+ * `/else%;`: rev-s4b p13, x03) or text in a condition list, sent to the world.
+ */
+const NOISE = new Set<StructureKind>(["empty-statement", "condition-text"]);
+
+function noise(issues: StructureIssue[]): number {
+  let n = 0;
+  for (const i of issues) if (NOISE.has(i.kind)) n += 1;
+  return n;
+}
+
+/**
+ * How many fresh parses one text may take to try out fixes, each a parse of the whole text; past
+ * them, a fix that would need one isn't offered, and nothing more is paired (as in step 2).
+ */
+const MAX_TRIES = 64;
+
+/** Tries fixes on `s`, a parse each, up to MAX_TRIES. */
+class Trial {
+  private tries = 0;
+  constructor(
+    private readonly s: string,
+    private readonly mode: StructureMode,
+    private readonly baseNoise: number,
+  ) {}
+
+  /**
+   * Where tf would first stop in `s` with `edits` applied, as an offset into `s` (Infinity if
+   * nowhere); -1 if the edits bring in a warning tf gives that `s` doesn't have, or the budget is spent.
+   */
+  stopAfter(edits: IssueEdit[]): number {
+    if (this.tries >= MAX_TRIES) return -1;
+    this.tries += 1;
+    let t = this.s;
+    for (const e of [...edits].sort((a, b) => b.start - a.start)) t = t.slice(0, e.start) + e.newText + t.slice(e.end);
+    const p = new Parser(t, this.mode);
+    p.run();
+    if (noise(p.issues) > this.baseNoise) return -1;
+    const stop = firstStop(p.issues);
+    return stop ? unedited(stop.start, edits) : Infinity;
+  }
 }
 
 /** "This /endif has no /if to close." as the related note on the keyword that caused it. */
 function strayNote(issue: StructureIssue): IssueNote {
-  return { start: issue.start, end: issue.end, message: issue.message.replace(/^This /, "the ").replace(/\.$/, "") };
+  return { start: issue.start, end: issue.end, message: issue.message.replace(/^This /, "the ").replace(/(?:: it is .*)?\.$/, "") };
 }
 
-/** How many /ifs or /whiles read as text pairSwallowed() tries, each a fresh parse of the text. */
-const MAX_PAIR_TRIES = 8;
-
 /**
- * `s` parsed as tf compiles it, with what a fresh parse of each fix can tell (proven live, review
- * of step 4: rev-s4 r1, r2):
- *  - An `/if` or `/while` read as text (Swallowed) is reported only when the problem tf stops at
- *    (the first block error: an `/endif` with no `/if`, say) goes away, or moves on, once `%;` is
- *    put before it. Then that problem is its related location instead of a diagnostic of its own.
+ * `s` parsed as tf compiles it, with what a fresh parse of each fix can tell (proven live, reviews
+ * of step 4: rev-s4, rev-s4b):
+ *  - Where tf stops at a block error (an `/endif` with no `/if`, say) and a keyword a /let or /set
+ *    value took would have been the block's ("keyword-warning"), and its fix makes that error go
+ *    away, that is the problem: the warning becomes the error, with the block error as its related
+ *    location (rev-s4b x04, w09, w19).
+ *  - Otherwise, an `/if` or `/while` a /let, /set or /setenv value took (Swallowed), the closest
+ *    before the error first (x21) and alone in its value (p05), is the problem when putting `%;`
+ *    before it leaves nothing for tf to stop at (p03, p16).
  *    Otherwise it is only text (`/set msg=use /if to branch`), or the fix wouldn't pair it with the
- *    problem (inside another `$(...)`, or with blocks in between), and both are left as they are.
- *  - A warning's fix ("keyword-warning", a keyword its block would have taken, run as text), and a
- *    glued keyword's, is kept only if it brings no problem in before the one there is now: with a
- *    real `/endif` later, a `%;` before a swallowed one would close the `/if` early.
+ *    error (inside another `$(...)`, or with blocks in between), and both are left as they are.
+ *  - A warning's fix, and a glued keyword's, is kept only if it brings no problem in before the
+ *    one there is now: with a real `/endif` later, a `%;` before a swallowed one would close the
+ *    `/if` early.
+ * No fix may bring in an empty statement or condition-list text tf warns about (NOISE).
  */
 function parseSettled(s: string, mode: StructureMode): { issues: StructureIssue[]; swallowed: Swallowed[] } {
   const p = new Parser(s, mode);
   p.run();
   const issues = [...p.issues];
   const swallowed: Swallowed[] = [];
+  const trial = new Trial(s, mode, noise(issues));
   const block = issues.find((i) => i.kind === "block");
+  // Only a fix that leaves nothing for tf to stop at pairs: with a second stray /endif after it, or
+  // a block it leaves open, it would only move the problem on (rev-s4b p03, p04, p16, p19, p25).
+  const resolves = (edits: IssueEdit[]): boolean => !!block && trial.stopAfter(edits) === Infinity;
   if (block && block === firstStop(issues)) {
-    let tries = 0;
-    for (const w of p.swallowed) {
-      if (w.edits.length === 0 || w.start >= block.start) continue;
-      if (tries++ >= MAX_PAIR_TRIES) break;
-      if (stopAfter(s, w.edits, mode) <= block.start) continue;
-      swallowed.push({ ...w, stray: strayNote(block) });
+    const before = (x: { start: number }) => x.start < block.start;
+    const warning = issues
+      // Anywhere: a block left open is reported at its opener, before the keyword that should have
+      // closed it (rev-s4b w09: `/if (1) /if (1) /set x=1 /endif%; /endif`).
+      .filter((i) => i.kind === "keyword-warning" && i.fix)
+      .reverse()
+      .find((i) => resolves(i.fix!.edits));
+    if (warning) {
+      const taken = p.warned.get(warning)!;
+      const stray = strayNote(block);
+      const turned: StructureIssue = {
+        ...warning,
+        kind: "keyword",
+        message: `/${taken.word} here is not a keyword: it is part of ${taken.what}, so ${stray.message}: put %; before it.`,
+        explanation:
+          `tf only reads a keyword at the start of a statement, and statements are separated by ${code("%;")}. ` +
+          `${takesTheRest(taken.command, taken.word, taken.what)} That leaves ${code(s.slice(block.start, block.end))} ` +
+          "with nothing to belong to, which is the error tf reports.",
+        related: [stray],
+      };
+      issues.splice(issues.indexOf(warning), 1, turned);
       issues.splice(issues.indexOf(block), 1);
-      break;
+    } else {
+      // Not where one value holds two of them (`/set v=1 /if (1) /echo a /if (2) ...`): a %; before
+      // either runs something else, and which was meant is a guess (rev-s4b p05).
+      const alone = (x: Swallowed) => p.swallowed.filter((y) => y.stmt === x.stmt).length === 1;
+      const w = [...p.swallowed].reverse().find((x) => x.edits.length > 0 && before(x) && alone(x) && resolves(x.edits));
+      if (w) {
+        swallowed.push({ ...w, stray: strayNote(block) });
+        issues.splice(issues.indexOf(block), 1);
+      }
     }
   }
   // The same goes for a glued keyword's blank (rev-s4 gg21: `/if(1) /echo x` with no /endif, or
   // s15: `/else/if (1) ...%; /endif`, whose /endif the inner /if then takes).
   const stop = firstStop(issues)?.start ?? Infinity;
   for (const issue of issues) {
-    if ((issue.kind === "keyword-warning" || issue.kind === "glued") && issue.fix && stopAfter(s, issue.fix.edits, mode) < stop) delete issue.fix;
+    if ((issue.kind === "keyword-warning" || issue.kind === "glued") && issue.fix) {
+      const after = trial.stopAfter(issue.fix.edits);
+      if (after < 0 || after < stop) delete issue.fix;
+    }
   }
   return { issues, swallowed };
 }

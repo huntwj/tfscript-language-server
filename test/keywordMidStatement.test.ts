@@ -100,4 +100,61 @@ describe("keyword-mid-statement", () => {
       "/then here is not a keyword: it is part of the text before it, so the /if never reaches its /then.",
     );
   });
+
+  // Second review of step 4 (rev-s4b), each proven in tf with the fix applied.
+  it("pairs an /if only in a /let, /set or /setenv value, never in other command text", () => {
+    // p01, x05: a %; before the /if would make "for help" a command sent to the world.
+    for (const text of [
+      "/def p01 = /echo see /if (x) for help%; /echo b%; /endif",
+      "/def p02 = /echo type /while (1) to loop%; /echo b%; /done",
+      "/def p12 = /echo p12 /if (1) a%; /echo b%; /else /echo c%; /endif",
+    ]) {
+      expect(getDiagnostics(`${text}\n`).map((d) => d.code), text).toEqual(["block-structure"]);
+    }
+    for (const text of ["/def p09 = /!set v9=1 /if (1) /echo a%; /endif", "/def p08 = /@set v8=1 /if (1) /echo a%; /endif", "/def s = /setenv V=1 /if (1) /echo a%; /endif"]) {
+      expect(first(text)?.severity, text).toBe("error");
+    }
+  });
+
+  it("pairs only where the fix leaves nothing for tf to stop at, and only an /if alone in its value", () => {
+    for (const text of [
+      // p03: a second stray /endif after it.
+      "/def p03 = /set v3=1 /if (1) /echo a%; /endif%; /endif",
+      // p05: two /ifs in one value; a %; before either runs something else.
+      "/def p05 = /set v5=1 /if (1) /echo a /if (2) /echo b%; /endif",
+      // p25: text after the /endif.
+      "/def p25 = /set v25=1 /if (1) /echo a%; /endif /echo b",
+    ]) {
+      expect(found(text).filter((c) => c.startsWith(CODE)), text).toEqual([]);
+    }
+    // x21: the closest before the stray is the one.
+    const x22 = "/def x22 = /set v22=a /if (0) /echo a%; /set w22=b /if (1) /echo b%; /endif";
+    expect(found(x22)).toEqual([`${CODE}@${x22.lastIndexOf("/if")}`]);
+  });
+
+  it("makes a value's /else the error where its fix clears what tf stops at", () => {
+    // x04, w19: the /else, not the /if after it; w09: the /endif, for an /if left open.
+    for (const [text, word] of [
+      ["/def x04 = /if (0) /set v4=1 /else /if (1) /echo inner%; /endif%; /endif", "/else"],
+      ["/def w19 = /if (1) /set x19=1 /else /if (1) /echo a%; /endif%; /endif", "/else"],
+      ["/def w09 = /if (1) /if (1) /set x9=1 /endif%; /endif%; /echo x", "/endif"],
+    ] as const) {
+      const all = getDiagnostics(`${text}\n`);
+      expect(all.map((d) => `${d.code}:${d.severity}@${d.range.start.character}`), text).toEqual([`${CODE}:error@${text.indexOf(word)}`]);
+      expect(all[0]?.fix?.title, text).toBe(`Put %; before ${word}`);
+    }
+  });
+
+  it("offers no fix that sends text, or brings in an empty statement", () => {
+    // x11: "branch" would become the /else's body; x03: `/else%;` an empty statement.
+    expect(first("/def x11 = /if (h) /set h=use /else branch%; /endif")?.fix).toBeUndefined();
+    expect(first("/def x03 = /if (1) /set h3=a /else%; /endif")?.fix).toBeUndefined();
+    // p13: `/if (1)%;` would be an empty statement.
+    expect(found("/def p13 = /set v13=a /if (1)%; /echo b%; /endif")).toEqual(["block-structure@" + "/def p13 = /set v13=a /if (1)%; /echo b%; ".length]);
+  });
+
+  it("warns about /!set and a /set without = like any value", () => {
+    expect(first("/def w13 = /if (1) /!set x13=1 /else /set y13=2%; /endif")?.message).toContain("part of the /set value");
+    expect(first("/def w18 = /if (1) /set x18 1 /else /set y18=2%; /endif")?.message).toContain("part of the /set value");
+  });
 });

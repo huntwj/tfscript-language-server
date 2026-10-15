@@ -479,8 +479,11 @@ class Parser {
   private depth = 0;
   private readonly open: Open[] = [];
   private readonly mids: MidKeyword[] = [];
-  /** Every keyword glued to what follows it, with its issue, to note the problems it leads to on. */
-  private readonly glued: { word: string; start: number; issue: StructureIssue }[] = [];
+  /**
+   * Every keyword glued to what follows it, the keyword glued on after its `/` if any (`/break/done`),
+   * and its issue, to note the problems it leads to on.
+   */
+  private readonly glued: { word: string; next: string; start: number; issue: StructureIssue }[] = [];
   /** Every keyword glued to punctuation, which may be a macro's name (`/endif;`, `/done:x`). */
   private readonly gluedPunct: { word: string; start: number }[] = [];
   /** Where the last `(condition)` ended (after its blanks), and the keyword it belongs to. */
@@ -683,7 +686,7 @@ class Parser {
   private gluedBefore(word: string, before: number, after: number, note: IssueNote): boolean {
     for (let k = this.glued.length - 1; k >= 0; k -= 1) {
       const g = this.glued[k] as (typeof this.glued)[number];
-      if (g.start >= before || g.start <= after || g.word !== word) continue;
+      if (g.start >= before || g.start <= after || (g.word !== word && g.next !== word)) continue;
       (g.issue.related ??= []).push(note);
       return true;
     }
@@ -745,7 +748,11 @@ class Parser {
     // A name that may be a macro's is no cause to blame the problems after it on; but no "Add %;
     // /endif" either, which would leave `/endif;` to fail when it runs (rev-s4 s09).
     if (punct) this.gluedPunct.push({ word, start });
-    else this.glued.push({ word, start, issue });
+    else {
+      // The keyword glued on after it (`/break/done`), which tf never reads as one either.
+      const next = this.s[nameEnd] === "/" ? (/^@?([A-Za-z]+)/.exec(this.s.slice(nameEnd + 1))?.[1] ?? "").toLowerCase() : "";
+      this.glued.push({ word, next, start, issue });
+    }
   }
 
   /** A keyword swallowed by the statement it sits in, which leaves its block unfinished. */
@@ -996,7 +1003,11 @@ class Parser {
     // send a blank line, and an empty /while loops forever.
     const body = (this.open[this.open.length - 1] as Open).body;
     const empty = body !== undefined && this.s.slice(body, this.i).trim() === "";
-    const gluedCloser = (word: string): boolean => this.gluedPunct.some((g) => g.word === word && g.start > start);
+    // A keyword glued to punctuation that may be the closer (`/endif;`), or any keyword glued on in
+    // the block (`/break/done`, rev-s4e k2): a closer added at the end would follow it, and leave
+    // it to fail when it runs ("break/done: no such command"). keyword-needs-space's fix is the one.
+    const gluedCloser = (word: string): boolean =>
+      this.gluedPunct.some((g) => g.word === word && g.start > start) || this.glued.some((g) => g.start > start);
     // Nor after a \ that whitespace or a CR cuts off (backslash-not-last's case): appended after the
     // CR, the closer would follow a \ that escapes it, and tf says "endif: no such command" (rev-s4e r1).
     const cutBackslash = (): boolean => {

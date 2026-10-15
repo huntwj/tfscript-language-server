@@ -151,6 +151,16 @@ describe("structural fixes", () => {
     }
   });
 
+  // rev-s4e k2, proven in tf: "Add %; /done at the end of the line" followed /break/done, and tf
+  // said "break/done: no such command or macro". The glued keyword is the one problem, and its
+  // fix the one that works.
+  it("adds no closer where a keyword glued on in the block is the cause", () => {
+    const text = "/set i=0\n/while (i<3) /test ++i%; /echo w%; /break\\\n/done\n";
+    const found = getDiagnostics(text);
+    expect(found.map((d) => d.code)).toEqual(["keyword-needs-space"]);
+    expect(getCodeActions(text, WHOLE_FILE).some((a) => a.title.startsWith("Add %; /done"))).toBe(false);
+  });
+
   it("puts %; after an /endif before a command or text", () => {
     for (const text of ["/def a = /if (1) /echo x%; /endif)\n", '/def a = /if (1) /echo x%; /endif "x"\n', "/def a = /if (1) /echo x%; /endif /echo y\n"]) {
       const [d] = getDiagnostics(text);

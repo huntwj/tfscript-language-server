@@ -81,6 +81,7 @@ import type { RawSettings } from "@tfscript/core/workspace/settings";
 import { fileKey } from "@tfscript/core/workspace/loadGraph";
 import { WorkspaceIndex, type ContextInfo } from "@tfscript/core/workspace/workspaceIndex";
 import { nodeEnvironment, nodeFileSystem, readFile } from "@tfscript/core/workspace/nodeFileSystem";
+import { documentDiagnostics } from "@tfscript/core/workspace/documentDiagnostics";
 import { relevantChange, watchPlan, Watching } from "./watching";
 import { logUnhandledRejections } from "./rejections";
 
@@ -295,7 +296,7 @@ function toLspDiagnostic(d: TfDiagnostic, uri: string): Diagnostic {
 function validate(document: TextDocument): void {
   const text = document.getText();
   const file = toPath(document.uri);
-  const all = [...getDiagnostics(text), ...(file ? index.loadPathDiagnostics(file, text) : [])];
+  const all = documentDiagnostics(text, file, index);
   published.set(document.uri, { version: document.version, diagnostics: all });
   connection.sendDiagnostics({ uri: document.uri, diagnostics: all.map((d) => toLspDiagnostic(d, document.uri)) });
 }

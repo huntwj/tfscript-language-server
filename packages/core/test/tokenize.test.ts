@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 // Plain JS, required rather than imported: see commandsData.test.ts for why.
-const { tokenize } = require("../scripts/extract-command-tables");
+const { tokenize } = require("../../../scripts/extract-command-tables");
 
 /**
  * Unit tests for extract-command-tables.js's shell-style tokenizer, used to pull a /def's

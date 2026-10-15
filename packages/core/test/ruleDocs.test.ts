@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { generatedFiles, withReadmeTable } from "../src/rules/render";
 import { RULE_SECTIONS, sectionSlug } from "../src/rules/table";
 
-const REPO_ROOT = join(__dirname, "..");
+const REPO_ROOT = join(__dirname, "..", "..", "..");
 
 function read(relative: string): string {
   return readFileSync(join(REPO_ROOT, relative), "utf8");

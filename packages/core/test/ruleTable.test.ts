@@ -5,8 +5,10 @@ import { RULES } from "../src/rules";
 import { RULE_SECTIONS, codeHref, findCode, sectionSlug } from "../src/rules/table";
 
 const SRC = join(__dirname, "..", "src");
+// The server's own sources, scanned too: a code it built by hand reaches the editor all the same.
+const SERVER_SRC = join(__dirname, "..", "..", "server", "src");
 // TFSCRIPT_CASES points at another checkout of the cases (a notes workspace with new ones).
-const CASES_DIR = process.env.TFSCRIPT_CASES ?? join(__dirname, "..", "..", "tests", "tfscript", "cases");
+const CASES_DIR = process.env.TFSCRIPT_CASES ?? join(__dirname, "..", "..", "..", "..", "tests", "tfscript", "cases");
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -24,7 +26,7 @@ function sourceFiles(dir: string): string[] {
 function emittedCodes(): Set<string> {
   const codes = new Set<string>(RULES.map((r) => r.id));
   const skip = new Set([join(SRC, "rules", "table.ts"), join(SRC, "rules", "render.ts")]);
-  for (const file of sourceFiles(SRC).filter((f) => !skip.has(f))) {
+  for (const file of [...sourceFiles(SRC), ...sourceFiles(SERVER_SRC)].filter((f) => !skip.has(f))) {
     const text = readFileSync(file, "utf8");
     for (const m of text.matchAll(/\bcode: "([a-z0-9]+(?:-[a-z0-9]+)*)"/g)) codes.add(m[1] as string);
     for (const m of text.matchAll(/\blineDiagnostic\(\w+, "([a-z0-9]+(?:-[a-z0-9]+)*)"/g)) codes.add(m[1] as string);

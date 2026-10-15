@@ -68,7 +68,7 @@ describe("parseTfHelp", () => {
   });
 });
 
-const TF_HELP = join(__dirname, "..", "..", "tinyfugue", "lib", "tf", "tf-help");
+const TF_HELP = join(__dirname, "..", "..", "..", "..", "tinyfugue", "lib", "tf", "tf-help");
 (existsSync(TF_HELP) ? describe : describe.skip)("parseTfHelp on the real tf-help (sibling checkout)", () => {
   it("finds a usage and summary for /let and /echo", () => {
     const help = parseTfHelp(readFileSync(TF_HELP, "utf8"));

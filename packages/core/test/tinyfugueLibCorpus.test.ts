@@ -16,7 +16,7 @@ import { getDiagnostics } from "../src/diagnostics";
  * found: %{var} inside a top-level /for body is substituted per iteration, same as inside a
  * /def — see LogicalEntry.isForLoop in logicalEntries.ts).
  */
-const CORPUS_DIR = join(__dirname, "..", "..", "tinyfugue", "lib", "tf");
+const CORPUS_DIR = join(__dirname, "..", "..", "..", "..", "tinyfugue", "lib", "tf");
 const describeOrSkip = existsSync(CORPUS_DIR) ? describe : describe.skip;
 
 /**

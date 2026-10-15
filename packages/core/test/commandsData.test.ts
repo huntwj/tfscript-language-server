@@ -13,7 +13,7 @@ import { splitLogicalEntries } from "../src/logicalEntries";
 
 // Plain JS, required rather than imported: test files aren't in tsconfig's `include`, so
 // this isn't type-checked by `npm run build` either way.
-const extractor = require("../scripts/extract-command-tables");
+const extractor = require("../../../scripts/extract-command-tables");
 
 /**
  * Sync check, same idea as ~/ai/mud's own tinyfugue.pin.json: the three src/data/*.generated.ts
@@ -28,7 +28,7 @@ const extractor = require("../scripts/extract-command-tables");
  * silently need `npm run build` to have already run, and could validate against a stale
  * dist/ build without noticing.
  */
-const TINYFUGUE_DIR = join(__dirname, "..", "..", "tinyfugue");
+const TINYFUGUE_DIR = join(__dirname, "..", "..", "..", "..", "tinyfugue");
 const describeOrSkip = existsSync(TINYFUGUE_DIR) ? describe : describe.skip;
 
 describeOrSkip("command tables (vs. the sibling tinyfugue checkout)", () => {

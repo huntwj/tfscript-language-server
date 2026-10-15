@@ -12,7 +12,7 @@ import { getDiagnostics } from "../src/diagnostics";
  * version of that check) and fails if it ever changes, so a rule change that starts
  * misfiring on real scripts is caught immediately.
  */
-const CORPUS_DIR = join(__dirname, "..", "..", "..", "wotmud", "tf");
+const CORPUS_DIR = join(__dirname, "..", "..", "..", "..", "..", "wotmud", "tf");
 const describeOrSkip = existsSync(CORPUS_DIR) ? describe : describe.skip;
 
 // Cross-checked against real tf 2026-10-11: `tf_script_check.py --mount <wotmud>=/wotmud

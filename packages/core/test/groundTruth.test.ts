@@ -11,7 +11,7 @@ import { getDiagnostics, quietInTf } from "../src/diagnostics";
  * sibling checkout is not present (e.g. this repo cloned on its own elsewhere).
  */
 // TFSCRIPT_CASES points at another checkout of the cases (a notes workspace with new ones).
-const CASES_DIR = process.env.TFSCRIPT_CASES ?? join(__dirname, "..", "..", "tests", "tfscript", "cases");
+const CASES_DIR = process.env.TFSCRIPT_CASES ?? join(__dirname, "..", "..", "..", "..", "tests", "tfscript", "cases");
 
 const describeOrSkip = existsSync(CASES_DIR) ? describe : describe.skip;
 

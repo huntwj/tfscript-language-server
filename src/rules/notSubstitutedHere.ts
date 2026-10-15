@@ -431,7 +431,11 @@ export const notSubstitutedHere: EntryRule = {
       const splits = st.viaEval
         ? !blockErrorOnce(st)
         : !opensBlock || (blockChecksLeft(st) && !blockError(text.slice(next, st.end), "top"));
-      if (command && !value && splits) {
+      // In /eval text, -son makes text after the %; a statement of its own, sent to the world as
+      // text in a body is: offered all the same (policy, 2026-10-15; s4/n1.tf). On a plain line a
+      // line of text would abort the load, so there it isn't.
+      const sendsText = st.viaEval !== undefined && nextWord === undefined;
+      if ((command || sendsText) && !value && splits) {
         if (st.viaEval) {
           const last = st.viaEval.options.at(-1)!;
           match.fix = {

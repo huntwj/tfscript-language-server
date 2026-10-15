@@ -289,6 +289,9 @@ describe("not-substituted-here (rule 4)", () => {
     );
     expect(d?.fix?.title).toBe("Give the /eval -son");
     expect(d?.fix?.edits.map((e) => [e.range.start.character, e.range.end.character, e.newText])).toEqual([[6, 11, "-son"]]);
+    // Text after the %; is then a statement sent to the world, as text in a body is: offered all
+    // the same (policy, 2026-10-15; proven in tf, s4/n1.tf).
+    expect(getDiagnostics("/eval -soff /echo a%; some text\n")[0]?.fix?.title).toBe("Give the /eval -son");
     // Second review's probes k1 and f1: with -son, a keyword after the %; is "unexpected /ELSE".
     for (const line of ["/eval -soff /echo a%; /else", "/eval -soff /echo a%; /endif"]) {
       const [n] = getDiagnostics(`${line}\n`).filter((x) => x.code === "not-substituted-here");

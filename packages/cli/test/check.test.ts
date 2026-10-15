@@ -1,9 +1,34 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { documentDiagnostics } from "@tfscript/core/workspace/documentDiagnostics";
 import { WorkspaceIndex } from "@tfscript/core/workspace/workspaceIndex";
 import { check } from "../src/check";
 import { FIXTURES, LIBRARY_SETTINGS, testHost, WS } from "./fixtures";
+
+/** A temporary folder: `lnk` holds only a link to the fixture workspace (a junction on Windows), `wsj` is one. */
+const TMP = mkdtempSync(path.join(tmpdir(), "tfscript-links-"));
+afterAll(() => rmSync(TMP, { recursive: true, force: true }));
+mkdirSync(path.join(TMP, "lnk", "deeper"), { recursive: true });
+symlinkSync(WS, path.join(TMP, "lnk", "deeper", "ws"), "junction");
+symlinkSync(WS, path.join(TMP, "wsj"), "junction");
+mkdirSync(path.join(TMP, "empty"));
+
+describe("links", () => {
+  it("says a folder holds only links the search doesn't follow, rather than nothing", () => {
+    const result = check({ paths: ["lnk", "empty"], settings: {}, cwd: TMP }, testHost());
+    expect(result.problems).toEqual([
+      "lnk has no tf scripts in it, only links to folders (junctions or symbolic links), which a folder's search doesn't follow: name the linked folders themselves.",
+      "empty has no tf scripts in it (.tf files, tfrc or .tfrc): name a folder that holds some, or the files themselves.",
+    ]);
+  });
+
+  it("searches a folder named through a link", () => {
+    const result = check({ paths: ["wsj"], settings: {}, cwd: TMP }, testHost());
+    expect(result.files.map((f) => path.basename(f.file))).toEqual(["extra.tf", "lib.tf", "main.tf", "tfrc"]);
+  });
+});
 
 const codes = (result: ReturnType<typeof check>) =>
   result.files.flatMap((f) => f.diagnostics.map((d) => `${path.basename(f.file)}:${d.range.start.line + 1} ${d.severity} ${d.code}`));

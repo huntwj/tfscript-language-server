@@ -36,8 +36,9 @@ describe("main", () => {
     expect(code).toBe(EXIT_PROBLEMS);
     expect(err).toBe("");
     const report = JSON.parse(out) as { files: string[]; diagnostics: { code: string }[] };
-    expect(report.files).toEqual(["main.tf", "lib.tf"]);
-    expect(report.diagnostics.map((d) => d.code)).toEqual(["invalid-macro-name", "undefined-macro", "undefined-macro"]);
+    // In the human format's order: by file, then line, then column.
+    expect(report.files).toEqual(["lib.tf", "main.tf"]);
+    expect(report.diagnostics.map((d) => d.code)).toEqual(["undefined-macro", "undefined-macro", "invalid-macro-name"]);
   });
 
   it("exits 2 on a wrong command line or a path it can't check, saying why", () => {

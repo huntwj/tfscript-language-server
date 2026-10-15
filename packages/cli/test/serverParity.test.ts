@@ -76,17 +76,20 @@ function fromCli(options: string[]): object[] {
   }));
 }
 
+/** The same diagnostics in either order: the CLI sorts by file, line and column, the server doesn't. */
+const unordered = (ds: object[]): string[] => ds.map((d) => JSON.stringify(d)).sort();
+
 describe("the CLI and the server", () => {
   it("report the same diagnostics and fixes for the same files", async () => {
     const server = await fromServer({ libraryPath: "../tflib" });
     expect(server.map((d) => (d as { fixes: string[] }).fixes)).toEqual([["Put = after oops"], ["Change to /greet"], ["Add /require extra.tf"], []]);
-    expect(fromCli(["--library-path", "../tflib"])).toEqual(server);
+    expect(unordered(fromCli(["--library-path", "../tflib"]))).toEqual(unordered(server));
   }, 30_000);
 
   it("and the same with the diagnostics settings changed", async () => {
     const settings = { diagnostics: { unresolvedLoads: false, ignoreMacros: ["std_*"] }, variables: { dir: "/wotmud" } };
     const server = await fromServer(settings);
     expect(server.map((d) => (d as { code: string }).code)).toEqual(["invalid-macro-name", "undefined-macro", "undefined-macro"]);
-    expect(fromCli(["--no-unresolved-loads", "--ignore-macro", "std_*", "--variable", "dir=/wotmud"])).toEqual(server);
+    expect(unordered(fromCli(["--no-unresolved-loads", "--ignore-macro", "std_*", "--variable", "dir=/wotmud"]))).toEqual(unordered(server));
   }, 30_000);
 });

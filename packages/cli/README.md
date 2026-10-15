@@ -92,7 +92,7 @@ field.
 
 | Field | Meaning |
 |---|---|
-| `files` | every file checked, as `file` names it |
+| `files` | every file checked, as `file` names it, by name |
 | `diagnostics[].file` | the file, relative to the current folder when inside it, else absolute |
 | `range.start`, `range.end` | `line` and `column` 1-based, `offset` 0-based from the start of the file; columns and offsets count UTF-16 code units, as LSP does. `end` is just after the last character |
 | `severity` | `"error"`, `"warning"` or `"information"` |
@@ -103,5 +103,6 @@ field.
 | `related` | other places the diagnostic points at, each a `range` and a `message` |
 | `summary` | how many files were checked, and how many diagnostics of each severity |
 
-Diagnostics come file by file, in the order the files are listed; within a file, its own
-diagnostics come first, then its load-path ones, as the server publishes them.
+Both formats give the same order: files by name (as `file` names them), and within a file by
+line, then column. Diagnostics at the same place keep the order the server publishes them in
+(the file's own, then its load-path ones).

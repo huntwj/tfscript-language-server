@@ -2,7 +2,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TfDiagnostic } from "@tfscript/core/diagnostics";
 import type { CheckedFile } from "../src/check";
-import { displayPath, formatHuman, formatSummary, summarize, toJsonReport } from "../src/format";
+import { displayPath, formatHuman, formatSummary, inOrder, summarize, toJsonReport } from "../src/format";
 
 const CWD = path.resolve("/work");
 const at = (line: number, character: number) => ({ line, character });
@@ -26,8 +26,9 @@ const pair: TfDiagnostic = {
 const unknownCode: TfDiagnostic = { range: { start: at(0, 0), end: at(0, 0) }, message: "Noted.", code: "not-in-the-table", severity: "information" };
 
 const files: CheckedFile[] = [
-  { file: path.join(CWD, "sub", "a.tf"), text: "ab\n/def oops /echo\n/if\n", diagnostics: [error, pair] },
-  { file: path.resolve("/elsewhere/b.tf"), text: "", diagnostics: [unknownCode] },
+  // Out of order, as core may give them: inOrder() sorts them.
+  { file: path.join(CWD, "sub", "a.tf"), text: "ab\n/def oops /echo\n/if\n", diagnostics: [pair, error] },
+  { file: path.join(CWD, "b.tf"), text: "", diagnostics: [unknownCode] },
   { file: path.join(CWD, "clean.tf"), text: "", diagnostics: [] },
 ];
 
@@ -35,13 +36,32 @@ describe("the human format", () => {
   it("prints path:line:col: severity code: message, 1-based, a path relative to the current folder when inside it", () => {
     expect(formatHuman(files, CWD)).toBe(
       [
+        "b.tf:1:1: information not-in-the-table: Noted.",
         `${path.join("sub", "a.tf")}:2:6: error invalid-macro-name: This /def has no = after its name.`,
         `${path.join("sub", "a.tf")}:3:1: warning keyword-needs-space: Two readings.`,
-        `${path.resolve("/elsewhere/b.tf")}:1:1: information not-in-the-table: Noted.`,
         "",
       ].join("\n"),
     );
     expect(displayPath(CWD, CWD)).toBe(CWD);
+    expect(displayPath(path.resolve("/elsewhere/b.tf"), CWD)).toBe(path.resolve("/elsewhere/b.tf"));
+  });
+
+  it("sorts by file, then line, then column, keeping core's order at the same place", () => {
+    const d = (line: number, character: number, code: string): TfDiagnostic => ({
+      range: { start: at(line, character), end: at(line, character) },
+      message: "",
+      code,
+      severity: "warning",
+    });
+    const sorted = inOrder(
+      [
+        { file: path.join(CWD, "y.tf"), text: "", diagnostics: [] },
+        { file: path.join(CWD, "x.tf"), text: "", diagnostics: [d(1, 5, "a"), d(0, 3, "b"), d(1, 0, "c"), d(1, 5, "d")] },
+      ],
+      CWD,
+    );
+    expect(sorted.map((f) => path.basename(f.file))).toEqual(["x.tf", "y.tf"]);
+    expect(sorted[0]?.diagnostics.map((x) => x.code)).toEqual(["b", "c", "a", "d"]);
   });
 
   it("sums up what it found", () => {
@@ -55,9 +75,10 @@ describe("the JSON format", () => {
   it("gives each diagnostic its file, range with offsets, code link and fix titles", () => {
     const report = toJsonReport(files, CWD);
     expect(report.version).toBe(1);
-    expect(report.files).toEqual([path.join("sub", "a.tf"), path.resolve("/elsewhere/b.tf"), "clean.tf"]);
+    expect(report.files).toEqual(["b.tf", "clean.tf", path.join("sub", "a.tf")]);
     expect(report.summary).toEqual({ files: 3, errors: 1, warnings: 1, information: 1 });
-    expect(report.diagnostics[0]).toEqual({
+    expect(report.diagnostics[0]).toMatchObject({ file: "b.tf", codeDescription: null, fixes: [], related: [] });
+    expect(report.diagnostics[1]).toEqual({
       file: path.join("sub", "a.tf"),
       range: { start: { line: 2, column: 6, offset: 8 }, end: { line: 2, column: 10, offset: 12 } },
       severity: "error",
@@ -67,10 +88,9 @@ describe("the JSON format", () => {
       fixes: ["Put = after oops"],
       related: [{ range: { start: { line: 1, column: 1, offset: 0 }, end: { line: 1, column: 3, offset: 2 } }, message: "here" }],
     });
-    expect(report.diagnostics[1]?.fixes).toEqual(["Add a space", "Escape it"]);
-    expect(report.diagnostics[2]).toMatchObject({ codeDescription: null, fixes: [], related: [] });
+    expect(report.diagnostics[2]?.fixes).toEqual(["Add a space", "Escape it"]);
     // The offset is into the text as read, so it finds the diagnostic's text.
-    const [first] = report.diagnostics;
-    expect(files[0]?.text.slice(first?.range.start.offset, first?.range.end.offset)).toBe("oops");
+    const oops = report.diagnostics[1];
+    expect(files[0]?.text.slice(oops?.range.start.offset, oops?.range.end.offset)).toBe("oops");
   });
 });

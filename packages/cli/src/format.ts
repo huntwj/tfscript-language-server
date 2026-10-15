@@ -58,15 +58,31 @@ function lineStarts(text: string): number[] {
   return starts;
 }
 
+const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * The files by name (as the output names them), and each file's diagnostics by line, then
+ * column; diagnostics at the same place keep core's order. Both formats print in this order.
+ */
+export function inOrder(files: CheckedFile[], cwd: string): CheckedFile[] {
+  return files
+    .map((f) => ({ f, name: displayPath(f.file, cwd) }))
+    .sort((a, b) => compare(a.name, b.name))
+    .map(({ f }) => ({
+      ...f,
+      diagnostics: [...f.diagnostics].sort((a, b) => a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character),
+    }));
+}
+
 export function summarize(files: CheckedFile[]): Summary {
   const all = files.flatMap((f) => f.diagnostics);
   const count = (s: TfDiagnostic["severity"]) => all.filter((d) => d.severity === s).length;
   return { files: files.length, errors: count("error"), warnings: count("warning"), information: count("information") };
 }
 
-/** One line per diagnostic: `path:line:col: severity code: message`, line and column 1-based. */
+/** One line per diagnostic, in order (inOrder()): `path:line:col: severity code: message`, line and column 1-based. */
 export function formatHuman(files: CheckedFile[], cwd: string): string {
-  return files
+  return inOrder(files, cwd)
     .flatMap((f) =>
       f.diagnostics.map(
         (d) => `${displayPath(f.file, cwd)}:${d.range.start.line + 1}:${d.range.start.character + 1}: ${d.severity} ${d.code}: ${d.message}\n`,
@@ -75,7 +91,9 @@ export function formatHuman(files: CheckedFile[], cwd: string): string {
     .join("");
 }
 
-export function toJsonReport(files: CheckedFile[], cwd: string): JsonReport {
+/** The JSON report, in the same order as the human format (inOrder()). */
+export function toJsonReport(unordered: CheckedFile[], cwd: string): JsonReport {
+  const files = inOrder(unordered, cwd);
   const diagnostics = files.flatMap((f) => {
     const starts = lineStarts(f.text);
     const position = (p: Position): JsonPosition => ({ line: p.line + 1, column: p.character + 1, offset: (starts[p.line] ?? f.text.length) + p.character });

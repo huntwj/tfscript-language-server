@@ -91,7 +91,9 @@
   first and preferred; `/break\` gets only the `%;`, as removing the `\` would cut its `/while` off
   from the `/done`; any other keyword glued on so (`/if\`) gets a space before the `\`, unless
   keyword-needs-space withholds its fix there (`/else\` then `(1)`). The line joined on is the next
-  one that isn't a comment, as tf reads it.
+  one that isn't a comment, as tf reads it, and the message names the whole word tf reads, on
+  through each further join (`/endif/g/echo`). Where a `%;` follows the condition (`/while(0)%;`),
+  the advice also asks for a command between the `)` and the `%;`.
 - `block-structure` and `missing-continuation` add no closer after the closer itself with a `\`
   that a CR or whitespace cuts off (`/endif\` and a CR), nor where the closer is glued onto a keyword
   before it (`/break/done`): in tf the closer failed when the macro ran. Elsewhere it is offered as

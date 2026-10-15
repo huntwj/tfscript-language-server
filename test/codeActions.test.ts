@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getCodeActions, type Range, type TfTextEdit } from "../src/codeActions";
+import { getCodeActions, routeCodeActions, toLspCodeAction, type Range, type TfTextEdit } from "../src/codeActions";
 import { getDiagnostics } from "../src/diagnostics";
 import { timeBudget } from "./timeBudget";
 
@@ -455,5 +455,26 @@ describe("diagnostics from the workspace", () => {
     const workspace = [{ range: edit.range, message: "x", code: "undefined-macro", severity: "warning" as const, fix: { title: "Change to /helper", edits: [edit] } }];
     expect(getCodeActions(text, WHOLE_FILE, workspace).map((a) => a.title)).toEqual(["Change to /helper"]);
     expect(getCodeActions(text, WHOLE_FILE)).toEqual([]);
+  });
+});
+
+describe("preferred fixes", () => {
+  const whole = { start: { line: 0, character: 0 }, end: { line: 99, character: 0 } };
+  const lsp = (text: string) => routeCodeActions(text, { range: whole, only: ["quickfix"] }).map((a) => toLspCodeAction(a, "file:///x.tf", (d) => d.code));
+
+  it("marks keyword-needs-space's likelier fix isPreferred, through to the LSP action", () => {
+    const actions = lsp("/def g = /if (1) /echo a%; /endif\\\n/def h = /echo b\n");
+    expect(actions.map((a) => [a.title, a.isPreferred ?? false])).toEqual([
+      ["Remove the \\ at the end of line 1", true],
+      ["Put %; before the \\ on line 1", false],
+    ]);
+    expect(actions[0]?.diagnostics).toEqual(["keyword-needs-space"]);
+  });
+
+  // rev-s4d m2: keyword-mid-statement's pair, the keyword or its block's closer, is an even choice.
+  it("marks neither of keyword-mid-statement's two fixes preferred", () => {
+    const actions = lsp("/def c91 = /if (1) /if (0) /set m91=see /endif%; /echo x%; /endif%; /echo after\n");
+    expect(actions.map((a) => a.title)).toEqual(["Put %; before /endif", "Add %; /endif at the end of the body"]);
+    expect(actions.some((a) => "isPreferred" in a)).toBe(false);
   });
 });

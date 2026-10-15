@@ -52,7 +52,9 @@ export function getCodeActions(text: string, range: Range, diagnostics: TfDiagno
       const key = JSON.stringify(fix.edits);
       if (seen.has(key)) continue;
       seen.add(key);
-      const preferred = fix === diagnostic.fix && !!diagnostic.alternative;
+      // Only keyword-needs-space's two fixes have a likelier one; keyword-mid-statement's pair (the
+      // keyword or its block's closer) is an even choice.
+      const preferred = fix === diagnostic.fix && !!diagnostic.alternative && diagnostic.code === "keyword-needs-space";
       actions.push({ title: fix.title, edits: fix.edits, diagnostic, ...(preferred ? { preferred } : {}) });
     }
   }
@@ -98,6 +100,17 @@ export interface RoutedCodeAction {
   preferred?: boolean;
   /** Why it can't run: shown greyed out, with this reason. */
   disabled?: string;
+}
+
+/** `action` as an LSP code action for the document at `uri`, its diagnostic converted with `toDiagnostic`. */
+export function toLspCodeAction<D>(action: RoutedCodeAction, uri: string, toDiagnostic: (d: TfDiagnostic) => D) {
+  return {
+    title: action.title,
+    kind: action.kind,
+    ...(action.preferred ? { isPreferred: true } : {}),
+    ...(action.diagnostic ? { diagnostics: [toDiagnostic(action.diagnostic)] } : {}),
+    ...(action.disabled === undefined ? { edit: { changes: { [uri]: action.edits } } } : { disabled: { reason: action.disabled } }),
+  };
 }
 
 function wants(only: string[] | undefined, kind: string): boolean {

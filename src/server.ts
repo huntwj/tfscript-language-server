@@ -60,7 +60,7 @@ import { getCompletions } from "./completions";
 import { getDocumentSymbols, toDocumentSymbol } from "./symbols";
 import { getFoldingRanges, toFoldingRange } from "./folding";
 import { getSelectionRanges } from "./selectionRange";
-import { routeCodeActions, type CodeActionRequest } from "./codeActions";
+import { routeCodeActions, toLspCodeAction, type CodeActionRequest } from "./codeActions";
 import { incomingCalls, outgoingCalls, prepareCallHierarchy, type TfCallItem } from "./callHierarchy";
 import { explainDiagnostic, rangeContains } from "./explain";
 import {
@@ -395,13 +395,7 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   if (file && index.isLibraryFile(file)) request.library = true;
   let functions: ((name: string) => boolean) | undefined;
   if (file) request.calledAsFunction = (name) => (functions ??= index.macroCalledAsFunction(file, document.getText()))(name);
-  return routeCodeActions(document.getText(), request).map((action) => ({
-    title: action.title,
-    kind: action.kind,
-    ...(action.preferred ? { isPreferred: true } : {}),
-    ...(action.diagnostic ? { diagnostics: [toLspDiagnostic(action.diagnostic, document.uri)] } : {}),
-    ...(action.disabled === undefined ? { edit: { changes: { [document.uri]: action.edits } } } : { disabled: { reason: action.disabled } }),
-  }));
+  return routeCodeActions(document.getText(), request).map((action) => toLspCodeAction(action, document.uri, (d) => toLspDiagnostic(d, document.uri)));
 });
 
 connection.onHover((params: TextDocumentPositionParams): Hover | null => {

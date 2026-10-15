@@ -437,7 +437,8 @@ packages/cli/             @tfscript/cli: `tfscript check`, the server's diagnost
     bin.test.ts          the built bin, end to end
     serverParity.test.ts  the built CLI and server report the same diagnostics and fixes
 test-support/             what the server's and the CLI's tests share: a fixture workspace
-                          (fixtures/ws, with a tf library in fixtures/tflib) and lspClient.ts,
+                          (fixtures/ws, with a tf library in fixtures/tflib; fixtures/variants
+                          for unresolved loads of each kind) and lspClient.ts,
                           a minimal LSP client that drives the built server over stdio
 editors/vscode/           the VS Code extension, which bundles the server
 scripts/

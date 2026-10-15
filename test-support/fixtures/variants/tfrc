@@ -1,0 +1,10 @@
+; Loads tf would not find, each a different way, and a block cut off at its line end.
+/load missing.tf
+/load ~/no-such-tfscript-file.tf
+/load /unmapped/x.tf
+/load /mapped/missing.tf
+/load /mapped/sub.tf
+/eval /load %{nodir}/x.tf
+/if (1) /echo a
+    /echo b
+/endif

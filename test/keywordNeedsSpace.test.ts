@@ -96,13 +96,34 @@ describe("keyword-needs-space", () => {
     expect(all("/def c95 = /done:z\nnot a command\n/def done:z = /echo a").map((d) => d.code)).toEqual([CODE, "not-a-command"]);
   });
 
-  // Proven in tf, 2026-10-15 (scratchpad s4/j1.tf, j2.tf): tf reads the joined /endif/def as one
-  // command, so the /if never closes and h is never defined; both fixes then run as they read.
-  it("offers to remove the \\ first where it glues the next line onto a keyword", () => {
-    const text = "/def g = /if (1) /echo a%; /endif\\\n/def h = /echo b\n";
-    const [d] = getDiagnostics(text);
-    expect(d?.message).toBe("Line 1 ends in \\, so tf joins the next line on and reads /endif/def as one command: remove the \\, or put %; after /endif.");
+  // Proven in tf, 2026-10-15 (scratchpad s4/j1.tf, j3.tf, j4.tf): tf reads the joined /endif/def as
+  // one command, so the /if never closes. Both fixes are offered, the likelier one first.
+  describe("a keyword glued on by a line join", () => {
     const whole = { start: { line: 0, character: 0 }, end: { line: 9, character: 0 } };
-    expect(getCodeActions(text, whole).map((a) => a.title)).toEqual(["Remove the \\ at the end of line 1", "Put %; after /endif"]);
+    const titles = (text: string) => getCodeActions(text, whole).map((a) => `${a.title}${a.preferred ? " (preferred)" : ""}`);
+    const keep = "Put %; before the \\ on line 1";
+    const split = "Remove the \\ at the end of line 1";
+
+    it("says both readings", () => {
+      const [d] = getDiagnostics("/def g = /if (1) /echo a%; /endif\\\n/def h = /echo b\n");
+      expect(d?.message).toBe("Line 1 ends in \\, so tf joins the next line on and reads /endif/def as one command: put %; before the \\, or remove the \\.");
+    });
+
+    it("puts removing the \\ first before a column-0 /def, even in a macro body", () => {
+      expect(titles("/def g = /if (1) /echo a%; /endif\\\n/def h = /echo b\n")).toEqual([`${split} (preferred)`, keep]);
+    });
+
+    it("puts the %; first before an indented line, which reads as part of the body", () => {
+      expect(titles("/def g = /if (1) /echo a%; /endif\\\n    /echo b\n")).toEqual([`${keep} (preferred)`, split]);
+    });
+
+    it("puts the %; first where the chain carries on past the next line, or a body goes on", () => {
+      expect(titles("/def g = /if (1) /echo a%; /endif\\\n/echo b%;\\\n/echo c\n")).toEqual([`${keep} (preferred)`, split]);
+      expect(titles("/def g = /if (1) /echo a%; /endif\\\n/echo b\n")).toEqual([`${keep} (preferred)`, split]);
+    });
+
+    it("puts removing the \\ first at the top level, where the next line is a command of its own", () => {
+      expect(titles("/if (1) /echo a%; /endif\\\n/echo b\n")).toEqual([`${split} (preferred)`, keep]);
+    });
   });
 });

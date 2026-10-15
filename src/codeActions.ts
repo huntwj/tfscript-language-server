@@ -20,6 +20,8 @@ export interface TfCodeAction {
   title: string;
   edits: TfTextEdit[];
   diagnostic: TfDiagnostic;
+  /** The first of a diagnostic's two fixes, the likelier reading (LSP `isPreferred`). */
+  preferred?: boolean;
 }
 
 function comparePositions(a: Position, b: Position): number {
@@ -50,7 +52,8 @@ export function getCodeActions(text: string, range: Range, diagnostics: TfDiagno
       const key = JSON.stringify(fix.edits);
       if (seen.has(key)) continue;
       seen.add(key);
-      actions.push({ title: fix.title, edits: fix.edits, diagnostic });
+      const preferred = fix === diagnostic.fix && !!diagnostic.alternative;
+      actions.push({ title: fix.title, edits: fix.edits, diagnostic, ...(preferred ? { preferred } : {}) });
     }
   }
 
@@ -91,6 +94,8 @@ export interface RoutedCodeAction {
   kind: typeof QUICK_FIX | typeof REFACTOR_REWRITE | typeof REFACTOR_EXTRACT | typeof REFACTOR_INLINE;
   edits: TfTextEdit[];
   diagnostic?: TfDiagnostic;
+  /** The likelier of a diagnostic's two fixes (LSP `isPreferred`). */
+  preferred?: boolean;
   /** Why it can't run: shown greyed out, with this reason. */
   disabled?: string;
 }
@@ -108,7 +113,9 @@ function wants(only: string[] | undefined, kind: string): boolean {
 export function routeCodeActions(text: string, request: CodeActionRequest): RoutedCodeAction[] {
   const out: RoutedCodeAction[] = [];
   if (wants(request.only, QUICK_FIX)) {
-    for (const a of getCodeActions(text, request.range, request.diagnostics)) out.push({ title: a.title, kind: QUICK_FIX, edits: a.edits, diagnostic: a.diagnostic });
+    for (const a of getCodeActions(text, request.range, request.diagnostics)) {
+      out.push({ title: a.title, kind: QUICK_FIX, edits: a.edits, diagnostic: a.diagnostic, ...(a.preferred ? { preferred: true } : {}) });
+    }
   }
   const asked = request.triggerKind !== TRIGGER_AUTOMATIC || comparePositions(request.range.start, request.range.end) !== 0;
   if (asked && wants(request.only, REFACTOR_REWRITE)) {

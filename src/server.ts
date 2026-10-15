@@ -398,6 +398,7 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   return routeCodeActions(document.getText(), request).map((action) => ({
     title: action.title,
     kind: action.kind,
+    ...(action.preferred ? { isPreferred: true } : {}),
     ...(action.diagnostic ? { diagnostics: [toLspDiagnostic(action.diagnostic, document.uri)] } : {}),
     ...(action.disabled === undefined ? { edit: { changes: { [document.uri]: action.edits } } } : { disabled: { reason: action.disabled } }),
   }));

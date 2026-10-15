@@ -182,7 +182,7 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
   if (abort) diagnostics.push(lineDiagnostic(abort, "not-a-command", "error"));
   // One missing \ makes the lines after a top-level /if or /while commands of their own: say so once.
   diagnostics = consolidateContinuations(text, entries, diagnostics);
-  unjoinGluedKeywords(text, diagnostics);
+  unjoinGluedKeywords(text, entries, diagnostics);
   if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false }));
 
   return diagnostics;
@@ -190,12 +190,17 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
 
 /**
  * A keyword glued to the next line by a `\` at the end of its own: `/endif\` and then `/def h = ...`
- * is `/endif/def h = ...` to tf, which leaves the /if open and never defines h (proven, 2026-10-15:
- * "expected /endif, found end"). Then the `\` is the likely mistake, so removing it is the first
- * fix, and keyword-needs-space's own (a %; after the keyword, which makes the next line part of the
- * body) the second. Both run as they read in tf.
+ * is `/endif/def h = ...` to tf, which leaves the /if open (proven, 2026-10-15: "expected /endif,
+ * found end"). Both fixes are offered, either reading being possible: a %; before the `\`, which
+ * keeps the next line in the command (`/endif%;\`), and removing the `\`, which makes it a command
+ * of its own. Which goes first depends on what the next line looks like: part of the same body if
+ * it is indented, or the chain goes on past it (it ends in `\` too), or the command is a macro body
+ * and the next line isn't a column-0 /def; its own command if it starts at column 0 and the chain
+ * ends there, or it is a /def. In tf, both run as they read with a column-0 /def after it; with an
+ * indented body line, removing the `\` runs that line once at load, and tf warns "possibly missing
+ * trailing \" (s4/j3.tf).
  */
-function unjoinGluedKeywords(text: string, diagnostics: TfDiagnostic[]): void {
+function unjoinGluedKeywords(text: string, entries: LogicalEntry[], diagnostics: TfDiagnostic[]): void {
   let lines: string[] | undefined;
   for (const d of diagnostics) {
     if (d.code !== "keyword-needs-space" || d.range.end.line <= d.range.start.line) continue;
@@ -206,13 +211,19 @@ function unjoinGluedKeywords(text: string, diagnostics: TfDiagnostic[]): void {
     const keyword = raw.slice(d.range.start.character, raw.length - 1);
     if (!raw.endsWith("\\") || !/^\/@?[A-Za-z]+$/.test(keyword)) continue;
     const line = n + 1;
-    const glued = keyword + ((lines[n + 1] ?? "").trimStart().match(/^[^\s%]*/)?.[0] ?? "");
-    d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: remove the \\, or put %; after ${keyword}.`;
-    const own = d.fix;
-    d.fix = {
+    const next = lines[n + 1] ?? "";
+    const glued = keyword + (next.trimStart().match(/^[^\s%]*/)?.[0] ?? "");
+    d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put %; before the \\, or remove the \\.`;
+    const at = { line: n, character: raw.length - 1 };
+    const keep = { title: `Put %; before the \\ on line ${line}`, edits: [{ range: { start: at, end: at }, newText: "%;" }] };
+    const split = {
       title: `Remove the \\ at the end of line ${line}`,
-      edits: [{ range: { start: { line: n, character: raw.length - 1 }, end: { line: n, character: raw.length } }, newText: "" }],
+      edits: [{ range: { start: at, end: { line: n, character: raw.length } }, newText: "" }],
     };
-    if (own) d.alternative = own;
+    const entry = entries.find((e) => e.startLine <= n && n <= e.endLine);
+    const columnZeroDef = /^\/@?def\b/i.test(next);
+    const sameBody = !columnZeroDef && (/^[ \t]/.test(next) || next.endsWith("\\") || !!entry?.isDefBody || !!entry?.isOtherMacroBody);
+    d.fix = sameBody ? keep : split;
+    d.alternative = sameBody ? split : keep;
   }
 }

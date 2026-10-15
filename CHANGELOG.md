@@ -5,11 +5,15 @@
 - `tfscript check`, a command line checker (`packages/cli`, `@tfscript/cli`, not yet published):
   for the files and folders it is given, it reports the diagnostics the server would publish,
   including `unresolved-load` and `undefined-macro`, worked out from a root folder as the server
-  works them out from a workspace folder. The `tfscript.*` settings are options of the same name.
+  works them out from a workspace folder. Its options are named after the `tfscript.*` settings,
+  and a message that names a setting names the option instead.
   Output is one `path:line:col: severity code: message` line per diagnostic, or with
-  `--format json` one report giving each diagnostic's range, code, link and fix titles. It exits 1
-  on errors (or more warnings than `--max-warnings`) and 2 on a wrong command line or a file it
-  can't read. It never changes a file.
+  `--format json` one report giving each diagnostic's range, code, link and fix titles, and the
+  paths it couldn't check. It exits 1 on errors (or more warnings than `--max-warnings`), and 2
+  when it can't check: a wrong command line (no command, an unknown command or option, an option
+  missing its value or given a bad one, nothing to check), a `--root` that is missing or is a
+  file, a path that doesn't exist, can't be read or is a folder with no tf scripts, or an internal
+  error. It never changes a file.
 - The repo is an npm workspaces monorepo: the analysis is `packages/core` (`@tfscript/core`, with
   no LSP dependency) and the server `packages/server`, still published as
   `tfscript-language-server` with the same `main` and `bin` (not yet on npm: it needs core

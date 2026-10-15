@@ -4,7 +4,9 @@
 show in an editor: the file's own, then the ones its load path gives (`unresolved-load`,
 `undefined-macro`). It runs core's analysis (`@tfscript/core`) the way the server does, over a
 workspace whose one folder is `--root`, so the same file gets the same diagnostics, with the
-same codes, messages and fixes, either way.
+same codes, ranges and fixes, either way. The messages are the server's too, but where one names
+an editor setting (`set tfscript.workingDirectory`) it names the option instead
+(`give --working-directory`).
 
 It is for hooks (an editor or agent checking each file it edits), CI and checking by hand. It
 never changes a file; there is no `--fix`.
@@ -22,9 +24,15 @@ tfscript check [options] <file or folder>...
 
 A file is checked whatever its name, so `tfrc` counts. A folder is searched as the server
 searches a workspace folder: `.tf` files, `tfrc` and `.tfrc`, skipping `.git`, `.jj` and
-`node_modules`, in name order.
+`node_modules`, in name order. Like the server's, the search doesn't follow a link to a folder
+(a junction or a symbolic link) inside the folder; name the linked folder itself to check it. A
+file named through links is checked once, and is in the root when the file it really is is.
 
-The settings are the editor's `tfscript.*` settings, given as options, and core resolves them
+To find what defines a macro (`undefined-macro`), the whole root is searched for tf scripts, as
+the server searches a workspace folder. A narrow `--root` (the folder holding your tfrc, say,
+rather than your home directory) keeps a check fast.
+
+The options are named after the editor's `tfscript.*` settings and set them, and core resolves them
 the same way: what isn't given is found as tf would find it (a tfrc in the root, `TFLIBDIR` and
 `TFPATH` from the environment, every diagnostic on).
 
@@ -61,13 +69,16 @@ Output and exit status:
 | Option | Meaning |
 |---|---|
 | `--format human` (default) | one line per diagnostic on stdout, `path:line:col: severity code: message`, then a count on stderr |
-| `--format json` | one JSON report on stdout (below), nothing on stderr unless a path can't be checked |
+| `--format json` | one JSON report on stdout (below); stderr has only the paths that couldn't be checked (also in the report's `problems`) and the `--max-warnings` message |
 | `--max-warnings <n>` | exit 1 when there are more than `n` warnings |
 
 - **0**: no errors (warnings and information notes don't count, unless `--max-warnings` is exceeded).
 - **1**: at least one error, or more warnings than `--max-warnings`.
-- **2**: the command line is wrong, or a path can't be checked (missing, unreadable, or a folder
-  with no tf scripts). The rest are still checked and reported. An internal failure also exits 2.
+- **2**: the command line is wrong (no command, an unknown command or option, an option
+  missing its value or given a bad one, nothing to check), `--root` is missing or is a file, or a
+  path can't be checked (it doesn't exist, can't be read, or is a folder with no tf scripts in it).
+  Any other paths are still checked and reported. An internal failure (a bug) also exits 2, so it
+  never reads as "errors found".
 
 Problems with the command line or a path go to stderr as `tfscript: <what is wrong>: <how to fix it>`.
 

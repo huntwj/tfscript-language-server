@@ -505,12 +505,16 @@ vim.lsp.start({
 `tfscript check` (`packages/cli`) reports what the server would show in an editor, for files and
 folders you name: each file's own diagnostics, then its load-path ones, worked out from a root
 folder (the current one unless `--root` says otherwise) the way the server works them out from a
-workspace folder. The editor's `tfscript.*` settings are options of the same name
+workspace folder. The options are named after the editor's `tfscript.*` settings
 (`--entry-file`, `--library-path`, `--path-mapping`, `--variable`, `--no-undefined-macros` ...).
 Their relative paths are relative to the root, as the settings are relative to the workspace
 folder: `tfscript check --root ws --entry-file tfrc ws/` names `ws/tfrc`.
-It exits 0 when it finds no errors, 1 when it does, and 2 when the command line is wrong or a
-file can't be read; `--max-warnings <n>` makes more than `n` warnings fail too.
+It exits 0 when it finds no errors and 1 when it does (`--max-warnings <n>` makes more than `n`
+warnings fail too). It exits 2 when it can't check: the command line is wrong (no command, an
+unknown command or option, an option missing its value or given a bad one, nothing to check),
+`--root` is missing or is a file, a path doesn't exist, can't be read or is a folder with no tf
+scripts, or it fails with an internal error. Where a message names a `tfscript.*` setting, the
+CLI names the option instead.
 
 ```sh
 node packages/cli/dist/cli.js check tfrc scripts/

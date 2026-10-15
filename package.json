@@ -26,7 +26,8 @@
     "build": "tsc -p .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:corpus-live": "npm run build && node scripts/check-corpus-live.js"
+    "test:corpus-live": "npm run build && node scripts/check-corpus-live.js",
+    "docs:rules": "npm run build && node scripts/generate-rule-docs.js"
   },
   "dependencies": {
     "vscode-languageserver": "^9.0.1",

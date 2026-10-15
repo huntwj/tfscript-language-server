@@ -74,14 +74,14 @@ export const RULE_SECTIONS: RuleSection[] = [
         "command. This applies to every line of a file, inside a `/def` or not.",
       "So a block (`/if` ... `/endif`, `/while` ... `/done`) must be complete within one command. A multi-line `/if` with " +
         "its lines left bare is rejected, because `/if` needs its `/endif` in the same command, and an indented second " +
-        "line draws \"possibly missing trailing \\\".",
-      "Whitespace after a final `\\`, including the `\\r` of a CRLF file, draws \"whitespace following final '\\'\", " +
+        "line draws `possibly missing trailing \\`.",
+      "Whitespace after a final `\\`, including the `\\r` of a CRLF file, draws `whitespace following final '\\'`, " +
         "and the line is not continued.",
       "A command that doesn't start with `/` makes tf print \"Invalid command. Aborting.\" and stop loading the file; it " +
         "is never sent to a connected world. A byte order mark is not a blank. tf treats such a line as an implicit " +
         "`/addworld` only in the `~/.tinytalk` file it reads at start-up, never in a `/load`. Text in a `/def` body is " +
         "different: it is sent when the macro runs.",
-      "A file whose last command ends in `\\` draws \"last command is incomplete because of trailing \\\", and that " +
+      "A file whose last command ends in `\\` draws `last command is incomplete because of trailing \\`, and that " +
         "command is dropped.",
       "A macro body whose last line ends in `%;` but not `\\` ends there: an unindented command on the next line runs " +
         "once, when the file loads, and tf says nothing.",
@@ -91,12 +91,12 @@ export const RULE_SECTIONS: RuleSection[] = [
     ],
     source: [
       { at: "command.c:575-577", what: "load_file() strips leading blanks and skips a comment line" },
-      { at: "command.c:579-581", what: "\"possibly missing trailing \\\"" },
+      { at: "command.c:579-581", what: "`possibly missing trailing \\`" },
       { at: "command.c:585-589", what: "a final `\\`, not after `%`, joins the next line" },
-      { at: "command.c:591-595", what: "\"whitespace following final '\\'\"" },
+      { at: "command.c:591-595", what: "`whitespace following final '\\'`" },
       { at: "command.c:602-605", what: "a command starting `/` runs at SUB_KEYWORD" },
       { at: "command.c:617-618", what: "\"Invalid command. Aborting.\"" },
-      { at: "command.c:625-627", what: "\"last command is incomplete because of trailing \\\"" },
+      { at: "command.c:625-627", what: "`last command is incomplete because of trailing \\`" },
       { at: "tfio.c:1248-1250", what: "tfgetS() expands a tab to the next `tabsize` stop" },
     ],
     cases: [
@@ -532,7 +532,7 @@ export const RULE_SECTIONS: RuleSection[] = [
     ],
     source: [
       { at: "macro.c:865-866", what: "\"illegal macro name\"" },
-      { at: "macro.c:871-874", what: "a keyword, or a builtin flagged reserved, is \"a reserved word\"" },
+      { at: "macro.c:870-874", what: "a keyword, or a builtin flagged reserved, is \"a reserved word\"" },
       { at: "expand.c:72-75", what: "the keyword table" },
     ],
     cases: ["reserved-macro-name"],

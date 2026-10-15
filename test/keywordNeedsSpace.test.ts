@@ -87,4 +87,11 @@ describe("keyword-needs-space", () => {
     // With one @, tf looks for a builtin, which no /def makes.
     expect(all("/def done:x = /echo a\n/def g = /@done:x").map((d) => d.code)).toEqual([CODE]);
   });
+
+  // Third review of step 4 (rev-s4c c82, c86, c95), proven in tf: only a /def tf makes counts.
+  it("counts only the /defs tf makes: not a comment, an /echo's text, or one after the load aborts", () => {
+    expect(all("; /def if!y = /echo a\n/def c82 = /if!y").map((d) => d.code)).toEqual([CODE]);
+    expect(all("/echo /def else:k = /echo a\n/def c86 = /else:k").map((d) => d.code)).toEqual([CODE]);
+    expect(all("/def c95 = /done:z\nnot a command\n/def done:z = /echo a").map((d) => d.code)).toEqual([CODE, "not-a-command"]);
+  });
 });

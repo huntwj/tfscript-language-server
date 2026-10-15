@@ -1,6 +1,7 @@
 import { splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { RULES, type Severity } from "./rules";
-import type { EntryMatch, LineMatch, LineSpan } from "./rules/types";
+import type { EntryMatch, FileFacts, LineMatch, LineSpan } from "./rules/types";
+import { definedMacro } from "./symbols";
 import { findAbortEntry } from "./rules/notACommand";
 import { addJoinFixes } from "./joinFix";
 import { consolidateContinuations } from "./rules/missingContinuation";
@@ -141,6 +142,13 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
       ? splitRawLines(text).slice(0, readableLineCount).join("\n")
       : text;
 
+  const macros = new Set<string>();
+  for (const entry of usableEntries) {
+    const name = definedMacro(entry);
+    if (name) macros.add(name.toLowerCase());
+  }
+  const facts: FileFacts = { macros };
+
   for (const rule of RULES) {
     // A rule that throws loses its own diagnostics, for that command, not every rule's for the file.
     let failed = false;
@@ -156,7 +164,7 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
       for (const entry of usableEntries) {
         guarded(() => {
           const found: TfDiagnostic[] = [];
-          for (const match of rule.check(entry, text)) {
+          for (const match of rule.check(entry, facts)) {
             const d = entryDiagnostic(entry, match, rule.id, rule.severity);
             if (d) found.push(d);
           }

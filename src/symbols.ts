@@ -209,6 +209,12 @@ function findDefinition(text: string): Found | undefined {
   }
 }
 
+/** The macro a top-level command defines, as written, if it is a `/def` with a name. */
+export function definedMacro(entry: LogicalEntry): string | undefined {
+  const found = findDefinition(entry.text);
+  return found?.kind === "def" && found.span ? found.name : undefined;
+}
+
 function spanToRange(entry: LogicalEntry, span: NameSpan): Range | undefined {
   const start = entry.offsetMap[span.start];
   const last = entry.offsetMap[span.end - 1];

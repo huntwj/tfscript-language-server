@@ -33,13 +33,21 @@ export interface LineMatch extends LineSpan {
   fix?: { title: string; edits: (LineSpan & { newText: string })[] };
 }
 
+/** What a rule may need to know about the rest of the file. */
+export interface FileFacts {
+  /**
+   * The macros the file's commands define, lower case: each `/def` tf reads, at the top level and
+   * before any line that aborts the load, not a comment or a /def inside another command's text.
+   */
+  macros: ReadonlySet<string>;
+}
+
 export interface EntryRule {
   /** Matches the case-id style used in scripting.md and tests/tfscript/cases/. */
   id: string;
   severity: Severity;
   scope: "entry";
-  /** `text` is the whole file, for a rule that needs to know what else it defines. */
-  check(entry: LogicalEntry, text: string): EntryMatch[];
+  check(entry: LogicalEntry, file: FileFacts): EntryMatch[];
 }
 
 /**

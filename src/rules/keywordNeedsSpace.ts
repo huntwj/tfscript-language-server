@@ -11,14 +11,15 @@ import type { EntryRule, EntryMatch } from "./types";
  *
  * Glued to a `(` or `/` it is an error: no macro name is written so. Glued to other punctuation it
  * may be a macro's name (`/def done:x`, `/def if!x`, `/def then?` all work: rev-s4b g2), so it is
- * left alone where this file defines a macro of that name, and is a warning elsewhere, as another
- * file may define one.
+ * left alone where this file's commands define a macro of that name (FileFacts.macros: not a
+ * comment, nor a /def in an /echo's text, nor one after the load aborts; rev-s4c c82, c86, c95),
+ * and is a warning elsewhere, as another file may define one.
  */
 export const keywordNeedsSpace: EntryRule = {
   id: "keyword-needs-space",
   severity: "error",
   scope: "entry",
-  check(entry, text): EntryMatch[] {
+  check(entry, file): EntryMatch[] {
     const matches: EntryMatch[] = [];
     for (const issue of entryStructure(entry)) {
       if (issue.kind !== "glued" && issue.kind !== "glued-punct") continue;
@@ -26,7 +27,7 @@ export const keywordNeedsSpace: EntryRule = {
       if (kind === "glued-punct") {
         // With one @, tf looks for a builtin, which no /def makes.
         const name = entry.text.slice(issue.start + 1, issue.end);
-        if (!name.startsWith("@") && definesMacro(text, name)) continue;
+        if (!name.startsWith("@") && file.macros.has(name.toLowerCase())) continue;
         matches.push({ ...match, severity: "warning" });
       } else matches.push(match);
     }
@@ -34,8 +35,3 @@ export const keywordNeedsSpace: EntryRule = {
   },
 };
 
-/** Whether `text` has a `/def` (any options) of `name`, which tf matches ignoring case. */
-function definesMacro(text: string, name: string): boolean {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-  return new RegExp(`(?:^|[\\s;|])/@?def\\b[^\\n=]*?\\s${escaped}\\s*=`, "im").test(text);
-}

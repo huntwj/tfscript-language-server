@@ -7,7 +7,7 @@ description: Use when writing, editing, reviewing or debugging TinyFugue scripts
 
 # TinyFugue scripting
 
-Do not trust memory or the manual for tf macro syntax. Each rule below was proven by running a script against the real tf (cases in `~/ai/mud/tests/tfscript/cases/`). Check every .tf edit against them. The tfscript language server reports the codes named under each rule.
+Do not trust memory or the manual for tf macro syntax. Each rule below was proven by running a script against the real tf (cases in `~/ai/mud/tests/tfscript/cases/`, full page `site/src/content/docs/tinyfugue/scripting.md` in `~/ai/mud`), except what a rule lists as not run. Check every .tf edit against them. The tfscript language server reports the codes named under each rule.
 
 ## When code runs
 
@@ -17,14 +17,14 @@ A top-level command of a file runs, and is checked, as the file loads.
 
 ## R1. Lines
 
-- tf reads a file one physical line at a time and drops each line's leading blanks. A line whose first non-blank character is `;` or `#` is a comment and is skipped, also in the middle of a continuation. Empty and whitespace-only lines are skipped.
+- tf reads a file one physical line at a time and drops each line's leading blanks. A line whose first non-blank character is `;` or `#` is a comment and is skipped, also in the middle of a continuation. An empty or whitespace-only line runs no command of its own, but it does end a command that a `\` was continuing: the line after it starts a new command.
 - A line that ends in `\` (and not in `%\`) is joined to the next one. Otherwise the joined text is one complete command. This applies to every line of a file, inside a `/def` or not.
 - So a block (`/if` ... `/endif`, `/while` ... `/done`) must be complete within one command. A multi-line `/if` with its lines left bare is rejected, because `/if` needs its `/endif` in the same command, and an indented second line draws `possibly missing trailing \`.
 - Whitespace after a final `\`, including the `\r` of a CRLF file, draws `whitespace following final '\'`, and the line is not continued.
-- A command that doesn't start with `/` makes tf print "Invalid command. Aborting." and stop loading the file; it is never sent to a connected world. A byte order mark is not a blank. tf treats such a line as an implicit `/addworld` only in the `~/.tinytalk` file it reads at start-up, never in a `/load`. Text in a `/def` body is different: it is sent when the macro runs.
+- A command that doesn't start with `/` makes tf print "Invalid command. Aborting." and stop loading the file; it is never sent to a connected world. A byte order mark is not a blank, so a file that starts with one stops at its first line. tf treats such a line as an implicit `/addworld` only in the `~/.tinytalk` file it reads at start-up, never in a `/load`. Text in a `/def` body is different: it is sent when the macro runs.
 - A file whose last command ends in `\` draws `last command is incomplete because of trailing \`, and that command is dropped.
 - A macro body whose last line ends in `%;` but not `\` ends there: an unindented command on the next line runs once, when the file loads, and tf says nothing.
-- tf turns tabs into blanks as it reads a file, out to the next 8-column stop (`%tabsize`) of the physical line, indentation included, before it joins continuations or strips leading blanks. A tab meant to stay a tab never does: the pattern `[ <tab>]*` in `lib/tf/quoter.tf`'s `/qmac` is stored as `[    ]*`, so it matches no tab.
+- tf turns tabs into blanks as it reads a file, out to the next 8-column stop (`%tabsize`) of the physical line, indentation included, before it joins continuations or strips leading blanks, whatever `%expand_tabs` says. So a tab inside a command is stored as blanks, and how many depends on where the line starts: the same `/let s=a<tab>b` gives four blanks in one place and six in another. A tab meant to stay a tab never does. (Upstream's `lib/tf/quoter.tf` had a `[ <tab>]*` in `/qmac` that matched no tab for this reason; our fork writes `[ \\t]*`.)
 
 Fix:
 
@@ -33,32 +33,42 @@ Fix:
 - Save `.tf` files with LF line endings, and with no blanks after a final `\`.
 - Comment out a line that isn't a command with `;`, on every physical line of it.
 
-Codes: `missing-continuation`, `indented-line-after-command`, `backslash-not-last`, `not-a-command`, `incomplete-continuation`, `body-continues-without-backslash`. Cases: `if-multiline-top-level`, `if-oneline-top-level`, `if-multiline-top-level-backslash`, `if-multiline-in-def`, `indented-line-after-command`, `comment-lines`, `trailing-space-after-backslash`, `bare-line-after-command`, `blank-lines-between-defs`, `tab-expanded-on-load`.
+Codes: `missing-continuation`, `indented-line-after-command`, `backslash-not-last`, `not-a-command`, `incomplete-continuation`, `body-continues-without-backslash`. Cases: `if-multiline-top-level`, `if-oneline-top-level`, `if-multiline-top-level-backslash`, `if-multiline-in-def`, `indented-line-after-command`, `comment-lines`, `trailing-space-after-backslash`, `bare-line-after-command`, `blank-lines-between-defs`, `tab-expanded-on-load`, `missing-continuation-bare-endif`, `missing-continuation-indented-endif`, `missing-continuation-while`, `body-continues-without-backslash`, `incomplete-continuation`, `continuation-ended-by-blank-line`, `continuation-ended-by-whitespace-line`, `bom-is-not-a-blank`.
+
+Not run: That such a line is an `/addworld` in `~/.tinytalk` (`command.c:606-616`) is read from the source; the cases only show that a `/load`ed file stops.
+
+Not run: The `\r` of a CRLF file was shown to stop a join by running a CRLF file while the language server was written; no case keeps it, as the case files are LF.
 
 ## R2. Substitution level
 
 - What tf substitutes depends on where the text is.
-- A plain top-level command of a file substitutes nothing: only the command word at its start is read. `%{x}`, `%x`, `%;`, `$[...]`, `$(...)` and `\` are stored as typed. `/load %{dir}/x.tf` looks for a file whose name is literally `%{dir}/x.tf`; so does `/log -r %{dir}/<world>/`. `/let v=cd %; /echo x` sets `v` to the whole rest of the line and never runs `/echo`. An unclosed `$[`, `%{`, `${` or string there is only text.
-- A top-level line that starts with `/if` or `/while` reads `%;`, `%|` and `%\` as separators for the rest of the line, after its `/endif` or `/done` too, and shortens a run of `%`s by one. Nothing else is substituted there either.
-- A macro body (`/def`, `/bind`, `/hook`, `/trig` and its variants), `/eval` text, the command of a `/repeat` and a `/for` body substitute everything. `/eval -s0` substitutes nothing.
-- An expression is evaluated the same at every level: an `/if` or `/while` condition, a `$[...]`, and the text of a top-level `/test`, `/return` or `/result` read `%x`, `{x}`, `$[...]` and `$(...)` as operands. So `/if (%{x} == 5)` works at the top level. A `%{var}` inside a string in an expression is never substituted.
+- A plain top-level command of a file substitutes nothing: only the command word at its start is read. `%{x}`, `%x`, `%;`, `$[...]`, `$(...)` and `\` are stored as typed. `/load %{dir}/x.tf` looks for a file whose name is literally `%{dir}/x.tf`. `/let v=cd %; /echo x` sets `v` to the whole rest of the line and never runs `/echo`. An unclosed `$[`, `%{`, `${` or string there is only text.
+- A top-level line that starts with `/if` or `/while` reads `%;` as a separator for the rest of the line, after its `/endif` or `/done` too, and shortens a run of `%`s by one. Nothing else is substituted there either: a `%{x}` stays as typed.
+- A macro body, `/eval` text, the command of a `/repeat`, `/at` or `/quote` (after its backquote) and a `/for` body substitute everything. `/eval -s0` substitutes nothing.
+- An expression is evaluated the same at every level: an `/if` or `/while` condition and a top-level `/test` read `%{x}` and `$[...]` as operands. So `/if (%{x} == 5)` works at the top level.
+- A `%{x}` inside a string in a condition or a `$[...]` is never substituted, even in a macro body. The text of a `/test`, `/return` or `/result` in a body is substituted at its statement's level first, so a `%{x}` in a string there is substituted; in a top-level `/test` it is not.
 
 Fix:
 
-- Put `/eval` in front of a top-level command that needs a substitution: `/eval /load %{dir}/x.tf`, `/eval /log -r %{dir}/<world>/`.
+- Put `/eval` in front of a top-level command that needs a substitution: `/eval /load %{dir}/x.tf`.
 - Put several commands in a `/def`, or start the line with `/eval`, to separate them with `%;`.
 - In a condition, write the variable's name, `{x}`, not `%{x}`.
 
-Codes: `not-substituted-here`. Cases: `load-no-expansion`, `load-with-eval`, `separator-top-level`, `unclosed-substitution-top-level-text`.
+Codes: `not-substituted-here`. Cases: `load-no-expansion`, `load-with-eval`, `separator-top-level`, `unclosed-substitution-top-level-text`, `top-level-literal-substitutions`, `top-level-if-line-level`, `repeat-substitutes`, `at-command-substitutes`, `quote-command-substitutes`, `for-body-substitutes`, `expression-operand-top-level`, `string-substitution-body-test`, `string-no-substitution-in-expressions`.
+
+Not run: That `%|` and `%\` separate on a top-level `/if` or `/while` line as `%;` does is read from the source (`expand.c:1862-1866`); the cases run only `%;` there.
+
+Not run: That `/return` and `/result` are substituted like `/test` is read from the source (`expand.c:1653-1659`); the cases run only `/test`.
 
 ## R3. Statements and keywords
 
 - A statement runs to the next `%;`, `%|` or `%\`, or to the `)` that closes its `$(...)`.
-- tf reads a keyword (`/if`, `/then`, `/elseif`, `/else`, `/endif`, `/while`, `/do`, `/done`, `/break`, `/let`, `/set`, `/setenv`, `/test`, `/return`, `/result`, `/exit`) only at the start of a statement. The first command of a statement takes everything up to the separator: `/let`, `/set` and `/setenv` as their value, `/test`, `/return` and `/result` as their expression, and any other command as its arguments.
+- tf reads a keyword (`/if`, `/then`, `/elseif`, `/else`, `/endif`, `/while`, `/do`, `/done`, `/break`, `/let`, `/set`, `/setenv`, `/test`, `/return`, `/result`, `/exit`) only at the start of a statement. The first command of a statement takes everything up to the separator: `/let`, `/set` and `/setenv` as their value, `/test` as its expression, and any other command as its arguments. `/let name value`, with no `=`, takes it too.
 - So `/if (1) /echo yes /else /echo no /endif` is one `/echo` whose text happens to contain `/else` and `/endif`, and the `/if` is never closed ("expected /endif, found end of body" when the macro runs). With a `%;` before the `/endif` the same line is valid, and quietly wrong: the `/else` branch does not exist. In `/if (c) /let v=1 /endif` the `/endif` becomes part of the value.
 - The same goes for a condition list: `/test` reads its expression up to the next `%;`, so it is `/if /test x%; /then ...`, never `/if /test x /then ...`. A statement in a condition list that isn't a command is sent to the world each time the condition is tested, and tf warns "statement starting with 'x' in /IF condition sends text to server".
 - tf reads a keyword up to a blank, a `%` or a `)`, so `/if(1)` runs a command named `if(1)` and finds none ("if(1): no such command or macro").
-- tf also rejects a keyword with no block to belong to ("unexpected /ENDIF in outer block"), text after `/endif` or `/done` with no `%;` ("expected end of statement after /endif"), and a `/break` without a positive number of loops. It reports only the first error in a body, as it stops compiling there.
+- tf also rejects a keyword with no block to belong to ("unexpected /ENDIF in outer block"), text after `/endif` or `/done` with no `%;` ("expected end of statement after /endif").
+- A name that only starts like a keyword is not one: `done:x`, `if!x` and `then?` are macro names, and such macros can be defined and run.
 
 Fix:
 
@@ -67,7 +77,9 @@ Fix:
 - Write a condition list's statements as commands: `/if /test x%; /then ...`.
 - Put `%;` between `/endif` or `/done` and whatever follows it.
 
-Codes: `keyword-mid-statement`, `condition-list-text`, `keyword-needs-space`, `block-structure`, `nesting-too-deep`. Cases: `let-swallows-endif`, `let-with-separator`, `block-structure-keyword-mid-statement`, `block-structure-keyword-as-text`, `block-structure-stray-keyword`, `block-structure-text-after-endif`, `block-structure-condition-list`, `block-structure-condition-list-ok`, `block-structure-top-level`.
+Codes: `keyword-mid-statement`, `condition-list-text`, `keyword-needs-space`, `block-structure`, `nesting-too-deep`. Cases: `let-swallows-endif`, `let-with-separator`, `block-structure-keyword-mid-statement`, `block-structure-keyword-as-text`, `block-structure-stray-keyword`, `block-structure-text-after-endif`, `block-structure-condition-list`, `block-structure-condition-list-ok`, `block-structure-top-level`, `keyword-mid-statement-set-value`, `keyword-mid-statement-setenv`, `keyword-mid-statement-let-no-equals`, `condition-list-text`, `keyword-needs-space`, `keyword-glued-macro-names`.
+
+Not run: That a `/break` needs a positive number of loops (`expand.c:1482`), that `/return` and `/result` take the rest of the statement as their expression, and that tf reports only the first error in a body, as it stops compiling there, are read from the source; no case runs them.
 
 ## R4. Separators and escapes
 
@@ -82,7 +94,9 @@ Fix:
 - Separate statements with one `%;`.
 - Write `%%;` for a literal `%;` in a body.
 
-Codes: none of its own. Cases: `separator-blanks-in-body`, `separator-literal-forms`, `separator-percent-backslash`.
+Codes: none of its own. Cases: `separator-blanks-in-body`, `separator-literal-forms`, `separator-percent-backslash`, `separator-percent-runs`.
+
+Not run: That `%|` pipes one statement's output into the next is read from the source; no case runs it.
 
 ## R5. Empty statements
 
@@ -93,13 +107,13 @@ Fix:
 
 - Delete the `%;` that ends the empty statement: `/if (x) /echo a%; /endif`, not `/if (x)%; /echo a%; /endif`.
 
-Codes: `empty-statement`. Cases: `separator-sends-blank-line`.
+Codes: `empty-statement`. Cases: `separator-sends-blank-line`, `empty-statement-double-separator`, `empty-statement-after-then`, `empty-statement-after-do`, `empty-statement-after-else`, `empty-statement-body-start`, `empty-statement-trailing`.
 
 ## R6. Substitution syntax
 
 - Where tf substitutes (R2), a substitution must be complete. `%{name` needs its `}` before any blank or `%;`; after the name comes `}` or `-default`. Another substitution can only nest through the default: `%{foo-%{bar}}`, not `%{foo%{bar}}`.
 - `%-` always starts a substitution (`%-1`, `%-L`), so `50%-off` in a body is "illegal character '-' in substitution": write `50%%-off`.
-- A `${` or `$(` must close too ("unmatched ${").
+- A `${` or `$(` must close too ("unmatched ${", "unmatched (").
 - A plain top-level command substitutes nothing, so there all of these are only text.
 
 Fix:
@@ -108,32 +122,34 @@ Fix:
 - Nest through the default: `%{foo-%{bar}}`.
 - Write `%%-` for a literal `%-`: `50%%-off`.
 
-Codes: `substitution-syntax`. Cases: `unclosed-substitution-percent-brace`, `unclosed-substitution-percent-dash`.
+Codes: `substitution-syntax`. Cases: `unclosed-substitution-percent-brace`, `unclosed-substitution-percent-dash`, `unclosed-substitution-dollar-brace-paren`, `substitution-syntax-glued-in-body`, `substitution-syntax-top-level-glued`.
 
 ## R7. Expressions
 
 - In an expression (a condition, `/test`, `/return`, `/result` or `$[...]`), a string is delimited by `"`, `'` or a backquote and must be closed ("unmatched \" in string literal"), parentheses must balance, and a `$[` must close ("unmatched $["). Strings only count inside an expression.
 - In a macro body these are errors when it runs, and in a top-level condition or `/test` as the file loads.
-- A condition is already an expression, so a `$[...]` inside one is redundant: tf warns "$[...] substitution in expression is legal, but redundant". A `%{x}` there draws "legal, but can be confusing. Try using {x}". tf prints each once per session unless `%pedantic` is on.
+- A condition is already an expression, so a `$[...]` inside one is redundant: tf warns "$[...] substitution in expression is legal, but redundant", in a top-level `/test` and nested in another `$[...]` too. A `%{x}` there draws "legal, but can be confusing. Try using {x}". tf prints each once per session unless `%pedantic` is on. A body's `/test` text is substituted before it is compiled, so `/test $[3]` in a body draws nothing.
 
 Fix:
 
 - Write the plain expression in a condition: `/if (strstr({P0}, "x") >= 0)`, not `/if ($[strstr({P0}, "x")] >= 0)`.
 - Write `{x}`, not `%{x}`, for a variable in an expression.
 
-Codes: `expression-syntax`, `substitution-in-expression`. Cases: `dollar-bracket-in-if`, `if-expression-plain`, `unclosed-substitution-dollar-bracket`, `unclosed-substitution-string`, `unclosed-substitution-condition`.
+Codes: `expression-syntax`, `substitution-in-expression`. Cases: `dollar-bracket-in-if`, `if-expression-plain`, `unclosed-substitution-dollar-bracket`, `unclosed-substitution-string`, `unclosed-substitution-condition`, `expression-syntax-top-level-test`, `substitution-in-expression-warns`, `substitution-in-expression-body-test`.
+
+Not run: That `/return` and `/result` text is an expression like `/test`'s is read from the source; no case runs them.
 
 ## R8. Macro names
 
 - A macro cannot be named after a keyword or `eval`. `/def if`, `/def SET`, `/def let`, `/def test`, `/def eval` and the rest of the keyword table are refused with `"SET" is a reserved word.`, in any case, and nothing is defined, so `/set` keeps meaning the keyword.
 - A name that starts with `#`, `@`, `!` or `/`, or holds a space, is refused as an "illegal macro name". A `/def` with its `=` left out (`/def greet /echo hi`) has a space in its name.
-- Other builtins can be redefined: `/def quote` and `/def lcd` only draw "conflicts with the builtin command", and the macro then runs.
+- Other builtins can be redefined: `/def lcd` only draws "conflicts with the builtin command", and the macro then runs.
 
 Fix:
 
 - Name macros with something other than a keyword, and write the `=`: `/def greet = /echo hi`.
 
-Codes: `invalid-macro-name`. Cases: `reserved-macro-name`.
+Codes: `invalid-macro-name`. Cases: `reserved-macro-name`, `invalid-macro-name`, `builtin-redefined`.
 
 ## R9. Load paths
 
@@ -145,7 +161,7 @@ Fix:
 - Put library directories on `TFPATH`, and write paths relative to tf's current directory, not the script's.
 - Build a path from a variable with `/eval`: `/eval /load %{dir}/x.tf`.
 
-Codes: `unresolved-load`, `undefined-macro`.
+Codes: `unresolved-load`, `undefined-macro`. Cases: `load-path-tfpath`, `load-path-tfpath-target`, `load-path-tfpath-replaces-libdir`, `load-path-libdir`, `undefined-macro-goes-on`.
 
 ## Shapes that may be deliberate (planned)
 

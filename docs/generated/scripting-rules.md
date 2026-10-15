@@ -8,7 +8,7 @@ A top-level command of a file runs, and is checked, as the file loads.
 
 ### R1. Lines
 
-tf reads a file one physical line at a time and drops each line's leading blanks. A line whose first non-blank character is `;` or `#` is a comment and is skipped, also in the middle of a continuation. Empty and whitespace-only lines are skipped.
+tf reads a file one physical line at a time and drops each line's leading blanks. A line whose first non-blank character is `;` or `#` is a comment and is skipped, also in the middle of a continuation. An empty or whitespace-only line runs no command of its own, but it does end a command that a `\` was continuing: the line after it starts a new command.
 
 A line that ends in `\` (and not in `%\`) is joined to the next one. Otherwise the joined text is one complete command. This applies to every line of a file, inside a `/def` or not.
 
@@ -16,13 +16,13 @@ So a block (`/if` ... `/endif`, `/while` ... `/done`) must be complete within on
 
 Whitespace after a final `\`, including the `\r` of a CRLF file, draws `whitespace following final '\'`, and the line is not continued.
 
-A command that doesn't start with `/` makes tf print "Invalid command. Aborting." and stop loading the file; it is never sent to a connected world. A byte order mark is not a blank. tf treats such a line as an implicit `/addworld` only in the `~/.tinytalk` file it reads at start-up, never in a `/load`. Text in a `/def` body is different: it is sent when the macro runs.
+A command that doesn't start with `/` makes tf print "Invalid command. Aborting." and stop loading the file; it is never sent to a connected world. A byte order mark is not a blank, so a file that starts with one stops at its first line. tf treats such a line as an implicit `/addworld` only in the `~/.tinytalk` file it reads at start-up, never in a `/load`. Text in a `/def` body is different: it is sent when the macro runs.
 
 A file whose last command ends in `\` draws `last command is incomplete because of trailing \`, and that command is dropped.
 
 A macro body whose last line ends in `%;` but not `\` ends there: an unindented command on the next line runs once, when the file loads, and tf says nothing.
 
-tf turns tabs into blanks as it reads a file, out to the next 8-column stop (`%tabsize`) of the physical line, indentation included, before it joins continuations or strips leading blanks. A tab meant to stay a tab never does: the pattern `[ <tab>]*` in `lib/tf/quoter.tf`'s `/qmac` is stored as `[    ]*`, so it matches no tab.
+tf turns tabs into blanks as it reads a file, out to the next 8-column stop (`%tabsize`) of the physical line, indentation included, before it joins continuations or strips leading blanks, whatever `%expand_tabs` says. So a tab inside a command is stored as blanks, and how many depends on where the line starts: the same `/let s=a<tab>b` gives four blanks in one place and six in another. A tab meant to stay a tab never does. (Upstream's `lib/tf/quoter.tf` had a `[ <tab>]*` in `/qmac` that matched no tab for this reason; our fork writes `[ \\t]*`.)
 
 Fix:
 
@@ -34,40 +34,44 @@ Fix:
 Codes and proof:
 
 - Language-server codes: [`missing-continuation`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#missing-continuation), [`indented-line-after-command`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#indented-line-after-command), [`backslash-not-last`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#backslash-not-last), [`not-a-command`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#not-a-command), [`incomplete-continuation`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#incomplete-continuation), [`body-continues-without-backslash`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#body-continues-without-backslash).
-- Cases: `if-multiline-top-level`, `if-oneline-top-level`, `if-multiline-top-level-backslash`, `if-multiline-in-def`, `indented-line-after-command`, `comment-lines`, `trailing-space-after-backslash`, `bare-line-after-command`, `blank-lines-between-defs`, `tab-expanded-on-load`.
-- Probes: `p01`, `p02`, `p03`, `p07`, `p08`.
-- tf source: `command.c:575-577` (load_file() strips leading blanks and skips a comment line); `command.c:579-581` (`possibly missing trailing \`); `command.c:585-589` (a final `\`, not after `%`, joins the next line); `command.c:591-595` (`whitespace following final '\'`); `command.c:602-605` (a command starting `/` runs at SUB_KEYWORD); `command.c:617-618` ("Invalid command. Aborting."); `command.c:625-627` (`last command is incomplete because of trailing \`); `tfio.c:1248-1250` (tfgetS() expands a tab to the next `tabsize` stop).
+- Cases: `if-multiline-top-level`, `if-oneline-top-level`, `if-multiline-top-level-backslash`, `if-multiline-in-def`, `indented-line-after-command`, `comment-lines`, `trailing-space-after-backslash`, `bare-line-after-command`, `blank-lines-between-defs`, `tab-expanded-on-load`, `missing-continuation-bare-endif`, `missing-continuation-indented-endif`, `missing-continuation-while`, `body-continues-without-backslash`, `incomplete-continuation`, `continuation-ended-by-blank-line`, `continuation-ended-by-whitespace-line`, `bom-is-not-a-blank`.
+- tf source: `command.c:575-577` (load_file() strips leading blanks and skips a comment line); `command.c:579-581` (`possibly missing trailing \`); `command.c:585-589` (a final `\`, not after `%`, joins the next line); `command.c:591-595` (`whitespace following final '\'`); `command.c:597-601` (an empty line ends the command being continued); `command.c:602-605` (a command starting `/` runs at SUB_KEYWORD); `command.c:617-618` ("Invalid command. Aborting."); `command.c:625-627` (`last command is incomplete because of trailing \`); `tfio.c:1248-1250` (tfgetS() expands a tab to the next `tabsize` stop).
+- Not run: That such a line is an `/addworld` in `~/.tinytalk` (`command.c:606-616`) is read from the source; the cases only show that a `/load`ed file stops.
+- Not run: The `\r` of a CRLF file was shown to stop a join by running a CRLF file while the language server was written; no case keeps it, as the case files are LF.
 
 ### R2. Substitution level
 
 What tf substitutes depends on where the text is.
 
-A plain top-level command of a file substitutes nothing: only the command word at its start is read. `%{x}`, `%x`, `%;`, `$[...]`, `$(...)` and `\` are stored as typed. `/load %{dir}/x.tf` looks for a file whose name is literally `%{dir}/x.tf`; so does `/log -r %{dir}/<world>/`. `/let v=cd %; /echo x` sets `v` to the whole rest of the line and never runs `/echo`. An unclosed `$[`, `%{`, `${` or string there is only text.
+A plain top-level command of a file substitutes nothing: only the command word at its start is read. `%{x}`, `%x`, `%;`, `$[...]`, `$(...)` and `\` are stored as typed. `/load %{dir}/x.tf` looks for a file whose name is literally `%{dir}/x.tf`. `/let v=cd %; /echo x` sets `v` to the whole rest of the line and never runs `/echo`. An unclosed `$[`, `%{`, `${` or string there is only text.
 
-A top-level line that starts with `/if` or `/while` reads `%;`, `%|` and `%\` as separators for the rest of the line, after its `/endif` or `/done` too, and shortens a run of `%`s by one. Nothing else is substituted there either.
+A top-level line that starts with `/if` or `/while` reads `%;` as a separator for the rest of the line, after its `/endif` or `/done` too, and shortens a run of `%`s by one. Nothing else is substituted there either: a `%{x}` stays as typed.
 
-A macro body (`/def`, `/bind`, `/hook`, `/trig` and its variants), `/eval` text, the command of a `/repeat` and a `/for` body substitute everything. `/eval -s0` substitutes nothing.
+A macro body, `/eval` text, the command of a `/repeat`, `/at` or `/quote` (after its backquote) and a `/for` body substitute everything. `/eval -s0` substitutes nothing.
 
-An expression is evaluated the same at every level: an `/if` or `/while` condition, a `$[...]`, and the text of a top-level `/test`, `/return` or `/result` read `%x`, `{x}`, `$[...]` and `$(...)` as operands. So `/if (%{x} == 5)` works at the top level. A `%{var}` inside a string in an expression is never substituted.
+An expression is evaluated the same at every level: an `/if` or `/while` condition and a top-level `/test` read `%{x}` and `$[...]` as operands. So `/if (%{x} == 5)` works at the top level.
+
+A `%{x}` inside a string in a condition or a `$[...]` is never substituted, even in a macro body. The text of a `/test`, `/return` or `/result` in a body is substituted at its statement's level first, so a `%{x}` in a string there is substituted; in a top-level `/test` it is not.
 
 Fix:
 
-- Put `/eval` in front of a top-level command that needs a substitution: `/eval /load %{dir}/x.tf`, `/eval /log -r %{dir}/<world>/`.
+- Put `/eval` in front of a top-level command that needs a substitution: `/eval /load %{dir}/x.tf`.
 - Put several commands in a `/def`, or start the line with `/eval`, to separate them with `%;`.
 - In a condition, write the variable's name, `{x}`, not `%{x}`.
 
 Codes and proof:
 
 - Language-server codes: [`not-substituted-here`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#not-substituted-here).
-- Cases: `load-no-expansion`, `load-with-eval`, `separator-top-level`, `unclosed-substitution-top-level-text`.
-- Probes: `p04`, `p06`, `p10`, `q05`.
-- tf source: `command.c:605` (a file's command runs at SUB_KEYWORD ("Never use SUB_FULL here")); `expand.c:1443-1444` (`/while` raises SUB_KEYWORD to SUB_NEWLINE); `expand.c:1542-1543` (`/if` raises SUB_KEYWORD to SUB_NEWLINE); `expand.c:1862` (`%` is read at SUB_NEWLINE and above); `expand.c:1806` (percentsub() substitutes a variable only at SUB_FULL); `expand.c:1856` (`\` is read only at SUB_FULL); `expand.c:1871` (`$` is read only at SUB_FULL); `macro.c:1561` (a macro body is compiled at SUB_MACRO when it first runs); `expand.c:224` (`/eval` defaults to SUB_MACRO); `process.c:205` (a `/repeat` command is compiled at SUB_MACRO); `expr.c:2231` (primary_expr() reads `%`, `{`, `$[`, `$(` and `${` operands at any level).
+- Cases: `load-no-expansion`, `load-with-eval`, `separator-top-level`, `unclosed-substitution-top-level-text`, `top-level-literal-substitutions`, `top-level-if-line-level`, `repeat-substitutes`, `at-command-substitutes`, `quote-command-substitutes`, `for-body-substitutes`, `expression-operand-top-level`, `string-substitution-body-test`, `string-no-substitution-in-expressions`.
+- tf source: `command.c:605` (a file's command runs at SUB_KEYWORD ("Never use SUB_FULL here")); `expand.c:1443-1444` (`/while` raises SUB_KEYWORD to SUB_NEWLINE); `expand.c:1542-1543` (`/if` raises SUB_KEYWORD to SUB_NEWLINE); `expand.c:1862` (`%` is read at SUB_NEWLINE and above); `expand.c:1806` (percentsub() substitutes a variable only at SUB_FULL); `expand.c:1856` (`\` is read only at SUB_FULL); `expand.c:1871` (`$` is read only at SUB_FULL); `macro.c:1561` (a macro body is compiled at SUB_MACRO when it first runs); `expand.c:224` (`/eval` defaults to SUB_MACRO); `process.c:205` (a `/repeat` command is compiled at SUB_MACRO); `expr.c:2231` (primary_expr() reads `%`, `{`, `$[`, `$(` and `${` operands at any level); `expand.c:1653-1659` (a `/test`'s text is expanded at its statement's level before it is compiled).
+- Not run: That `%|` and `%\` separate on a top-level `/if` or `/while` line as `%;` does is read from the source (`expand.c:1862-1866`); the cases run only `%;` there.
+- Not run: That `/return` and `/result` are substituted like `/test` is read from the source (`expand.c:1653-1659`); the cases run only `/test`.
 
 ### R3. Statements and keywords
 
 A statement runs to the next `%;`, `%|` or `%\`, or to the `)` that closes its `$(...)`.
 
-tf reads a keyword (`/if`, `/then`, `/elseif`, `/else`, `/endif`, `/while`, `/do`, `/done`, `/break`, `/let`, `/set`, `/setenv`, `/test`, `/return`, `/result`, `/exit`) only at the start of a statement. The first command of a statement takes everything up to the separator: `/let`, `/set` and `/setenv` as their value, `/test`, `/return` and `/result` as their expression, and any other command as its arguments.
+tf reads a keyword (`/if`, `/then`, `/elseif`, `/else`, `/endif`, `/while`, `/do`, `/done`, `/break`, `/let`, `/set`, `/setenv`, `/test`, `/return`, `/result`, `/exit`) only at the start of a statement. The first command of a statement takes everything up to the separator: `/let`, `/set` and `/setenv` as their value, `/test` as its expression, and any other command as its arguments. `/let name value`, with no `=`, takes it too.
 
 So `/if (1) /echo yes /else /echo no /endif` is one `/echo` whose text happens to contain `/else` and `/endif`, and the `/if` is never closed ("expected /endif, found end of body" when the macro runs). With a `%;` before the `/endif` the same line is valid, and quietly wrong: the `/else` branch does not exist. In `/if (c) /let v=1 /endif` the `/endif` becomes part of the value.
 
@@ -75,7 +79,9 @@ The same goes for a condition list: `/test` reads its expression up to the next 
 
 tf reads a keyword up to a blank, a `%` or a `)`, so `/if(1)` runs a command named `if(1)` and finds none ("if(1): no such command or macro").
 
-tf also rejects a keyword with no block to belong to ("unexpected /ENDIF in outer block"), text after `/endif` or `/done` with no `%;` ("expected end of statement after /endif"), and a `/break` without a positive number of loops. It reports only the first error in a body, as it stops compiling there.
+tf also rejects a keyword with no block to belong to ("unexpected /ENDIF in outer block"), text after `/endif` or `/done` with no `%;` ("expected end of statement after /endif").
+
+A name that only starts like a keyword is not one: `done:x`, `if!x` and `then?` are macro names, and such macros can be defined and run.
 
 Fix:
 
@@ -87,9 +93,9 @@ Fix:
 Codes and proof:
 
 - Language-server codes: [`keyword-mid-statement`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#keyword-mid-statement), [`condition-list-text`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#condition-list-text), [`keyword-needs-space`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#keyword-needs-space), [`block-structure`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#block-structure), [`nesting-too-deep`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#nesting-too-deep).
-- Cases: `let-swallows-endif`, `let-with-separator`, `block-structure-keyword-mid-statement`, `block-structure-keyword-as-text`, `block-structure-stray-keyword`, `block-structure-text-after-endif`, `block-structure-condition-list`, `block-structure-condition-list-ok`, `block-structure-top-level`.
-- Probes: `q03`, `p09`, `rev-s4b g2`.
+- Cases: `let-swallows-endif`, `let-with-separator`, `block-structure-keyword-mid-statement`, `block-structure-keyword-as-text`, `block-structure-stray-keyword`, `block-structure-text-after-endif`, `block-structure-condition-list`, `block-structure-condition-list-ok`, `block-structure-top-level`, `keyword-mid-statement-set-value`, `keyword-mid-statement-setenv`, `keyword-mid-statement-let-no-equals`, `condition-list-text`, `keyword-needs-space`, `keyword-glued-macro-names`.
 - tf source: `expand.c:1371` (list() reads a statement list); `expand.c:1408` (keyword_parse() runs only where a statement starts); `expand.c:1779` (a keyword is read up to a blank, `%` or `)`); `expand.c:1432-1435` ("statement starting with ... in /IF condition sends text to server"); `expand.c:1482` (`/BREAK` needs a positive integer); `expand.c:1742-1746` ("expected end of statement after /endif", "Possibly missing '%;'").
+- Not run: That a `/break` needs a positive number of loops (`expand.c:1482`), that `/return` and `/result` take the rest of the statement as their expression, and that tf reports only the first error in a body, as it stops compiling there, are read from the source; no case runs them.
 
 ### R4. Separators and escapes
 
@@ -111,9 +117,9 @@ Fix:
 Codes and proof:
 
 - Language-server codes: none of its own.
-- Cases: `separator-blanks-in-body`, `separator-literal-forms`, `separator-percent-backslash`.
-- Probes: `p10`.
+- Cases: `separator-blanks-in-body`, `separator-literal-forms`, `separator-percent-backslash`, `separator-percent-runs`.
 - tf source: `expand.c:1862-1866` (a `%` before `;`, `|` or `\` ends the statement, and blanks before it are dropped); `expand.c:1802` (percentsub() copies the rest of a run of `%`s as text); `expand.c:1856` (`\` escapes the next character at SUB_FULL); `util.c:103-105` (`\`, `;` and `|` end a statement after a `%`).
+- Not run: That `%|` pipes one statement's output into the next is read from the source; no case runs it.
 
 ### R5. Empty statements
 
@@ -128,8 +134,7 @@ Fix:
 Codes and proof:
 
 - Language-server codes: [`empty-statement`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#empty-statement).
-- Cases: `separator-sends-blank-line`.
-- Probes: `q02`.
+- Cases: `separator-sends-blank-line`, `empty-statement-double-separator`, `empty-statement-after-then`, `empty-statement-after-do`, `empty-statement-after-else`, `empty-statement-body-start`, `empty-statement-trailing`.
 - tf source: `expand.c:1938-1950` (statement() compiles text that isn't a command as a send); `expand.c:1425-1429` (the warning after `/if (...)` or `/while (...)`); `expand.c:1586-1590` (the warning after `/else`).
 
 ### R6. Substitution syntax
@@ -138,7 +143,7 @@ Where tf substitutes (R2), a substitution must be complete. `%{name` needs its `
 
 `%-` always starts a substitution (`%-1`, `%-L`), so `50%-off` in a body is "illegal character '-' in substitution": write `50%%-off`.
 
-A `${` or `$(` must close too ("unmatched ${").
+A `${` or `$(` must close too ("unmatched ${", "unmatched (").
 
 A plain top-level command substitutes nothing, so there all of these are only text.
 
@@ -151,8 +156,7 @@ Fix:
 Codes and proof:
 
 - Language-server codes: [`substitution-syntax`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#substitution-syntax).
-- Cases: `unclosed-substitution-percent-brace`, `unclosed-substitution-percent-dash`.
-- Probes: `p05`.
+- Cases: `unclosed-substitution-percent-brace`, `unclosed-substitution-percent-dash`, `unclosed-substitution-dollar-brace-paren`, `substitution-syntax-glued-in-body`, `substitution-syntax-top-level-glued`.
 - tf source: `expand.c:2135` (varsub() reads `%{selector-default}`); `expand.c:2233-2234` ("illegal character '-' in substitution"); `expand.c:2293-2294` ("unmatched { or bad substitution", "unmatched { or illegal character"); `expand.c:2105` ("unmatched ${").
 
 ### R7. Expressions
@@ -161,7 +165,7 @@ In an expression (a condition, `/test`, `/return`, `/result` or `$[...]`), a str
 
 In a macro body these are errors when it runs, and in a top-level condition or `/test` as the file loads.
 
-A condition is already an expression, so a `$[...]` inside one is redundant: tf warns "$[...] substitution in expression is legal, but redundant". A `%{x}` there draws "legal, but can be confusing. Try using {x}". tf prints each once per session unless `%pedantic` is on.
+A condition is already an expression, so a `$[...]` inside one is redundant: tf warns "$[...] substitution in expression is legal, but redundant", in a top-level `/test` and nested in another `$[...]` too. A `%{x}` there draws "legal, but can be confusing. Try using {x}". tf prints each once per session unless `%pedantic` is on. A body's `/test` text is substituted before it is compiled, so `/test $[3]` in a body draws nothing.
 
 Fix:
 
@@ -171,9 +175,9 @@ Fix:
 Codes and proof:
 
 - Language-server codes: [`expression-syntax`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#expression-syntax), [`substitution-in-expression`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#substitution-in-expression).
-- Cases: `dollar-bracket-in-if`, `if-expression-plain`, `unclosed-substitution-dollar-bracket`, `unclosed-substitution-string`, `unclosed-substitution-condition`.
-- Probes: `q01`, `q04`, `p04`.
+- Cases: `dollar-bracket-in-if`, `if-expression-plain`, `unclosed-substitution-dollar-bracket`, `unclosed-substitution-string`, `unclosed-substitution-condition`, `expression-syntax-top-level-test`, `substitution-in-expression-warns`, `substitution-in-expression-body-test`.
 - tf source: `expr.c:2231` (primary_expr() reads an operand); `expr.c:2246` (an unclosed string literal); `expr.c:2269` ("$[...] substitution in expression is legal, but redundant"); `expand.c:2300-2303` ("%{x} substitution in expression is legal, but can be confusing"); `expand.c:2021` ("unmatched $["); `expand.c:2054` ("unmatched (").
+- Not run: That `/return` and `/result` text is an expression like `/test`'s is read from the source; no case runs them.
 
 ### R8. Macro names
 
@@ -181,7 +185,7 @@ A macro cannot be named after a keyword or `eval`. `/def if`, `/def SET`, `/def 
 
 A name that starts with `#`, `@`, `!` or `/`, or holds a space, is refused as an "illegal macro name". A `/def` with its `=` left out (`/def greet /echo hi`) has a space in its name.
 
-Other builtins can be redefined: `/def quote` and `/def lcd` only draw "conflicts with the builtin command", and the macro then runs.
+Other builtins can be redefined: `/def lcd` only draws "conflicts with the builtin command", and the macro then runs.
 
 Fix:
 
@@ -190,9 +194,8 @@ Fix:
 Codes and proof:
 
 - Language-server codes: [`invalid-macro-name`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#invalid-macro-name).
-- Cases: `reserved-macro-name`.
-- Probes: `step-5 probe n1`.
-- tf source: `macro.c:865-866` ("illegal macro name"); `macro.c:870-874` (a keyword, or a builtin flagged reserved, is "a reserved word"); `expand.c:72-75` (the keyword table).
+- Cases: `reserved-macro-name`, `invalid-macro-name`, `builtin-redefined`.
+- tf source: `macro.c:865-866` ("illegal macro name"); `macro.c:870-874` (a keyword, or a builtin flagged reserved, is "a reserved word"); `expand.c:72-75` (the keyword table); `cmdlist.h:35` (EVAL is the one builtin flagged reserved).
 
 ### R9. Load paths
 
@@ -208,6 +211,7 @@ Fix:
 Codes and proof:
 
 - Language-server codes: [`unresolved-load`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#unresolved-load), [`undefined-macro`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#undefined-macro).
+- Cases: `load-path-tfpath`, `load-path-tfpath-target`, `load-path-tfpath-replaces-libdir`, `load-path-libdir`, `undefined-macro-goes-on`.
 - tf source: `command.c:512-541` (do_file_load() tries the path, then `TFPATH`, or `TFLIBDIR`); `expand.c:270` ("no such command or macro").
 
 ### Planned: shapes that may be deliberate

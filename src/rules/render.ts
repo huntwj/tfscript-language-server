@@ -24,14 +24,14 @@ function codeList(section: RuleSection, link: (code: string) => string): string 
 function proofLines(section: RuleSection): string[] {
   const lines: string[] = [];
   if (section.cases.length > 0) lines.push(`Cases: ${section.cases.map((c) => `\`${c}\``).join(", ")}.`);
-  if (section.probes.length > 0) lines.push(`Probes: ${section.probes.map((p) => `\`${p}\``).join(", ")}.`);
   lines.push(`tf source: ${section.source.map((s) => `\`${s.at}\` (${s.what})`).join("; ")}.`);
+  for (const note of section.sourceOnly ?? []) lines.push(`Not run: ${note}`);
   return lines;
 }
 
 /** `text` with its first letter in upper case. */
 function capital(text: string): string {
-  return text.replace(/^(\(\w+\) )?(\S)/, (_, tag: string | undefined, ch: string) => `${tag ?? ""}${ch.toUpperCase()}`);
+  return text.replace(/^(\([^)]*\) )?(\S)/, (_, tag: string | undefined, ch: string) => `${tag ?? ""}${ch.toUpperCase()}`);
 }
 
 /** docs/rules.md: one heading per section, and one per code, whose slug is the code (its link's anchor). */
@@ -42,10 +42,10 @@ export function renderRulesDoc(): string {
     GENERATED,
     "",
     "The rules of tf's macro language that this server checks, grouped by the rule in tf that each one comes from. " +
-      "Each rule is proven by running real tf: by a case in the private notes repo's `tests/tfscript/cases/`, by a " +
-      "probe run with `tf-script-check` while the rule was written (named in the rule's source comments), and by the " +
-      "tf source cited, under `tinyfugue/src/`. Each diagnostic code has its own heading here, which its link in the " +
-      "editor goes to.",
+      "Each rule is proven by running real tf, by the cases named under it in the private notes repo's " +
+      "`tests/tfscript/cases/`, and explained by the tf source cited, under `tinyfugue/src/`. A claim no case runs is " +
+      "listed under \"Not run\", with where it comes from. Each diagnostic code has its own heading here, which its " +
+      "link in the editor goes to.",
     "",
     "## When code runs",
     "",
@@ -114,8 +114,9 @@ export function renderSkill(): string {
     "# TinyFugue scripting",
     "",
     "Do not trust memory or the manual for tf macro syntax. Each rule below was proven by running a script against the " +
-      `real tf (cases in \`${CASES_DIR}\`). Check every .tf edit against them. The tfscript language server reports ` +
-      "the codes named under each rule.",
+      `real tf (cases in \`${CASES_DIR}\`, full page \`site/src/content/docs/tinyfugue/scripting.md\` in ` +
+      "`~/ai/mud`), except what a rule lists as not run. Check every .tf edit against them. The tfscript language " +
+      "server reports the codes named under each rule.",
     "",
     "## When code runs",
     "",
@@ -127,6 +128,7 @@ export function renderSkill(): string {
     const lines = [`Codes: ${codeList(section, (c) => `\`${c}\``)}.`];
     if (section.cases.length > 0) lines.push(`Cases: ${section.cases.map((c) => `\`${c}\``).join(", ")}.`);
     out.push(lines.join(" "), "");
+    for (const note of section.sourceOnly ?? []) out.push(`Not run: ${note}`, "");
   }
   out.push(
     "## Shapes that may be deliberate (planned)",

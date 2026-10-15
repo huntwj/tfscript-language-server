@@ -18,7 +18,8 @@ const { existsSync, readFileSync, readdirSync } = require("node:fs");
 const path = require("node:path");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
-const MUD_DIR = path.resolve(REPO_ROOT, "..");
+// The ~/ai/mud checkout this repo sits in, or MUD_DIR when it doesn't (a jj workspace elsewhere).
+const MUD_DIR = process.env.MUD_DIR ? path.resolve(process.env.MUD_DIR) : path.resolve(REPO_ROOT, "..");
 const TF_SCRIPT_CHECK = path.join(MUD_DIR, "scripts", "tf_script_check.py");
 
 const { getDiagnostics, quietInTf } = require("../dist/diagnostics");

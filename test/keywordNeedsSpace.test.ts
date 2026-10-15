@@ -204,6 +204,15 @@ describe("keyword-needs-space", () => {
       }
     });
 
+    // rev-s4f c7, proven in tf: a call of it whose line goes on in a \ carries the chain on, so the
+    // %; reading comes first (removing the \ gives "g/echo: no such command"), and the word named
+    // stops at that \.
+    it("keeps the %; first before a call of the macro that carries the chain on", () => {
+      const text = "/def g = /if (1) /echo a%; /endif\\\n/g\\\n/echo b\n";
+      expect(getDiagnostics(text).find((d) => d.code === CODE)?.message).toContain("reads /endif/g as one command");
+      expect(titles(text)).toEqual([`${keep} (preferred)`, split]);
+    });
+
     // s4/cm.tf and rev-s4e v1, v2, proven in tf.
     it("skips # comments, several comment lines, a comment ending in \\, and comments after a CR or form feed", () => {
       for (const text of [

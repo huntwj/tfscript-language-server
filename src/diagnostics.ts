@@ -227,7 +227,8 @@ function unjoinGluedKeywords(text: string, entries: LogicalEntry[], diagnostics:
     let m = n + 1;
     while (m < lines.length && isCommentLine(lines[m] ?? "")) m += 1;
     const next = lines[m] ?? "";
-    const glued = keyword + (next.trimStart().match(/^[^\s%]*/)?.[0] ?? "");
+    // The word tf runs, up to a blank, a %, or the \ that joins the line after on (rev-s4f c7).
+    const glued = keyword + (next.trimStart().match(/^[^\s%\\]*/)?.[0] ?? "");
     const at = { line: n, character: raw.length - 1 };
     const word = keyword.replace(/^\/@?/, "").toLowerCase();
     const keep = { title: `Put %; before the \\ on line ${line}`, edits: [{ range: { start: at, end: at }, newText: "%;" }] };
@@ -242,7 +243,8 @@ function unjoinGluedKeywords(text: string, entries: LogicalEntry[], diagnostics:
       // a3), is a command of its own.
       const defined = entry && definedMacro(entry)?.toLowerCase();
       // Not /@g: one @ looks only for a builtin, and tf says "g: not a builtin command" (rev-s4f c1).
-      const calls = /^\/([^\s%@]+)/.exec(next)?.[1]?.toLowerCase();
+      // A call whose line goes on in a \ carries the chain on, so it reads as part of the body (c7).
+      const calls = next.endsWith("\\") ? undefined : /^\/([^\s%@\\]+)/.exec(next)?.[1]?.toLowerCase();
       const ownCommand = /^\/@?def\b/i.test(next) || (!!defined && calls === defined);
       const sameBody = !ownCommand && (/^[ \t\f\v]/.test(next) || next.endsWith("\\") || !!entry?.isDefBody || !!entry?.isOtherMacroBody);
       d.fix = sameBody ? keep : split;

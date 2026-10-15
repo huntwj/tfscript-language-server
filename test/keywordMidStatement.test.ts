@@ -41,11 +41,12 @@ describe("keyword-mid-statement", () => {
     expect(first("/def a = /@set z=1 /@if (1) /echo x%; /@endif")?.message).toBe("This /@if is part of the /set value, not a command, so the /endif has no /if to close: put %; before it.");
   });
 
-  it("offers no %; for text in a condition list, which would then be sent to the world", () => {
-    // tf, with the %;: "statement starting with 'i' in /WHILE condition", and the text is sent.
+  // Text the %; makes a statement of its own is sent to the world, as text in a body is, and the
+  // fix is offered all the same (policy, 2026-10-15); condition-list-text then says so.
+  it("offers the %; for text in a condition list too", () => {
     const d = first("/def a = /set i=0%; /while i < 2 /do /test i:=i+1%; /done");
     expect(d?.message).toBe("/do here is not a keyword: it is part of the text before it, so the /while never reaches its /do.");
-    expect(d?.fix).toBeUndefined();
+    expect(d?.fix?.title).toBe("Put %; before /do");
     // A command's expression keeps its fix: /if /test 1%; /then is what was meant.
     expect(first("/def a = /if /test 1 /then /echo x%; /endif")?.fix?.title).toBe("Put %; before /then");
   });
@@ -147,10 +148,10 @@ describe("keyword-mid-statement", () => {
     }
   });
 
-  it("offers no fix that sends text, or brings in an empty statement", () => {
-    // x11: "branch" would become the /else's body; x03: `/else%;` an empty statement.
-    expect(first("/def x11 = /if (h) /set h=use /else branch%; /endif")?.fix).toBeUndefined();
+  it("offers no fix that brings in an empty statement, though one that sends text", () => {
+    // x03: `/else%;` an empty statement; x11: "branch" becomes the /else's body, sent to the world.
     expect(first("/def x03 = /if (1) /set h3=a /else%; /endif")?.fix).toBeUndefined();
+    expect(first("/def x11 = /if (h) /set h=use /else branch%; /endif")?.fix?.title).toBe("Put %; before /else");
     // p13: `/if (1)%;` would be an empty statement.
     expect(found("/def p13 = /set v13=a /if (1)%; /echo b%; /endif")).toEqual(["block-structure@" + "/def p13 = /set v13=a /if (1)%; /echo b%; ".length]);
   });
@@ -161,13 +162,13 @@ describe("keyword-mid-statement", () => {
   });
 
   // Third review of step 4 (rev-s4c), proven in tf.
-  it("pairs no /if followed by text, which the fix would send to the world", () => {
+  it("pairs an /if followed by text too, which the fix sends to the world", () => {
     for (const text of [
       "/def c92 = /set v92=use /if (1) to branch%; /echo b%; /endif",
       '/def c28 = /set v28=a /if (1) "quoted text"%; /endif',
       "/def c32 = /set v32=a /if (1) x%; /endif",
     ]) {
-      expect(found(text).filter((c) => c.startsWith(CODE)), text).toEqual([]);
+      expect(found(text), text).toEqual([`${CODE}@${text.indexOf("/if")}`]);
     }
   });
 

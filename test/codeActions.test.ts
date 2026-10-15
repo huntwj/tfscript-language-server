@@ -133,9 +133,10 @@ describe("structural fixes", () => {
   it("doesn't take a trailing %| for a separator, or a stray ) for the end of a $(...)", () => {
     const pipe = "/def a = /if (1) /echo b%|\n";
     expect(applyEdits(pipe, getCodeActions(pipe, WHOLE_FILE)[0]!.edits)).toBe("/def a = /if (1) /echo b%|%; /endif\n");
-    // A %; before the /endif and after it would make the ) a statement, sent to the world: no fix.
+    // A %; before the /endif and after it makes the ) a statement, sent to the world as text in a
+    // body is: offered all the same (policy, 2026-10-15).
     const paren = "/def a = /if (1) /echo x /endif)\n";
-    expect(getCodeActions(paren, WHOLE_FILE)).toEqual([]);
+    expect(applyEdits(paren, getCodeActions(paren, WHOLE_FILE)[0]!.edits)).toBe("/def a = /if (1) /echo x%; /endif%; )\n");
   });
 
   // Second review of step 4 (rev-s4b g08, g14), proven in tf: with a %; the text is a statement,

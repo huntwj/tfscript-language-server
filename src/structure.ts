@@ -640,21 +640,6 @@ class Parser {
   }
 
   /**
-   * Whether separateSwallowed() would leave text that isn't a command as a statement of its own,
-   * after a swallowed keyword: `/echo use /endif to close` would send "to close" to the world
-   * (rev-s4 s13), `/set h=use /else branch` "branch" (rev-s4b x11). An /elseif's (condition) is
-   * no text. Then there is no fix.
-   */
-  private leavesText(swallowed: MidKeyword[]): boolean {
-    return swallowed.some((m) => {
-      let k = m.end;
-      while (isTfSpace(this.s[k])) k += 1;
-      if (k >= this.s.length || this.isStatEnd(k) || this.isCmdsubEnd(k) || this.s[k] === "/") return false;
-      return !(m.word === "elseif" && this.s[k] === "(");
-    });
-  }
-
-  /**
    * Whether a keyword among `swallowed` (all of one statement) is the first word of an assignment's
    * value: a %; before it would leave `/set name` (`/set v /else ...`, rev-s4c c48, c93), which
    * shows the variable instead of setting it.
@@ -664,21 +649,6 @@ class Parser {
     if (!first) return false;
     const assignment = assignmentIn(this.s.slice(first.stmt, first.start));
     return !!assignment && swallowed.some((m) => m.start === m.stmt + assignment.valueStart);
-  }
-
-  /**
-   * Whether what follows an /if or /while read as text at `end` is a condition a block can start
-   * with: a `(condition)` followed by a command or the end of the statement, or a command (a
-   * condition list). Otherwise a %; before it would make text a statement, sent to the world
-   * (`/set v=use /if (1) to branch`, rev-s4c c92, c22, c28, c32).
-   */
-  private opensCleanly(end: number): boolean {
-    let k = end;
-    while (isTfSpace(this.s[k])) k += 1;
-    if (this.s[k] === "/") return true;
-    if (this.s[k] !== "(") return false;
-    const after = afterParens(this.s, k);
-    return after >= this.s.length || this.isStatEnd(after) || this.isCmdsubEnd(after) || this.s[after] === "/";
   }
 
   /**
@@ -801,11 +771,10 @@ class Parser {
         ...this.openNote(),
         ...(fixer !== mid ? [{ start: fixer.start, end: fixer.end, message: `/${fixer.word} is text too` }] : []),
       ],
-      // Not for text in a condition list (`/while i < 2 /do ...`): with the %; it compiles, and the
-      // text is sent to the world each time round (condition-list-text's warning; probe c1 c02).
-      // Nor where text after a swallowed /endif would become a statement, sent to the world, nor
-      // where the keyword starts a `name value` value, which would leave `/set name`, a query.
-      ...((!mid.command && (fixer.word === "then" || fixer.word === "do")) || this.leavesText(swallowed) || this.startsValue(swallowed)
+      // Not where the keyword starts a `name value` value, which would leave `/set name`, a query.
+      // Text that the %; makes a statement of its own is offered all the same: it is sent to the
+      // world, as text in a body is (policy, 2026-10-15).
+      ...(this.startsValue(swallowed)
         ? {}
         : { fix: { title: `Put %; before ${list}`, edits: this.separateSwallowed(swallowed) } }),
     };
@@ -1415,9 +1384,9 @@ class Parser {
         // a later keyword needed (pairSwallowed()). Where %; doesn't separate, it can be nothing else.
         // Only in a /let, /set or /setenv value: in other text, as `/echo see /if (x) for help`, a %;
         // before it would turn the text into a command, and send "for help" (rev-s4b p01, x05).
-        // Not as the first word of a `name value` value, nor followed by text (startsValue(), opensCleanly()).
+        // Not as the first word of a `name value` value (startsValue()).
         const assignment = kw && (kw.word === "if" || kw.word === "while") && subs >= NEWLINE ? assignmentIn(s.slice(stmtStart, this.i)) : undefined;
-        if (kw && assignment && stmtStart + assignment.valueStart < this.i && this.opensCleanly(kw.end)) {
+        if (kw && assignment && stmtStart + assignment.valueStart < this.i) {
           const mid: MidKeyword = { start: this.i, end: kw.end, word: kw.word, command, stmt: stmtStart, taken: false };
           this.swallowed.push({ start: this.i, end: kw.end, word: kw.word, stmt: stmtStart, command, edits: this.separateSwallowed([mid]) });
         }
@@ -1465,7 +1434,7 @@ class Parser {
           `tf only reads a keyword at the start of a statement, and statements are separated by ${code("%;")}. ` +
           `${takesTheRest(m.command, m.word, what)} The block still closes, so tf loads this without an error, but ` +
           `${code(`/${m.word}`)} is never the block's.`,
-        ...(this.leavesText(group) || this.startsValue(group) ? {} : { fix: { title: `Put %; before ${list}`, edits: this.separateSwallowed(group) } }),
+        ...(this.startsValue(group) ? {} : { fix: { title: `Put %; before ${list}`, edits: this.separateSwallowed(group) } }),
       };
       this.issues.push(issue);
       this.warned.set(issue, { word: m.word, what, command: m.command });
@@ -1914,9 +1883,10 @@ function unedited(pos: number, edits: IssueEdit[]): number {
 
 /**
  * Warnings tf gives as it compiles, which a fix mustn't bring in: an empty statement (`/if (1)%;`,
- * `/else%;`: rev-s4b p13, x03) or text in a condition list, sent to the world.
+ * `/else%;`: rev-s4b p13, x03). Text that becomes a statement, sent to the world, isn't one: a fix
+ * may make it (policy, 2026-10-15).
  */
-const NOISE = new Set<StructureKind>(["empty-statement", "condition-text"]);
+const NOISE = new Set<StructureKind>(["empty-statement"]);
 
 function noise(issues: StructureIssue[]): number {
   let n = 0;

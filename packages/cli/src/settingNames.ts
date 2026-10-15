@@ -21,6 +21,9 @@ export const OPTION_FOR_SETTING: Readonly<Record<string, string>> = {
 /** A setting's name in core's text: `tfscript.` and dotted words, not a sentence's final period. */
 export const SETTING_NAME = /tfscript\.([A-Za-z]+(?:\.[A-Za-z]+)*)/g;
 
+/** The options that take no value: each turns a diagnostic off, so only "set ... to false" reads as one. */
+const TOGGLES: ReadonlySet<string> = new Set(Object.values(OPTION_FOR_SETTING).filter((o) => o.startsWith("--no-")));
+
 /**
  * A setting named in prose: at the start or after a space (not inside a /name or a path), its key
  * not running on into a path or a longer name, with the words around it that the option's
@@ -32,6 +35,12 @@ function translate(prose: string): string {
   return prose.replace(IN_PROSE, (whole, before: string | undefined, key: string, to: string | undefined) => {
     const option = OPTION_FOR_SETTING[key];
     if (option === undefined) return whole;
+    if (TOGGLES.has(option)) {
+      // "set tfscript.diagnostics.unresolvedLoads to false" is the option; any other shape
+      // ("set ... to true", "in ...") wouldn't read as one, so it stays as core wrote it.
+      if (before === "set " && to === " to false") return `use ${option}`;
+      return before === undefined && to === undefined ? option : whole;
+    }
     if (before === "set " && to !== undefined) return `give ${option} ${to.slice(" to ".length)}`;
     const lead = before === "set " ? "use " : before === "in " ? "with " : "";
     return `${lead}${option}${to ?? ""}`;

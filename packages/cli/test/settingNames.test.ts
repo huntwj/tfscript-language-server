@@ -35,6 +35,20 @@ describe("tf's own text in a message", () => {
   });
 });
 
+describe("a toggle", () => {
+  it("is put as its option only where the sentence still reads", () => {
+    expect(forCommandLine("To stop this, set tfscript.diagnostics.unresolvedLoads to false.")).toBe("To stop this, use --no-unresolved-loads.");
+    expect(forCommandLine("Turned off by tfscript.diagnostics.undefinedMacros.")).toBe("Turned off by --no-undefined-macros.");
+    for (const kept of [
+      "To check them, set tfscript.diagnostics.unresolvedLoads to true.",
+      "Set tfscript.diagnostics.undefinedMacros to on: set tfscript.diagnostics.undefinedMacros.",
+      "It is on in tfscript.diagnostics.unresolvedLoads.",
+    ]) {
+      expect(forCommandLine(kept)).toBe(kept);
+    }
+  });
+});
+
 const CORE_SRC = fileURLToPath(new URL("../../core/src/", import.meta.url));
 
 function sources(dir: string): string[] {

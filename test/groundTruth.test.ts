@@ -23,6 +23,7 @@ const describeOrSkip = existsSync(CASES_DIR) ? describe : describe.skip;
 const ELSEWHERE: Record<string, string> = {
   "undefined-macro-goes-on.tf": "undefined-macro, from the load path",
   "load-path-tfpath-replaces-libdir.tf": "unresolved-load, from the load path",
+  "load-not-loader-dir.tf": "unresolved-load, from the load path",
   // tf warns that the macro conflicts with the builtin, but it works, so invalid-macro-name leaves it alone.
   "builtin-redefined.tf": "nothing: redefining a builtin that isn't reserved works",
 };

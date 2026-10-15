@@ -83,20 +83,20 @@ export const RULE_SECTIONS: RuleSection[] = [
         "its first line. tf treats such a line as an implicit `/addworld` only in the `~/.tinytalk` file it reads at " +
         "start-up, never in a `/load`. Text in a `/def` body is different: it is sent when the macro runs.",
       "A file whose last command ends in `\\` draws `last command is incomplete because of trailing \\`, and that " +
-        "command is dropped.",
+        "command is dropped. tf says it after every \"Invalid command. Aborting.\" too, as the aborted command is still " +
+        "held.",
       "A macro body whose last line ends in `%;` but not `\\` ends there: an unindented command on the next line runs " +
         "once, when the file loads, and tf says nothing.",
       "tf turns tabs into blanks as it reads a file, out to the next 8-column stop (`%tabsize`) of the physical line, " +
         "indentation included, before it joins continuations or strips leading blanks, whatever `%expand_tabs` says. So " +
         "a tab inside a command is stored as blanks, and how many depends on where the line starts: the same " +
-        "`/let s=a<tab>b` gives four blanks in one place and six in another. A tab meant to stay a tab never does. (Upstream's `lib/tf/quoter.tf` had a `[ <tab>]*` in `/qmac` that matched no tab for " +
-        "this reason; our fork writes `[ \\\\t]*`.)",
+        "`/let s=a<tab>b` gives four blanks in one place and six in another. A tab meant to stay a tab never does. " +
+        "(Upstream's `lib/tf/quoter.tf` had a `[ <tab>]*` in `/qmac` that matched no tab for this reason; our fork " +
+        "writes `[ \\\\t]*`.)",
     ],
     sourceOnly: [
       "That such a line is an `/addworld` in `~/.tinytalk` (`command.c:606-616`) is read from the source; the cases " +
         "only show that a `/load`ed file stops.",
-      "The `\\r` of a CRLF file was shown to stop a join by running a CRLF file while the language server was written; " +
-        "no case keeps it, as the case files are LF.",
     ],
     source: [
       { at: "command.c:575-577", what: "load_file() strips leading blanks and skips a comment line" },
@@ -106,7 +106,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       { at: "command.c:597-601", what: "an empty line ends the command being continued" },
       { at: "command.c:602-605", what: "a command starting `/` runs at SUB_KEYWORD" },
       { at: "command.c:617-618", what: "\"Invalid command. Aborting.\"" },
-      { at: "command.c:625-627", what: "`last command is incomplete because of trailing \\`" },
+      { at: "command.c:617-627", what: "`last command is incomplete because of trailing \\`, also after an abort" },
       { at: "tfio.c:1248-1250", what: "tfgetS() expands a tab to the next `tabsize` stop" },
     ],
     cases: [
@@ -128,6 +128,10 @@ export const RULE_SECTIONS: RuleSection[] = [
       "continuation-ended-by-blank-line",
       "continuation-ended-by-whitespace-line",
       "bom-is-not-a-blank",
+      "not-a-command-also-incomplete",
+      "percent-backslash-not-joined",
+      "crlf",
+      "tab-expanded-with-expand-tabs-off",
     ],
     codes: [
       {
@@ -211,7 +215,7 @@ export const RULE_SECTIONS: RuleSection[] = [
         "`%x`, `%;`, `$[...]`, `$(...)` and `\\` are stored as typed. `/load %{dir}/x.tf` looks for a file whose name " +
         "is literally `%{dir}/x.tf`. `/let v=cd %; /echo x` sets `v` to the whole rest of the line and never runs " +
         "`/echo`. An unclosed `$[`, `%{`, `${` or string there is only text.",
-      "A top-level line that starts with `/if` or `/while` reads `%;` as a separator for the rest of the line, after " +
+      "A top-level line that starts with `/if` or `/while` reads `%;` and `%\\` as separators for the rest of the line, after " +
         "its `/endif` or `/done` too, and shortens a run of `%`s by one. Nothing else is substituted there either: a " +
         "`%{x}` stays as typed.",
       "A macro body, `/eval` text, the command of a `/repeat`, `/at` or `/quote` (after its backquote) and a `/for` " +
@@ -221,12 +225,6 @@ export const RULE_SECTIONS: RuleSection[] = [
       "A `%{x}` inside a string in a condition or a `$[...]` is never substituted, even in a macro body. The text of a " +
         "`/test`, `/return` or `/result` in a body is substituted at its statement's level first, so a `%{x}` in a " +
         "string there is substituted; in a top-level `/test` it is not.",
-    ],
-    sourceOnly: [
-      "That `%|` and `%\\` separate on a top-level `/if` or `/while` line as `%;` does is read from the source " +
-        "(`expand.c:1862-1866`); the cases run only `%;` there.",
-      "That `/return` and `/result` are substituted like `/test` is read from the source (`expand.c:1653-1659`); the " +
-        "cases run only `/test`.",
     ],
     source: [
       { at: "command.c:605", what: "a file's command runs at SUB_KEYWORD (\"Never use SUB_FULL here\")" },
@@ -256,6 +254,9 @@ export const RULE_SECTIONS: RuleSection[] = [
       "expression-operand-top-level",
       "string-substitution-body-test",
       "string-no-substitution-in-expressions",
+      "while-reads-variable",
+      "return-result-substituted",
+      "separator-percent-backslash-top-level-if",
     ],
     codes: [
       {
@@ -290,8 +291,8 @@ export const RULE_SECTIONS: RuleSection[] = [
       "A statement runs to the next `%;`, `%|` or `%\\`, or to the `)` that closes its `$(...)`.",
       "tf reads a keyword (`/if`, `/then`, `/elseif`, `/else`, `/endif`, `/while`, `/do`, `/done`, `/break`, `/let`, " +
         "`/set`, `/setenv`, `/test`, `/return`, `/result`, `/exit`) only at the start of a statement. The first command " +
-        "of a statement takes everything up to the separator: `/let`, `/set` and `/setenv` as their value, `/test` as " +
-        "its expression, and any other command as its arguments. `/let name value`, with no `=`, takes it too.",
+        "of a statement takes everything up to the separator: `/let`, `/set` and `/setenv` as their value, `/test`, " +
+        "`/return` and `/result` as their expression, and any other command as its arguments. `/let name value`, with no `=`, takes it too.",
       "So `/if (1) /echo yes /else /echo no /endif` is one `/echo` whose text happens to contain `/else` and `/endif`, " +
         "and the `/if` is never closed (\"expected /endif, found end of body\" when the macro runs). With a `%;` before " +
         "the `/endif` the same line is valid, and quietly wrong: the `/else` branch does not exist. In " +
@@ -303,14 +304,11 @@ export const RULE_SECTIONS: RuleSection[] = [
       "tf reads a keyword up to a blank, a `%` or a `)`, so `/if(1)` runs a command named `if(1)` and finds none " +
         "(\"if(1): no such command or macro\").",
       "tf also rejects a keyword with no block to belong to (\"unexpected /ENDIF in outer block\"), text after " +
-        "`/endif` or `/done` with no `%;` (\"expected end of statement after /endif\").",
+        "`/endif` or `/done` with no `%;` (\"expected end of statement after /endif\"), and a `/break` without a " +
+        "positive number of loops (\"expected positive integer\"). It reports only the first error in a body, as it " +
+        "stops compiling there.",
       "A name that only starts like a keyword is not one: `done:x`, `if!x` and `then?` are macro names, and such " +
         "macros can be defined and run.",
-    ],
-    sourceOnly: [
-      "That a `/break` needs a positive number of loops (`expand.c:1482`), that `/return` and `/result` take the " +
-        "rest of the statement as their expression, and that tf reports only the first error in a body, as it stops " +
-        "compiling there, are read from the source; no case runs them.",
     ],
     source: [
       { at: "expand.c:1371", what: "list() reads a statement list" },
@@ -336,6 +334,8 @@ export const RULE_SECTIONS: RuleSection[] = [
       "condition-list-text",
       "keyword-needs-space",
       "keyword-glued-macro-names",
+      "break-needs-positive-number",
+      "only-first-error-in-body",
     ],
     codes: [
       {
@@ -555,9 +555,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       "expression-syntax-top-level-test",
       "substitution-in-expression-warns",
       "substitution-in-expression-body-test",
-    ],
-    sourceOnly: [
-      "That `/return` and `/result` text is an expression like `/test`'s is read from the source; no case runs them.",
+      "substitution-in-expression-once-per-session",
     ],
     codes: [
       {
@@ -600,8 +598,8 @@ export const RULE_SECTIONS: RuleSection[] = [
         "defined, so `/set` keeps meaning the keyword.",
       "A name that starts with `#`, `@`, `!` or `/`, or holds a space, is refused as an \"illegal macro name\". A " +
         "`/def` with its `=` left out (`/def greet /echo hi`) has a space in its name.",
-      "Other builtins can be redefined: `/def lcd` only draws \"conflicts with the builtin command\", and the macro " +
-        "then runs.",
+      "Other builtins can be redefined: `/def quote` and `/def lcd` only draw \"conflicts with the builtin command\", " +
+        "and the macro then runs.",
     ],
     source: [
       { at: "macro.c:865-866", what: "\"illegal macro name\"" },
@@ -640,7 +638,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       { at: "command.c:512-541", what: "do_file_load() tries the path, then `TFPATH`, or `TFLIBDIR`" },
       { at: "expand.c:270", what: "\"no such command or macro\"" },
     ],
-    cases: ["load-path-tfpath", "load-path-tfpath-target", "load-path-tfpath-replaces-libdir", "load-path-libdir", "undefined-macro-goes-on"],
+    cases: ["load-path-tfpath", "load-path-tfpath-target", "load-path-tfpath-replaces-libdir", "load-path-libdir", "load-not-loader-dir", "undefined-macro-goes-on"],
     codes: [
       {
         code: "unresolved-load",

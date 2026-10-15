@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getDiagnostics } from "../src/diagnostics";
-import { explainDiagnostic } from "../src/explain";
+import { diagnosticHover, explainCode, explainDiagnostic } from "../src/explain";
 
 function explain(text: string): string | undefined {
   const [d] = getDiagnostics(text);
@@ -79,5 +79,35 @@ describe("explainDiagnostic", () => {
     const range = { start: { line: 0, character: 6 }, end: { line: 0, character: 13 } };
     const d = { range, message: "Not found.", code: "load-path", severity: "warning" as const };
     expect(explainDiagnostic("/load nope.tf\n", d)).toBeUndefined();
+  });
+});
+
+describe("explainCode", () => {
+  it("says what a code means from the rule table, with a link to its entry in docs/rules.md", () => {
+    expect(explainCode("empty-statement")).toBe(
+      "**empty-statement** (R5, empty statements): An empty statement sends a blank line to the world each time it " +
+        "runs. Delete the extra `%;`. [About this rule]" +
+        "(https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#empty-statement)",
+    );
+  });
+
+  it("has nothing for a code the table doesn't know", () => {
+    expect(explainCode("load-path")).toBeUndefined();
+  });
+});
+
+describe("diagnosticHover", () => {
+  it("puts what the code means after the excerpt and explanation", () => {
+    const text = "/def a = /if (1) /echo yes /else /echo no /endif\n";
+    const [d] = getDiagnostics(text);
+    const hover = diagnosticHover(text, d!) ?? "";
+    expect(hover.startsWith(explainDiagnostic(text, d!) ?? "?")).toBe(true);
+    expect(hover.endsWith(explainCode("keyword-mid-statement") ?? "?")).toBe(true);
+  });
+
+  it("has only the code's meaning for a diagnostic with only a message", () => {
+    const range = { start: { line: 0, character: 6 }, end: { line: 0, character: 13 } };
+    const d = { range, message: "Not found.", code: "unresolved-load", severity: "warning" as const };
+    expect(diagnosticHover("/load nope.tf\n", d)).toBe(explainCode("unresolved-load"));
   });
 });

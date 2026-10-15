@@ -1,5 +1,6 @@
 import type { Position, Range, TfDiagnostic, TfTextEdit } from "./diagnostics";
 import { splitRawLines } from "./logicalEntries";
+import { codeHref, findCode } from "./rules/table";
 
 /**
  * The hover body for a diagnostic, in the style of Rust's and Elm's compiler errors: the source
@@ -148,6 +149,23 @@ export function explainDiagnostic(text: string, d: TfDiagnostic): string | undef
     parts.push(`**Quick fix:** ${d.fix.title}`, fence(body, "tf"));
   }
   return parts.join("\n\n");
+}
+
+/**
+ * What `code` means, from the rule table (src/rules/table.ts): its rule section, its summary and a
+ * link to its entry in docs/rules.md. Undefined for a code the table doesn't know.
+ */
+export function explainCode(code: string): string | undefined {
+  const found = findCode(code);
+  if (!found) return undefined;
+  const { section, entry } = found;
+  return `**${code}** (${section.id}, ${section.title.toLowerCase()}): ${entry.summary} [About this rule](${codeHref(code)})`;
+}
+
+/** The whole hover for `d`: its excerpt and explanation, then what its code means. */
+export function diagnosticHover(text: string, d: TfDiagnostic): string | undefined {
+  const parts = [explainDiagnostic(text, d), explainCode(d.code)].filter((p): p is string => p !== undefined);
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
 
 /** Whether `pos` is inside `range` (its end included, so a hover just after a short range still counts). */

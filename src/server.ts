@@ -62,7 +62,8 @@ import { getFoldingRanges, toFoldingRange } from "./folding";
 import { getSelectionRanges } from "./selectionRange";
 import { routeCodeActions, toLspCodeAction, type CodeActionRequest } from "./codeActions";
 import { incomingCalls, outgoingCalls, prepareCallHierarchy, type TfCallItem } from "./callHierarchy";
-import { explainDiagnostic, rangeContains } from "./explain";
+import { diagnosticHover, rangeContains } from "./explain";
+import { codeHref, findCode } from "./rules/table";
 import {
   getDefinition,
   getDocumentHighlights,
@@ -327,6 +328,8 @@ function toLspDiagnostic(d: TfDiagnostic, uri: string): Diagnostic {
     range: d.range,
     message: d.message,
     code: d.code,
+    // The code shows as a link to its entry in docs/rules.md.
+    ...(findCode(d.code) ? { codeDescription: { href: codeHref(d.code) } } : {}),
     source: "tfscript",
     ...(d.related ? { relatedInformation: d.related.map((r) => ({ location: { uri, range: r.range }, message: r.message })) } : {}),
     severity:
@@ -403,10 +406,10 @@ connection.onHover((params: TextDocumentPositionParams): Hover | null => {
   if (!document) return null;
   const text = document.getText();
   // VS Code shows a diagnostic's message at the top of the hover by itself; this adds its
-  // excerpt and explanation below, then whatever the hover says about the word itself.
+  // excerpt, explanation and what its code means below, then whatever the hover says about the word itself.
   const explained = diagnosticsFor(document)
     .filter((d) => rangeContains(d.range, params.position))
-    .flatMap((d) => explainDiagnostic(text, d) ?? []);
+    .flatMap((d) => diagnosticHover(text, d) ?? []);
   const hover = getHover(text, params.position, contextFor(document));
   const parts = [...explained, ...(hover ? [hover.markdown] : [])];
   if (parts.length === 0) return null;

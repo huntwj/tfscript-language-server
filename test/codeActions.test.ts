@@ -139,28 +139,37 @@ describe("structural fixes", () => {
     expect(applyEdits(paren, getCodeActions(paren, WHOLE_FILE)[0]!.edits)).toBe("/def a = /if (1) /echo x%; /endif%; )\n");
   });
 
-  // rev-s4b g08, g14: with a %; the text is a statement, sent to the world as text in a body is,
-  // and the fix is offered all the same (policy, 2026-10-15).
   // rev-s4e r1, proven in tf: appended after the CR, "%; /endif" follows a \ that escapes it, and
   // tf says "endif: no such command or macro". backslash-not-last's advice (save with LF) is the fix.
-  it("adds no closer after a \\ a CR or whitespace cuts off", () => {
+  // Only after the closer itself: after other text the closer runs as it should (rev-s4f t1-t3,
+  // r5, r6, as on main).
+  it("adds no closer after the closer itself with a \\ a CR or whitespace cuts off", () => {
     for (const text of ["/def g = /if (1) /echo a%; /endif\\\r\n/g\r\n", "/def g = /if (1) /echo a%; /endif\\ \n/g\n"]) {
       const block = getDiagnostics(text).find((d) => d.code === "block-structure");
       expect(block?.message, JSON.stringify(text)).toBe("This /if has no /endif.");
       expect(block?.fix, JSON.stringify(text)).toBeUndefined();
     }
+    for (const text of ["/def g = /if (1) /echo a \\ \n/g\n", "/def g = /if (1) /echo a \\\r\n/g\r\n"]) {
+      const block = getDiagnostics(text).find((d) => d.code === "block-structure");
+      expect(block?.fix?.title, JSON.stringify(text)).toBe("Add %; /endif at the end of the body");
+    }
   });
 
   // rev-s4e k2, proven in tf: "Add %; /done at the end of the line" followed /break/done, and tf
   // said "break/done: no such command or macro". The glued keyword is the one problem, and its
-  // fix the one that works.
-  it("adds no closer where a keyword glued on in the block is the cause", () => {
+  // fix the one that works. A keyword glued on elsewhere in the block leaves the closer be
+  // (rev-s4f u4, u5).
+  it("adds no closer where the closer itself is glued onto a keyword in the block", () => {
     const text = "/set i=0\n/while (i<3) /test ++i%; /echo w%; /break\\\n/done\n";
     const found = getDiagnostics(text);
     expect(found.map((d) => d.code)).toEqual(["keyword-needs-space"]);
     expect(getCodeActions(text, WHOLE_FILE).some((a) => a.title.startsWith("Add %; /done"))).toBe(false);
+    const u4 = "/def g = /while (i<3) /test ++i%; /if (i==2) /break/echo x%; /endif\n";
+    expect(getCodeActions(u4, WHOLE_FILE).map((a) => a.title)).toContain("Add %; /done at the end of the body");
   });
 
+  // rev-s4b g08, g14: with a %; the text is a statement, sent to the world as text in a body is,
+  // and the fix is offered all the same (policy, 2026-10-15).
   it("puts %; after an /endif before a command or text", () => {
     for (const text of ["/def a = /if (1) /echo x%; /endif)\n", '/def a = /if (1) /echo x%; /endif "x"\n', "/def a = /if (1) /echo x%; /endif /echo y\n"]) {
       const [d] = getDiagnostics(text);

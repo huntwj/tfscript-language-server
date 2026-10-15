@@ -1003,20 +1003,26 @@ class Parser {
     // send a blank line, and an empty /while loops forever.
     const body = (this.open[this.open.length - 1] as Open).body;
     const empty = body !== undefined && this.s.slice(body, this.i).trim() === "";
-    // A keyword glued to punctuation that may be the closer (`/endif;`), or any keyword glued on in
-    // the block (`/break/done`, rev-s4e k2): a closer added at the end would follow it, and leave
-    // it to fail when it runs ("break/done: no such command"). keyword-needs-space's fix is the one.
+    // A keyword glued to punctuation that may be the closer (`/endif;`), or the closer glued onto a
+    // keyword before it (`/break/done`, rev-s4e k2): a closer added at the end would follow it, and
+    // leave it to fail when it runs ("break/done: no such command"). keyword-needs-space's fix is the one.
     const gluedCloser = (word: string): boolean =>
-      this.gluedPunct.some((g) => g.word === word && g.start > start) || this.glued.some((g) => g.start > start);
-    // Nor after a \ that whitespace or a CR cuts off (backslash-not-last's case): appended after the
-    // CR, the closer would follow a \ that escapes it, and tf says "endif: no such command" (rev-s4e r1).
-    const cutBackslash = (): boolean => {
+      this.gluedPunct.some((g) => g.word === word && g.start > start) || this.glued.some((g) => g.start > start && g.next === word);
+    // Nor after the closer itself with a \ that whitespace or a CR cuts off (`/endif\` and a CR,
+    // backslash-not-last's case): appended after the CR, the closer would follow a \ that escapes it,
+    // and tf says "endif: no such command" (rev-s4e r1). After other text (`/echo a \ `), the closer
+    // runs as it should (rev-s4f t1-t3, r5, r6).
+    const cutBackslash = (word: string): boolean => {
       let k = this.i;
       while (k > 0 && /[ \t\r\f\v]/.test(this.s[k - 1] as string)) k -= 1;
-      return k < this.i && this.s[k - 1] === "\\";
+      if (k === this.i || this.s[k - 1] !== "\\") return false;
+      let m = k - 1;
+      while (m > 0 && /[A-Za-z]/.test(this.s[m - 1] as string)) m -= 1;
+      const slash = this.s[m - 1] === "/" || (this.s[m - 1] === "@" && this.s[m - 2] === "/");
+      return slash && this.s.slice(m, k - 1).toLowerCase() === word;
     };
     const closer = (word: string): IssueFix | undefined =>
-      empty || gluedCloser(word) || cutBackslash() ? undefined : { title: `Add %; /${word} ${where}`, edits: [this.appendStatement(this.i, word)] };
+      empty || gluedCloser(word) || cutBackslash(word) ? undefined : { title: `Add %; /${word} ${where}`, edits: [this.appendStatement(this.i, word)] };
     const conditionList = (word: string, then: string): IssueDetail => ({
       message: `This /${word}'s condition list has no /${then}.`,
       label: `no /${then}`,

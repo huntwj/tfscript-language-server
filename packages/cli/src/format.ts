@@ -45,6 +45,8 @@ export interface JsonReport {
   version: number;
   files: string[];
   diagnostics: JsonDiagnostic[];
+  /** The paths that couldn't be checked, each a sentence saying why and what to do (also on stderr). */
+  problems: string[];
   summary: Summary;
 }
 
@@ -94,7 +96,7 @@ export function formatHuman(files: CheckedFile[], cwd: string): string {
 }
 
 /** The JSON report, in the same order as the human format (inOrder()). */
-export function toJsonReport(unordered: CheckedFile[], cwd: string): JsonReport {
+export function toJsonReport(unordered: CheckedFile[], cwd: string, problems: string[] = []): JsonReport {
   const files = inOrder(unordered, cwd);
   const diagnostics = files.flatMap((f) => {
     const starts = lineStarts(f.text);
@@ -114,7 +116,7 @@ export function toJsonReport(unordered: CheckedFile[], cwd: string): JsonReport 
       }),
     );
   });
-  return { version: JSON_VERSION, files: files.map((f) => displayPath(f.file, cwd)), diagnostics, summary: summarize(files) };
+  return { version: JSON_VERSION, files: files.map((f) => displayPath(f.file, cwd)), diagnostics, problems, summary: summarize(files) };
 }
 
 export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

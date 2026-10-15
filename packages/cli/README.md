@@ -95,6 +95,7 @@ field.
       "related": []
     }
   ],
+  "problems": [],
   "summary": { "files": 1, "errors": 1, "warnings": 0, "information": 0 }
 }
 ```
@@ -110,6 +111,7 @@ field.
 | `codeDescription` | `{ "href" }`, the code's entry in docs/rules.md, or `null` for a code with none |
 | `fixes` | the titles of the quick fixes an editor offers for it, in its order (empty when there is none) |
 | `related` | other places the diagnostic points at, each a `range` and a `message` |
+| `problems` | the paths that couldn't be checked (missing, unreadable, a folder with no tf scripts), each a sentence saying why and what to do; the same lines go to stderr, and any of them makes the exit status 2 |
 | `summary` | how many files were checked, and how many diagnostics of each severity |
 
 Both formats give the same order: files by name (as `file` names them), and within a file by

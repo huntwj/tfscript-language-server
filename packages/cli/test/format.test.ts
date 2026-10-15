@@ -75,6 +75,8 @@ describe("the JSON format", () => {
   it("gives each diagnostic its file, range with offsets, code link and fix titles", () => {
     const report = toJsonReport(files, CWD);
     expect(report.version).toBe(1);
+    expect(report.problems).toEqual([]);
+    expect(toJsonReport(files, CWD, ["x.tf doesn't exist: check the path."]).problems).toEqual(["x.tf doesn't exist: check the path."]);
     expect(report.files).toEqual(["b.tf", "clean.tf", path.join("sub", "a.tf")]);
     expect(report.summary).toEqual({ files: 3, errors: 1, warnings: 1, information: 1 });
     expect(report.diagnostics[0]).toMatchObject({ file: "b.tf", codeDescription: null, fixes: [], related: [] });

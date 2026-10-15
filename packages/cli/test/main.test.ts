@@ -47,6 +47,11 @@ describe("main", () => {
     expect(missing.code).toBe(EXIT_USAGE);
     expect(missing.out).toContain("main.tf:4:6: error");
     expect(missing.err).toContain("tfscript: missing.tf doesn't exist: check the path.\n");
+    // The JSON report carries them too, as well as stderr.
+    const json = run(["check", "--format", "json", "missing.tf", "lib.tf"]);
+    expect(json.code).toBe(EXIT_USAGE);
+    expect(json.err).toBe("tfscript: missing.tf doesn't exist: check the path.\n");
+    expect((JSON.parse(json.out) as { problems: string[] }).problems).toEqual(["missing.tf doesn't exist: check the path."]);
   });
 
   it("prints the usage and the version", () => {

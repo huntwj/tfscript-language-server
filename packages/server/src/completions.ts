@@ -1,14 +1,14 @@
 import { CompletionItem, CompletionItemKind, InsertTextFormat } from "vscode-languageserver/node";
-import { ALL_COMMANDS, RESERVED_MACRO_NAMES, type CommandSource } from "./data/commands";
-import { FUNCTIONS } from "./data/functions.generated";
-import { SELECTORS } from "./data/selectors";
-import type { TfVariable } from "./data/types";
-import { SPECIAL_VARIABLES } from "./data/variables.generated";
-import { cursorContext, textBefore } from "./expressions";
-import { functionSynopses } from "./functionSynopses";
-import { isCommentLine, splitRawLines } from "./logicalEntries";
-import type { NavContext } from "./navigation";
-import { getDocumentSymbols, type Position } from "./symbols";
+import { ALL_COMMANDS, RESERVED_MACRO_NAMES, type CommandSource } from "@tfscript/core/data/commands";
+import { FUNCTIONS } from "@tfscript/core/data/functions.generated";
+import { SELECTORS } from "@tfscript/core/data/selectors";
+import type { TfVariable } from "@tfscript/core/data/types";
+import { SPECIAL_VARIABLES } from "@tfscript/core/data/variables.generated";
+import { cursorContext, textBefore } from "@tfscript/core/expressions";
+import { functionSynopses } from "@tfscript/core/functionSynopses";
+import { isCommentLine, splitRawLines } from "@tfscript/core/logicalEntries";
+import type { NavContext } from "@tfscript/core/navigation";
+import { getDocumentSymbols, type Position } from "@tfscript/core/symbols";
 
 const SOURCE_DETAIL: Record<CommandSource, string> = {
   keyword: "tf control-flow keyword",

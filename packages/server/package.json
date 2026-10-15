@@ -6,7 +6,8 @@
   "author": "Wil Hunt",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/huntwj/tfscript-language-server.git"
+    "url": "git+https://github.com/huntwj/tfscript-language-server.git",
+    "directory": "packages/server"
   },
   "bugs": {
     "url": "https://github.com/huntwj/tfscript-language-server/issues"
@@ -20,22 +21,15 @@
     "tfscript-language-server": "dist/server.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/.tsbuildinfo"
   ],
   "scripts": {
-    "build": "tsc -p .",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:corpus-live": "npm run build && node scripts/check-corpus-live.js",
-    "docs:rules": "npm run build && node scripts/generate-rule-docs.js"
+    "build": "tsc -b"
   },
   "dependencies": {
+    "@tfscript/core": "0.2.0",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12"
-  },
-  "devDependencies": {
-    "@types/node": "^22.10.1",
-    "typescript": "^5.5.3",
-    "vitest": "^5.0.3"
   }
 }

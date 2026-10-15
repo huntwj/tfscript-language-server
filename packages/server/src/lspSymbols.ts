@@ -1,5 +1,5 @@
 import { DocumentSymbol, SymbolKind } from "vscode-languageserver/node";
-import type { TfSymbol, TfSymbolKind } from "./symbols";
+import type { TfSymbol, TfSymbolKind } from "@tfscript/core/symbols";
 
 const LSP_KIND: Record<TfSymbolKind, SymbolKind> = {
   def: SymbolKind.Function,

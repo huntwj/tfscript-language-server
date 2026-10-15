@@ -1,5 +1,5 @@
 import { FoldingRange, FoldingRangeKind } from "vscode-languageserver/node";
-import type { TfFoldingRange } from "./folding";
+import type { TfFoldingRange } from "@tfscript/core/folding";
 
 export function toFoldingRange(range: TfFoldingRange): FoldingRange {
   return {

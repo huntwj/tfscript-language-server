@@ -55,17 +55,17 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { getDiagnostics, type TfDiagnostic } from "./diagnostics";
+import { getDiagnostics, type TfDiagnostic } from "@tfscript/core/diagnostics";
 import { getCompletions } from "./completions";
-import { getDocumentSymbols } from "./symbols";
+import { getDocumentSymbols } from "@tfscript/core/symbols";
 import { toDocumentSymbol } from "./lspSymbols";
-import { getFoldingRanges } from "./folding";
+import { getFoldingRanges } from "@tfscript/core/folding";
 import { toFoldingRange } from "./lspFolding";
-import { getSelectionRanges } from "./selectionRange";
-import { routeCodeActions, toLspCodeAction, type CodeActionRequest } from "./codeActions";
-import { incomingCalls, outgoingCalls, prepareCallHierarchy, type TfCallItem } from "./callHierarchy";
-import { diagnosticHover, rangeContains } from "./explain";
-import { codeHref, findCode } from "./rules/table";
+import { getSelectionRanges } from "@tfscript/core/selectionRange";
+import { routeCodeActions, toLspCodeAction, type CodeActionRequest } from "@tfscript/core/codeActions";
+import { incomingCalls, outgoingCalls, prepareCallHierarchy, type TfCallItem } from "@tfscript/core/callHierarchy";
+import { diagnosticHover, rangeContains } from "@tfscript/core/explain";
+import { codeHref, findCode } from "@tfscript/core/rules/table";
 import {
   getDefinition,
   getDocumentHighlights,
@@ -74,13 +74,13 @@ import {
   getRenameEdits,
   prepareRename,
   type NavContext,
-} from "./navigation";
-import { encodeSemanticTokens, getSemanticTokens, TOKEN_MODIFIERS, TOKEN_TYPES } from "./semanticTokens";
-import { getSignatureHelp } from "./signatureHelp";
-import { formatText } from "./formatting";
-import type { RawSettings } from "./workspace/settings";
-import { fileKey } from "./workspace/loadGraph";
-import { WorkspaceIndex, type ContextInfo } from "./workspace/workspaceIndex";
+} from "@tfscript/core/navigation";
+import { encodeSemanticTokens, getSemanticTokens, TOKEN_MODIFIERS, TOKEN_TYPES } from "@tfscript/core/semanticTokens";
+import { getSignatureHelp } from "@tfscript/core/signatureHelp";
+import { formatText } from "@tfscript/core/formatting";
+import type { RawSettings } from "@tfscript/core/workspace/settings";
+import { fileKey } from "@tfscript/core/workspace/loadGraph";
+import { WorkspaceIndex, type ContextInfo } from "@tfscript/core/workspace/workspaceIndex";
 import { isSkippedDir, relevantChange, watchPlan, Watching } from "./watching";
 import { logUnhandledRejections } from "./rejections";
 

@@ -1,8 +1,8 @@
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { FileSystemWatcher } from "vscode-languageserver/node";
-import { fileKey } from "./workspace/loadGraph";
-import type { ResolvedSettings } from "./workspace/settings";
+import { fileKey } from "@tfscript/core/workspace/loadGraph";
+import type { ResolvedSettings } from "@tfscript/core/workspace/settings";
 
 /**
  * Which file watchers the server asks the client for, and what the index may then trust as

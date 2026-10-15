@@ -191,14 +191,22 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
 /**
  * A keyword glued to the next line by a `\` at the end of its own: `/endif\` and then `/def h = ...`
  * is `/endif/def h = ...` to tf, which leaves the /if open (proven, 2026-10-15: "expected /endif,
- * found end"). Both fixes are offered, either reading being possible: a %; before the `\`, which
- * keeps the next line in the command (`/endif%;\`), and removing the `\`, which makes it a command
- * of its own. Which goes first depends on what the next line looks like: part of the same body if
- * it is indented, or the chain goes on past it (it ends in `\` too), or the command is a macro body
- * and the next line isn't a column-0 /def; its own command if it starts at column 0 and the chain
- * ends there, or it is a /def. In tf, both run as they read with a column-0 /def after it; with an
- * indented body line, removing the `\` runs that line once at load, and tf warns "possibly missing
- * trailing \" (s4/j3.tf).
+ * found end"). The line joined on is the next one that isn't a comment: tf skips a line starting
+ * `;` or `#` even inside a continuation (load_file() in command.c; rev-s4d c1, c5, a3).
+ *
+ * A closer (/endif, /done) or /break ends its statement, so both fixes are offered, either reading
+ * being possible: a %; before the `\`, which keeps the next line in the command (`/endif%;\`), and
+ * removing the `\`, which makes it a command of its own. Which goes first depends on what the next
+ * line looks like: part of the same body if it is indented, or the chain goes on past it (it ends
+ * in `\` too), or the command is a macro body and the next line isn't a column-0 /def; its own
+ * command if it starts at column 0 and the chain ends there, or it is a /def. In tf, both run as
+ * they read with a column-0 /def after it; with an indented body line, removing the `\` runs that
+ * line once at load, and tf warns "possibly missing trailing \" (s4/j3.tf).
+ *
+ * Any other keyword (/if, /while, /elseif, /then, /do, /else) goes on into the next line, so the
+ * one fix is a blank before the `\`: `/if \` and `(1) ...` read as `/if (1) ...` (rev-s4d c2-c4,
+ * s4/k7.tf). Neither a %; nor removing the `\` works there (rev-s4d a1, a2, a5, b2, b3), and a blank
+ * at the start of the next line doesn't either, as tf strips it (command.c).
  */
 function unjoinGluedKeywords(text: string, entries: LogicalEntry[], diagnostics: TfDiagnostic[]): void {
   let lines: string[] | undefined;
@@ -211,10 +219,18 @@ function unjoinGluedKeywords(text: string, entries: LogicalEntry[], diagnostics:
     const keyword = raw.slice(d.range.start.character, raw.length - 1);
     if (!raw.endsWith("\\") || !/^\/@?[A-Za-z]+$/.test(keyword)) continue;
     const line = n + 1;
-    const next = lines[n + 1] ?? "";
+    let m = n + 1;
+    while (m < lines.length && /^[ \t]*[;#]/.test(lines[m] ?? "")) m += 1;
+    const next = lines[m] ?? "";
     const glued = keyword + (next.trimStart().match(/^[^\s%]*/)?.[0] ?? "");
-    d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put %; before the \\, or remove the \\.`;
     const at = { line: n, character: raw.length - 1 };
+    if (!/^\/@?(?:endif|done|break)$/i.test(keyword)) {
+      d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put a space before the \\.`;
+      d.fix = { title: `Put a space before the \\ on line ${line}`, edits: [{ range: { start: at, end: at }, newText: " " }] };
+      delete d.alternative;
+      continue;
+    }
+    d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put %; before the \\, or remove the \\.`;
     const keep = { title: `Put %; before the \\ on line ${line}`, edits: [{ range: { start: at, end: at }, newText: "%;" }] };
     const split = {
       title: `Remove the \\ at the end of line ${line}`,

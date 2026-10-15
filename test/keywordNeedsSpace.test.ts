@@ -125,5 +125,35 @@ describe("keyword-needs-space", () => {
     it("puts removing the \\ first at the top level, where the next line is a command of its own", () => {
       expect(titles("/if (1) /echo a%; /endif\\\n/echo b\n")).toEqual([`${split} (preferred)`, keep]);
     });
+
+    // rev-s4d c1, c5, a3, proven in tf: a comment line inside a continuation is skipped, so the line
+    // joined on is the next one that isn't a comment.
+    it("joins on the next line that isn't a comment", () => {
+      const c1 = "/def g = /if (1) /echo a%; /endif\\\n; comment\n/def h = /echo b\n";
+      expect(getDiagnostics(c1)[0]?.message).toContain("reads /endif/def as one command");
+      expect(titles(c1)).toEqual([`${split} (preferred)`, keep]);
+      const c5 = "/def g = /if (1) /echo a%; /endif\\\n; comment\n/echo b\n";
+      expect(getDiagnostics(c5)[0]?.message).toContain("reads /endif/echo as one command");
+      expect(titles(c5)).toEqual([`${keep} (preferred)`, split]);
+      const a3 = "/def g = /if (1) /echo a%; /endif\\\n;x\n/g\n";
+      expect(getDiagnostics(a3)[0]?.message).toContain("reads /endif/g as one command");
+    });
+
+    // rev-s4d a1, a2, a5, b2, b3 and c2-c4, and s4/k7.tf, proven in tf: a keyword that goes on into
+    // the next line needs a blank before the \; neither a %; nor removing the \ works.
+    it("offers only a blank before the \\ for a keyword that goes on into the next line", () => {
+      for (const [text, glued] of [
+        ["/def g = /if\\\n(1) /echo a%; /endif\n", "/if(1)"],
+        ["/def g = /while\\\n(0) /echo a%; /done\n", "/while(0)"],
+        ["/def g = /if (0) /echo a%; /elseif\\\n(1) /echo b%; /endif\n", "/elseif(1)"],
+        ["/def g = /if /test 1%; /then\\\n/echo b%; /endif\n", "/then/echo"],
+        ["/def g = /while /test 0%; /do\\\n/echo b%; /done\n", "/do/echo"],
+        ["/def g = /if (0) /echo a%; /else\\\n/echo b%; /endif\n", "/else/echo"],
+      ] as const) {
+        const [d] = getDiagnostics(text).filter((x) => x.code === CODE);
+        expect(d?.message, text).toBe(`Line 1 ends in \\, so tf joins the next line on and reads ${glued} as one command: put a space before the \\.`);
+        expect(titles(text), text).toEqual(["Put a space before the \\ on line 1"]);
+      }
+    });
   });
 });

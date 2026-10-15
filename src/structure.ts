@@ -100,6 +100,8 @@ export interface IssueDetail {
   explanation?: string;
   related?: IssueNote[];
   fix?: IssueFix;
+  /** A second fix, for a problem read two ways (keyword-mid-statement: the keyword, or its block's closer). */
+  alternative?: IssueFix;
 }
 
 export interface StructureIssue extends IssueDetail {
@@ -140,6 +142,9 @@ export function shiftIssue<T extends StructureIssue>(issue: T, by: number): T {
     ...(issue.related ? { related: issue.related.map((n) => ({ ...n, start: n.start + by, end: n.end + by })) } : {}),
     ...(issue.fix
       ? { fix: { ...issue.fix, edits: issue.fix.edits.map((e) => ({ ...e, start: e.start + by, end: e.end + by })) } }
+      : {}),
+    ...(issue.alternative
+      ? { alternative: { ...issue.alternative, edits: issue.alternative.edits.map((e) => ({ ...e, start: e.start + by, end: e.end + by })) } }
       : {}),
   };
 }
@@ -280,12 +285,26 @@ export const TAKES_COMMANDS = /^(?:def|edit|bind|hook|gag|hilite|trig|trigc|trig
  * (`/@set` and `/!set` are /set too). Proven in tf (rev-s4b w13, w18: `/!set x13=1 /else ...` and
  * `/set x18 1 /else ...` take the /else into the value).
  */
-const LET_ASSIGNMENT_RE = /^\/[@!]*(let|set|setenv)\b\s+[^\s=]+(?:\s*=|\s+\S)/i;
+const LET_ASSIGNMENT_RE = /^\/[@!]*(let|set|setenv)\b\s+([A-Za-z_\u0080-\uffff][A-Za-z0-9_\u0080-\uffff]*)(\s*=\s*|\s+)/i;
 
-/** How keyword-mid-statement names what took a keyword: "the /set value", "the /echo command", ... */
-export function swallower(s: string, stmt: number, command: string): string {
-  const assignment = LET_ASSIGNMENT_RE.exec(s.slice(stmt));
-  if (assignment) return `the /${(assignment[1] as string).toLowerCase()} value`;
+/**
+ * The assignment `text` (a statement's text, from its start up to a keyword in it) begins, and
+ * where its value starts. Read from the statement's own text only, so never across a `%;`. Only a
+ * name tf takes (a letter or `_`, then letters, digits or `_`): `/set /else` and `/set -x x=1` are
+ * tf's "illegal variable name" (rev-s4c c49, c43), with no value for a keyword to be in.
+ */
+export function assignmentIn(text: string): { command: string; valueStart: number } | undefined {
+  const m = LET_ASSIGNMENT_RE.exec(text);
+  return m ? { command: (m[1] as string).toLowerCase(), valueStart: m[0].length } : undefined;
+}
+
+/**
+ * How keyword-mid-statement names what took a keyword at `end`, in the statement at `stmt`: "the
+ * /set value", "the /echo command", ...
+ */
+export function swallower(s: string, stmt: number, end: number, command: string): string {
+  const assignment = assignmentIn(s.slice(stmt, end));
+  if (assignment) return `the /${assignment.command} value`;
   if (!command) return "the text before it";
   return ["test", "return", "result"].includes(command) ? `the /${command} expression` : `the /${command} command`;
 }
@@ -636,6 +655,33 @@ class Parser {
   }
 
   /**
+   * Whether a keyword among `swallowed` (all of one statement) is the first word of an assignment's
+   * value: a %; before it would leave `/set name` (`/set v /else ...`, rev-s4c c48, c93), which
+   * shows the variable instead of setting it.
+   */
+  private startsValue(swallowed: MidKeyword[]): boolean {
+    const first = swallowed[0];
+    if (!first) return false;
+    const assignment = assignmentIn(this.s.slice(first.stmt, first.start));
+    return !!assignment && swallowed.some((m) => m.start === m.stmt + assignment.valueStart);
+  }
+
+  /**
+   * Whether what follows an /if or /while read as text at `end` is a condition a block can start
+   * with: a `(condition)` followed by a command or the end of the statement, or a command (a
+   * condition list). Otherwise a %; before it would make text a statement, sent to the world
+   * (`/set v=use /if (1) to branch`, rev-s4c c92, c22, c28, c32).
+   */
+  private opensCleanly(end: number): boolean {
+    let k = end;
+    while (isTfSpace(this.s[k])) k += 1;
+    if (this.s[k] === "/") return true;
+    if (this.s[k] !== "(") return false;
+    const after = afterParens(this.s, k);
+    return after >= this.s.length || this.isStatEnd(after) || this.isCmdsubEnd(after) || this.s[after] === "/";
+  }
+
+  /**
    * A statement in a condition list that isn't a command (`/if x == 1%; /then`): tf sends it to
    * the world when the condition is tested, and warns "statement starting with 'x' in /IF condition
    * sends text to server" (list() in expand.c). Compiling carries on. No fix: what was meant may
@@ -734,7 +780,7 @@ class Parser {
 
   /** A keyword swallowed by the statement it sits in, which leaves its block unfinished. */
   private midKeyword(mid: MidKeyword, fixer: MidKeyword, since: number): IssueDetail {
-    const what = swallower(this.s, mid.stmt, mid.command);
+    const what = swallower(this.s, mid.stmt, mid.start, mid.command);
     const consequence: Record<string, string> = {
       endif: "the /if is never closed",
       done: "the /while is never closed",
@@ -757,8 +803,9 @@ class Parser {
       ],
       // Not for text in a condition list (`/while i < 2 /do ...`): with the %; it compiles, and the
       // text is sent to the world each time round (condition-list-text's warning; probe c1 c02).
-      // Nor where text after a swallowed /endif would become a statement, sent to the world.
-      ...((!mid.command && (fixer.word === "then" || fixer.word === "do")) || this.leavesText(swallowed)
+      // Nor where text after a swallowed /endif would become a statement, sent to the world, nor
+      // where the keyword starts a `name value` value, which would leave `/set name`, a query.
+      ...((!mid.command && (fixer.word === "then" || fixer.word === "do")) || this.leavesText(swallowed) || this.startsValue(swallowed)
         ? {}
         : { fix: { title: `Put %; before ${list}`, edits: this.separateSwallowed(swallowed) } }),
     };
@@ -1368,7 +1415,9 @@ class Parser {
         // a later keyword needed (pairSwallowed()). Where %; doesn't separate, it can be nothing else.
         // Only in a /let, /set or /setenv value: in other text, as `/echo see /if (x) for help`, a %;
         // before it would turn the text into a command, and send "for help" (rev-s4b p01, x05).
-        if (kw && (kw.word === "if" || kw.word === "while") && subs >= NEWLINE && LET_ASSIGNMENT_RE.test(s.slice(stmtStart))) {
+        // Not as the first word of a `name value` value, nor followed by text (startsValue(), opensCleanly()).
+        const assignment = kw && (kw.word === "if" || kw.word === "while") && subs >= NEWLINE ? assignmentIn(s.slice(stmtStart, this.i)) : undefined;
+        if (kw && assignment && stmtStart + assignment.valueStart < this.i && this.opensCleanly(kw.end)) {
           const mid: MidKeyword = { start: this.i, end: kw.end, word: kw.word, command, stmt: stmtStart, taken: false };
           this.swallowed.push({ start: this.i, end: kw.end, word: kw.word, stmt: stmtStart, command, edits: this.separateSwallowed([mid]) });
         }
@@ -1400,12 +1449,12 @@ class Parser {
       if (m.start <= start || !m.taken || done.has(m.stmt)) continue;
       // Only in a /let or /set value. Text a command is given may hold a keyword on purpose: an
       // /eval's commands (lib/tf/activity_status.tf), or `/echo use /endif to close`.
-      if (!LET_ASSIGNMENT_RE.test(this.s.slice(m.stmt))) continue;
+      if (!assignmentIn(this.s.slice(m.stmt, m.start))) continue;
       done.add(m.stmt);
       const group = this.mids.filter((x) => x.stmt === m.stmt && x.start > start && x.taken);
       const words = group.map((x) => `/${x.word}`);
       const list = words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}` : `${words[0]}`;
-      const what = swallower(this.s, m.stmt, m.command);
+      const what = swallower(this.s, m.stmt, m.start, m.command);
       const issue: StructureIssue = {
         kind: "keyword-warning",
         start: m.start,
@@ -1416,7 +1465,7 @@ class Parser {
           `tf only reads a keyword at the start of a statement, and statements are separated by ${code("%;")}. ` +
           `${takesTheRest(m.command, m.word, what)} The block still closes, so tf loads this without an error, but ` +
           `${code(`/${m.word}`)} is never the block's.`,
-        ...(this.leavesText(group) ? {} : { fix: { title: `Put %; before ${list}`, edits: this.separateSwallowed(group) } }),
+        ...(this.leavesText(group) || this.startsValue(group) ? {} : { fix: { title: `Put %; before ${list}`, edits: this.separateSwallowed(group) } }),
       };
       this.issues.push(issue);
       this.warned.set(issue, { word: m.word, what, command: m.command });
@@ -1950,10 +1999,16 @@ function parseSettled(s: string, mode: StructureMode): { issues: StructureIssue[
     if (warning) {
       const taken = p.warned.get(warning)!;
       const stray = strayNote(block);
+      // The keyword may still be text (`/set m=see /endif`), so the block's own closer stays on
+      // offer, and the message says both (rev-s4c c91, c01).
+      const closer = block.fix?.title.replace(/^Add/, "add");
       const turned: StructureIssue = {
         ...warning,
         kind: "keyword",
-        message: `/${taken.word} here is not a keyword: it is part of ${taken.what}, so ${stray.message}: put %; before it.`,
+        message: closer
+          ? `/${taken.word} here is not a keyword: it is part of ${taken.what}, so ${stray.message}: put %; before it, or if it is meant as text, ${closer}.`
+          : `/${taken.word} here is not a keyword: it is part of ${taken.what}, so ${stray.message}: put %; before it.`,
+        ...(block.fix ? { alternative: block.fix } : {}),
         explanation:
           `tf only reads a keyword at the start of a statement, and statements are separated by ${code("%;")}. ` +
           `${takesTheRest(taken.command, taken.word, taken.what)} That leaves ${code(s.slice(block.start, block.end))} ` +

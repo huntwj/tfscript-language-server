@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { getCodeActions } from "../src/codeActions";
 import { getDiagnostics } from "../src/diagnostics";
 
 const CODE = "keyword-mid-statement";
+const WHOLE = { start: { line: 0, character: 0 }, end: { line: 99999, character: 0 } };
 const found = (text: string) => getDiagnostics(`${text}\n`).map((d) => `${d.code}@${d.range.start.character}`);
 const first = (text: string) => getDiagnostics(`${text}\n`).find((d) => d.code === CODE);
 /** This rule's code at the column of the last `word` in `text`, alone. */
@@ -156,5 +158,40 @@ describe("keyword-mid-statement", () => {
   it("warns about /!set and a /set without = like any value", () => {
     expect(first("/def w13 = /if (1) /!set x13=1 /else /set y13=2%; /endif")?.message).toContain("part of the /set value");
     expect(first("/def w18 = /if (1) /set x18 1 /else /set y18=2%; /endif")?.message).toContain("part of the /set value");
+  });
+
+  // Third review of step 4 (rev-s4c), proven in tf.
+  it("pairs no /if followed by text, which the fix would send to the world", () => {
+    for (const text of [
+      "/def c92 = /set v92=use /if (1) to branch%; /echo b%; /endif",
+      '/def c28 = /set v28=a /if (1) "quoted text"%; /endif',
+      "/def c32 = /set v32=a /if (1) x%; /endif",
+    ]) {
+      expect(found(text).filter((c) => c.startsWith(CODE)), text).toEqual([]);
+    }
+  });
+
+  it("offers the block's own closer too where the keyword may be text, and says so", () => {
+    const text = "/def c91 = /if (1) /if (0) /set m91=see /endif%; /echo only-if-0%; /endif%; /echo after\n";
+    const d = getDiagnostics(text).find((x) => x.code === CODE)!;
+    expect(d.message).toBe(
+      "/endif here is not a keyword: it is part of the /set value, so the /if has no /endif: put %; before it, or if it is meant as text, add %; /endif at the end of the body.",
+    );
+    expect(getCodeActions(text, WHOLE).map((a) => a.title)).toEqual(["Put %; before /endif", "Add %; /endif at the end of the body"]);
+  });
+
+  it("reads an assignment from its own statement, with a name tf takes, and leaves no `/set name` query", () => {
+    // c93, c94: a %; before the first word of a `name value` value would leave `/set name`.
+    expect(first("/def c93 = /if (1) /set v93 /else /echo no%; /endif")?.fix).toBeUndefined();
+    expect(found("/def c94 = /set v94 /if (1) /echo in%; /endif%; /echo x").filter((c) => c.startsWith(CODE))).toEqual([]);
+    // c49, c55, c56, c43: tf's "illegal variable name", with no value to be in.
+    for (const text of [
+      "/def c49 = /if (1) /set /else%; /endif",
+      "/def c55 = /if (1) /setenv /else%; /endif",
+      "/def c56 = /if (1) /let /else /echo b%; /endif",
+      "/def c43 = /if (1) /set -x x43=1 /else /set y43=2%; /endif",
+    ]) {
+      expect(found(text), text).toEqual([]);
+    }
   });
 });

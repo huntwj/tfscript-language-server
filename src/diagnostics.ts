@@ -32,6 +32,8 @@ export interface TfDiagnostic {
   explanation?: string;
   related?: { range: Range; message: string }[];
   fix?: { title: string; edits: TfTextEdit[] };
+  /** A second fix, for a problem that can be read two ways. */
+  alternative?: { title: string; edits: TfTextEdit[] };
 }
 
 /** Where `offset` of `entry.text` is in the document; `entry.text.length` is just after its last character. */
@@ -63,13 +65,17 @@ function entryDiagnostic(entry: LogicalEntry, match: EntryMatch, code: string, s
     return r ? [{ range: r, message: n.message }] : [];
   });
   if (related.length > 0) d.related = related;
-  if (match.fix) {
-    const edits = match.fix.edits.map((e) => {
+  const mapped = (fix: NonNullable<EntryMatch["fix"]>): TfDiagnostic["fix"] => {
+    const edits = fix.edits.map((e) => {
       const r = rangeOf(entry, e.start, e.end);
       return r && { range: r, newText: e.newText };
     });
-    if (edits.length > 0 && edits.every((e) => e)) d.fix = { title: match.fix.title, edits: edits as TfTextEdit[] };
-  }
+    return edits.length > 0 && edits.every((e) => e) ? { title: fix.title, edits: edits as TfTextEdit[] } : undefined;
+  };
+  const fix = match.fix && mapped(match.fix);
+  if (fix) d.fix = fix;
+  const alternative = match.alternative && mapped(match.alternative);
+  if (alternative) d.alternative = alternative;
   return d;
 }
 

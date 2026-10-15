@@ -44,11 +44,14 @@ export function getCodeActions(text: string, range: Range, diagnostics: TfDiagno
     const at =
       overlaps(diagnostic.range, range) ||
       (diagnostic.code === "missing-continuation" && !!diagnostic.related?.some((r) => overlaps(r.range, range)));
-    if (!at || !diagnostic.fix) continue;
-    const key = JSON.stringify(diagnostic.fix.edits);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    actions.push({ title: diagnostic.fix.title, edits: diagnostic.fix.edits, diagnostic });
+    if (!at) continue;
+    for (const fix of [diagnostic.fix, diagnostic.alternative]) {
+      if (!fix) continue;
+      const key = JSON.stringify(fix.edits);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      actions.push({ title: fix.title, edits: fix.edits, diagnostic });
+    }
   }
 
   return actions;

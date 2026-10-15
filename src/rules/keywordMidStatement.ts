@@ -32,7 +32,7 @@ export const keywordMidStatement: EntryRule = {
     const text = entry.text;
     for (const w of entrySwallowed(entry)) {
       if (!w.stray) continue;
-      const what = swallower(text, w.stmt, w.command);
+      const what = swallower(text, w.stmt, w.start, w.command);
       const keyword = text.slice(w.start, w.end);
       matches.push({
         start: w.start,

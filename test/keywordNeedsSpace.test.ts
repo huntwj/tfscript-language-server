@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getCodeActions } from "../src/codeActions";
 import { getDiagnostics } from "../src/diagnostics";
 
 const CODE = "keyword-needs-space";
@@ -93,5 +94,15 @@ describe("keyword-needs-space", () => {
     expect(all("; /def if!y = /echo a\n/def c82 = /if!y").map((d) => d.code)).toEqual([CODE]);
     expect(all("/echo /def else:k = /echo a\n/def c86 = /else:k").map((d) => d.code)).toEqual([CODE]);
     expect(all("/def c95 = /done:z\nnot a command\n/def done:z = /echo a").map((d) => d.code)).toEqual([CODE, "not-a-command"]);
+  });
+
+  // Proven in tf, 2026-10-15 (scratchpad s4/j1.tf, j2.tf): tf reads the joined /endif/def as one
+  // command, so the /if never closes and h is never defined; both fixes then run as they read.
+  it("offers to remove the \\ first where it glues the next line onto a keyword", () => {
+    const text = "/def g = /if (1) /echo a%; /endif\\\n/def h = /echo b\n";
+    const [d] = getDiagnostics(text);
+    expect(d?.message).toBe("Line 1 ends in \\, so tf joins the next line on and reads /endif/def as one command: remove the \\, or put %; after /endif.");
+    const whole = { start: { line: 0, character: 0 }, end: { line: 9, character: 0 } };
+    expect(getCodeActions(text, whole).map((a) => a.title)).toEqual(["Remove the \\ at the end of line 1", "Put %; after /endif"]);
   });
 });

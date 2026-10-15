@@ -182,7 +182,37 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
   if (abort) diagnostics.push(lineDiagnostic(abort, "not-a-command", "error"));
   // One missing \ makes the lines after a top-level /if or /while commands of their own: say so once.
   diagnostics = consolidateContinuations(text, entries, diagnostics);
+  unjoinGluedKeywords(text, diagnostics);
   if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false }));
 
   return diagnostics;
+}
+
+/**
+ * A keyword glued to the next line by a `\` at the end of its own: `/endif\` and then `/def h = ...`
+ * is `/endif/def h = ...` to tf, which leaves the /if open and never defines h (proven, 2026-10-15:
+ * "expected /endif, found end"). Then the `\` is the likely mistake, so removing it is the first
+ * fix, and keyword-needs-space's own (a %; after the keyword, which makes the next line part of the
+ * body) the second. Both run as they read in tf.
+ */
+function unjoinGluedKeywords(text: string, diagnostics: TfDiagnostic[]): void {
+  let lines: string[] | undefined;
+  for (const d of diagnostics) {
+    if (d.code !== "keyword-needs-space" || d.range.end.line <= d.range.start.line) continue;
+    lines ??= splitRawLines(text);
+    const n = d.range.start.line;
+    // A \ followed by a CR doesn't join the next line on (backslash-not-last), so isn't one of these.
+    const raw = lines[n] ?? "";
+    const keyword = raw.slice(d.range.start.character, raw.length - 1);
+    if (!raw.endsWith("\\") || !/^\/@?[A-Za-z]+$/.test(keyword)) continue;
+    const line = n + 1;
+    const glued = keyword + ((lines[n + 1] ?? "").trimStart().match(/^[^\s%]*/)?.[0] ?? "");
+    d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: remove the \\, or put %; after ${keyword}.`;
+    const own = d.fix;
+    d.fix = {
+      title: `Remove the \\ at the end of line ${line}`,
+      edits: [{ range: { start: { line: n, character: raw.length - 1 }, end: { line: n, character: raw.length } }, newText: "" }],
+    };
+    if (own) d.alternative = own;
+  }
 }

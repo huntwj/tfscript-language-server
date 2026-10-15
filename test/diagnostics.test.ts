@@ -13,7 +13,7 @@ function codes(text: string): string[] {
   return getDiagnostics(text).map((d) => d.code);
 }
 
-describe("missing-continuation (rule 2)", () => {
+describe("missing-continuation (R1)", () => {
   it("flags an /if left open across top-level lines", () => {
     const text = ['/if (x =~ "")', "  /set x=1", "/endif", ""].join("\n");
     expect(codes(text)).toContain("missing-continuation");
@@ -36,7 +36,7 @@ describe("missing-continuation (rule 2)", () => {
   });
 });
 
-describe("not-substituted-here (rule 4)", () => {
+describe("not-substituted-here (R2)", () => {
   it("flags %{var} in a top-level command", () => {
     const text = ["/set d=/script", "/load %{d}/ok.tf", ""].join("\n");
     expect(codes(text)).toContain("not-substituted-here");
@@ -327,7 +327,7 @@ describe("not-substituted-here (rule 4)", () => {
   });
 });
 
-describe("keyword-mid-statement (rule 5)", () => {
+describe("keyword-mid-statement (R3)", () => {
   it("flags /endif swallowed into a /let value", () => {
     const text = "/def tfsc_a = /if (1) /let v=1 /endif\n";
     expect(codes(text)).toContain("keyword-mid-statement");

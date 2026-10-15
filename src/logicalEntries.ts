@@ -9,8 +9,8 @@
  *    continuation is not broken; the comment line simply contributes nothing).
  *  - A line continues onto the next physical line when it ends in `\`, UNLESS the character
  *    before it is `%` (a literal `%\` is an escaped backslash, not continuation). This is a
- *    general file-reading rule, true for any top-level line, not only `/def` bodies — rule 3
- *    on scripting.md undersells this; verified 2026-10-11 with a plain `/if (1) \ ... /endif`
+ *    general file-reading rule, true for any top-level line, not only `/def` bodies — an early
+ *    version of the notes undersold this; verified 2026-10-11 with a plain `/if (1) \ ... /endif`
  *    spanning three lines at the top level, no `/def`, which loaded clean.
  *
  *

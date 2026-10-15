@@ -1,9 +1,39 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { OPTIONS } from "../src/args";
+import { check } from "../src/check";
 import { forCommandLine, OPTION_FOR_SETTING, SETTING_NAME } from "../src/settingNames";
+import { testHost } from "./fixtures";
+
+describe("tf's own text in a message", () => {
+  // Scripts whose tf text looks like a setting's name: a filename, a macro name and a /def name.
+  const dir = mkdtempSync(path.join(tmpdir(), "tfscript-names-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(path.join(dir, "tfrc"), "/load tfscript.variables\n/def -i caller = /tfscript.pathMappings\n/def bad in tfscript.homeDirectory\n");
+  const messages = check({ paths: ["tfrc"], settings: {}, cwd: dir }, testHost()).files.flatMap((f) => f.diagnostics.map((d) => d.message));
+
+  it("is left alone: quoted, or a /name", () => {
+    for (const needle of ['"tfscript.variables"', "/tfscript.pathMappings", '"bad in tfscript.homeDirectory"']) {
+      const named = messages.filter((m) => m.includes(needle));
+      expect(named, needle).toHaveLength(1);
+      expect(forCommandLine(named[0] as string)).toContain(needle);
+    }
+    // The setting the unresolved-load message itself names is still put as the option.
+    expect(messages.map(forCommandLine)).toContain('tf won\'t find "tfscript.variables": fix the path, or give --working-directory the folder tf runs in.');
+  });
+
+  it("is left alone beside a setting the message names", () => {
+    expect(forCommandLine('tf won\'t find "set tfscript.workingDirectory to x": fix the path, or set tfscript.workingDirectory to the folder tf runs in.')).toBe(
+      'tf won\'t find "set tfscript.workingDirectory to x": fix the path, or give --working-directory the folder tf runs in.',
+    );
+    expect(forCommandLine("tf won't find /x/tfscript.variables/a.tf or tfscript.variables.tf: in tfscript.variables.")).toBe(
+      "tf won't find /x/tfscript.variables/a.tf or tfscript.variables.tf: with --variable.",
+    );
+  });
+});
 
 const CORE_SRC = fileURLToPath(new URL("../../core/src/", import.meta.url));
 

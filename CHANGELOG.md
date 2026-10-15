@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Each diagnostic's code is a link to its entry in `docs/rules.md`, the rules of tf grouped by
+  where they come from (R1 Lines to R9 Load paths), each with the tf source and cases that prove
+  it and the fix. Hovering a diagnostic now ends with what its code means. Both come from one
+  table, `src/rules/table.ts`, which the README's rule table is generated from too.
 - `invalid-macro-name` replaces `reserved-macro-name`, and adds tf's "illegal macro name": a
   name starting with `#`, `@`, `!` or `/`, or holding a space or tab. tf reads the name up to the
   first `=`, so a `/def` whose `=` was left out (`/def greet /echo hi`) is one of these, and the fix

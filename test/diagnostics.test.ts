@@ -158,6 +158,14 @@ describe("not-substituted-here (rule 4)", () => {
     expect(found).toEqual(["keyword-needs-space"]);
   });
 
+  // s4/j5.tf: across a \ the split's edit can't reach past the \, and would leave it behind.
+  it("offers the split only with the next command on the same line", () => {
+    expect(getDiagnostics("/echo a%; /echo b\n")[0]?.fix?.title).toBe("Put the next command on a line of its own");
+    const [d] = getDiagnostics("/echo a%;\\\n/echo b\n");
+    expect(d?.code).toBe("not-substituted-here");
+    expect(d?.fix).toBeUndefined();
+  });
+
   // Review probes p1 (A4) and p2 (B1): the command after /quote's backquote is run as a macro body.
   it("reads /quote's backquoted command, and /at's command, as a macro body", () => {
     expect(codes("/quote -S -decho `/echo %{x}\n")).toEqual([]);

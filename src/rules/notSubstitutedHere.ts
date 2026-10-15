@@ -442,7 +442,9 @@ export const notSubstitutedHere: EntryRule = {
             title: `Give the /${st.viaEval.command} -son`,
             edits: [{ start: last.start, end: last.end, newText: last.whole ? "-son" : "son" }],
           };
-        } else {
+        } else if (entry.offsetMap[at]?.line === entry.offsetMap[next]?.line) {
+          // Only with the next command on the same line: across a \ the edit can't reach past the
+          // \, and would leave it behind (s4/j5.tf).
           match.fix = { title: "Put the next command on a line of its own", edits: [{ start: at, end: next, newText: "\n" }] };
         }
       }

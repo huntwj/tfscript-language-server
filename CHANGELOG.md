@@ -88,7 +88,8 @@
   file's commands define a macro of that name (`/def done:x` is one; a comment, an `/echo`'s text
   or a `/def` after the load aborts isn't). A keyword glued on by a line join (`/endif\` with a
   `/def` on the next line) gets two fixes, a `%;` before the `\` or removing it, the likelier one
-  first. `not-substituted-here` no longer notes the `%;` on a line starting `/if(`, and the
+  first and preferred; any other keyword glued on so (`/if\`) gets a space before the `\`. The
+  line joined on is the next one that isn't a comment, as tf reads it. `not-substituted-here` no longer notes the `%;` on a line starting `/if(`, and the
   undefined-macro check doesn't look for a macro named `if(1)`.
 - Fixes are offered where the text after them becomes a statement of its own, which tf sends to
   the world as it does text in a body: `block-structure`'s `%;` after an `/endif` before text,

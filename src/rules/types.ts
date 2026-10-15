@@ -38,7 +38,8 @@ export interface EntryRule {
   id: string;
   severity: Severity;
   scope: "entry";
-  check(entry: LogicalEntry): EntryMatch[];
+  /** `text` is the whole file, for a rule that needs to know what else it defines. */
+  check(entry: LogicalEntry, text: string): EntryMatch[];
 }
 
 /**

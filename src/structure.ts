@@ -53,6 +53,8 @@ export type StructureKind =
   | "condition-text"
   /** A keyword glued to what follows it (`/if(1)`), which tf reads as a command of that whole name. */
   | "glued"
+  /** A keyword glued to punctuation (`/endif;`, `/done:x`), which may also be a macro's name. */
+  | "glued-punct"
   /** A top-level /if or /while still open where its (joined) line ends. */
   | "continuation"
   /** A `%{...}`, `%-`, `${...}` or `$(...)` tf can't read (`varsub()`, `macsub()`, `cmdsub()`). */
@@ -460,6 +462,8 @@ class Parser {
   private readonly mids: MidKeyword[] = [];
   /** Every keyword glued to what follows it, with its issue, to note the problems it leads to on. */
   private readonly glued: { word: string; start: number; issue: StructureIssue }[] = [];
+  /** Every keyword glued to punctuation, which may be a macro's name (`/endif;`, `/done:x`). */
+  private readonly gluedPunct: { word: string; start: number }[] = [];
   /** Where the last `(condition)` ended (after its blanks), and the keyword it belongs to. */
   private conditionEnd: { at: number; keyword: string } | undefined;
   readonly issues: StructureIssue[] = [];
@@ -688,22 +692,25 @@ class Parser {
     // /else, /then and /do take no (condition): with a blank, `(1) ...` would be text sent to the
     // world (rev-s4 s10). /else( was likely meant as /elseif.
     const noCondition = next === "(" && (word === "else" || word === "then" || word === "do");
+    // Other punctuation may be part of a macro's name (`/def done:x`, `/def if!x`: rev-s4b g2), so
+    // that is glued-punct, which keyword-needs-space checks against the file's /defs.
+    const punct = next !== "(" && next !== "/";
     const advice = noCondition
       ? word === "else"
         ? `did you mean /elseif ${written.slice(nameEnd - start)}?`
         : `/${word} takes no (condition).`
-      : next === "(" || next === "/"
+      : !punct
         ? `put ${ends ? "%;" : "a space"} after /${word}.`
-        : `a keyword ends at a blank, so take the ${next} away or put a blank before it.`;
+        : `unless a macro named ${written.slice(1)} is defined elsewhere, take the ${next} away or put a blank before it.`;
     const issue: StructureIssue = {
-      kind: "glued",
+      kind: punct ? "glued-punct" : "glued",
       start,
       end: tokenEnd,
       message: `tf reads ${written} as ${named}, not as /${word}: ${advice}`,
       label: `not /${word}`,
       explanation:
         `tf reads a keyword up to the next blank, ${code("%")} or ${code(")")}, so ${code(written)} isn't ` +
-        `${code(`/${word}`)}: tf runs it as ${named}, and there is none. ` +
+        `${code(`/${word}`)}: tf runs it as ${named}${punct ? ", which is only there if some file defines it" : ", and there is none"}. ` +
         (noCondition
           ? `${code(`/${word}`)} takes no ${code("(condition)")}${word === "else" ? `: a branch with one is ${code("/elseif (...)")}` : ""}.`
           : ends
@@ -719,7 +726,10 @@ class Parser {
         : { title: `Put a space after /${word}`, edits: [{ start: nameEnd, end: nameEnd, newText: " " }] };
     }
     this.issues.push(issue);
-    this.glued.push({ word, start, issue });
+    // A name that may be a macro's is no cause to blame the problems after it on; but no "Add %;
+    // /endif" either, which would leave `/endif;` to fail when it runs (rev-s4 s09).
+    if (punct) this.gluedPunct.push({ word, start });
+    else this.glued.push({ word, start, issue });
   }
 
   /** A keyword swallowed by the statement it sits in, which leaves its block unfinished. */
@@ -968,8 +978,9 @@ class Parser {
     // send a blank line, and an empty /while loops forever.
     const body = (this.open[this.open.length - 1] as Open).body;
     const empty = body !== undefined && this.s.slice(body, this.i).trim() === "";
+    const gluedCloser = (word: string): boolean => this.gluedPunct.some((g) => g.word === word && g.start > start);
     const closer = (word: string): IssueFix | undefined =>
-      empty ? undefined : { title: `Add %; /${word} ${where}`, edits: [this.appendStatement(this.i, word)] };
+      empty || gluedCloser(word) ? undefined : { title: `Add %; /${word} ${where}`, edits: [this.appendStatement(this.i, word)] };
     const conditionList = (word: string, then: string): IssueDetail => ({
       message: `This /${word}'s condition list has no /${then}.`,
       label: `no /${then}`,

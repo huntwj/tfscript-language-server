@@ -150,7 +150,7 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
       for (const entry of usableEntries) {
         guarded(() => {
           const found: TfDiagnostic[] = [];
-          for (const match of rule.check(entry)) {
+          for (const match of rule.check(entry, text)) {
             const d = entryDiagnostic(entry, match, rule.id, rule.severity);
             if (d) found.push(d);
           }

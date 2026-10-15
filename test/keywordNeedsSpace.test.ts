@@ -69,11 +69,22 @@ describe("keyword-needs-space", () => {
     expect(e.fix).toBeUndefined();
   });
 
-  it("reads /endif; as one word, which leaves the /if open, and offers no fix", () => {
-    // tf: "expected /endif, found end"; an "Add %; /endif" would leave endif; to fail when it runs.
+  it("warns about /endif; as one word, which may be a macro's name, and offers no fix", () => {
+    // tf: "expected /endif, found end", which block-structure reports; an "Add %; /endif" would
+    // leave endif; to fail when it runs, so it has no fix.
     const found = all("/def s09 = /if (1) /echo a%; /endif;");
-    expect(found.map((d) => d.code)).toEqual([CODE]);
-    expect(found[0]?.message).toBe("tf reads /endif; as a command named endif;, not as /endif: a keyword ends at a blank, so take the ; away or put a blank before it.");
-    expect(found[0]?.fix).toBeUndefined();
+    expect(found.map((d) => `${d.code}:${d.severity}`)).toEqual(["block-structure:error", `${CODE}:warning`]);
+    expect(found.every((d) => d.fix === undefined)).toBe(true);
+    expect(found[1]?.message).toBe(
+      "tf reads /endif; as a command named endif;, not as /endif: unless a macro named endif; is defined elsewhere, take the ; away or put a blank before it.",
+    );
+  });
+
+  // Review of step 4 (rev-s4b g2), proven in tf: these are macros, and run.
+  it("leaves a keyword glued to punctuation alone where the file defines that macro", () => {
+    const text = "/def done:x = /echo a\n/def if!x = /echo b\n/def then? = /echo c\n/def g31 = /done:x%; /if!x%; /then?\n";
+    expect(getDiagnostics(text)).toEqual([]);
+    // With one @, tf looks for a builtin, which no /def makes.
+    expect(all("/def done:x = /echo a\n/def g = /@done:x").map((d) => d.code)).toEqual([CODE]);
   });
 });

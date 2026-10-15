@@ -380,7 +380,8 @@ export const notSubstitutedHere: EntryRule = {
       // A macro definition's options (an -E expression) and body are read later, their own way.
       if (!st || st.body !== undefined) continue;
       // `/if(1) ...%; /endif`: the %; would separate, but for the missing blank (keyword-needs-space's).
-      if (gluedKeywordAt(text, st.start)) continue;
+      const gluedAt = gluedKeywordAt(text, st.start);
+      if (gluedAt && (text[gluedAt.nameEnd] === "(" || text[gluedAt.nameEnd] === "/")) continue;
       let next = at + 2;
       while (next < st.end && isTfSpace(text[next])) next += 1;
       // A %; with nothing after it is a body line whose /def is missing (missing-continuation's case).

@@ -5,7 +5,8 @@ import { RULES } from "../src/rules";
 import { RULE_SECTIONS, codeHref, findCode, sectionSlug } from "../src/rules/table";
 
 const SRC = join(__dirname, "..", "src");
-const CASES_DIR = join(__dirname, "..", "..", "tests", "tfscript", "cases");
+// TFSCRIPT_CASES points at another checkout of the cases (a notes workspace with new ones).
+const CASES_DIR = process.env.TFSCRIPT_CASES ?? join(__dirname, "..", "..", "tests", "tfscript", "cases");
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -17,14 +18,16 @@ function sourceFiles(dir: string): string[] {
 /**
  * Every code the server can emit: each rule's id (diagnostics.ts reports a rule's matches under
  * it), and each code written out where a diagnostic is built by hand (`code: "x"`, or
- * `lineDiagnostic(match, "x", ...)` for not-a-command).
+ * `lineDiagnostic(match, "x", ...)` for not-a-command). Not in the table or its renderer, which
+ * name every code, so a code only they named would pass unnoticed.
  */
 function emittedCodes(): Set<string> {
   const codes = new Set<string>(RULES.map((r) => r.id));
-  for (const file of sourceFiles(SRC)) {
+  const skip = new Set([join(SRC, "rules", "table.ts"), join(SRC, "rules", "render.ts")]);
+  for (const file of sourceFiles(SRC).filter((f) => !skip.has(f))) {
     const text = readFileSync(file, "utf8");
-    for (const m of text.matchAll(/\bcode: "([a-z]+(?:-[a-z]+)+)"/g)) codes.add(m[1] as string);
-    for (const m of text.matchAll(/\blineDiagnostic\(\w+, "([a-z-]+)"/g)) codes.add(m[1] as string);
+    for (const m of text.matchAll(/\bcode: "([a-z0-9]+(?:-[a-z0-9]+)*)"/g)) codes.add(m[1] as string);
+    for (const m of text.matchAll(/\blineDiagnostic\(\w+, "([a-z0-9]+(?:-[a-z0-9]+)*)"/g)) codes.add(m[1] as string);
   }
   return codes;
 }
@@ -62,9 +65,10 @@ describe("the rule table", () => {
     }
   });
 
-  it("gives every section a statement, a source location and a fix", () => {
+  it("gives every section a statement, a case, a source location and a fix", () => {
     for (const s of RULE_SECTIONS) {
       expect(s.statement.length, s.id).toBeGreaterThan(0);
+      expect(s.cases.length, s.id).toBeGreaterThan(0);
       expect(s.fix.length, s.id).toBeGreaterThan(0);
       for (const ref of s.source) expect(ref.at, s.id).toMatch(/^[a-z]+\.[ch]:\d+(-\d+)?$/);
     }
@@ -75,6 +79,11 @@ describe("the rule table", () => {
       "https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#block-structure",
     );
     expect(sectionSlug(RULE_SECTIONS[1]!)).toBe("r2-substitution-level");
+  });
+
+  it("names each proof case once", () => {
+    const named = RULE_SECTIONS.flatMap((s) => s.cases);
+    expect(named.filter((c, k) => named.indexOf(c) !== k)).toEqual([]);
   });
 
   it.skipIf(!existsSync(CASES_DIR))("names only proof cases that exist", () => {

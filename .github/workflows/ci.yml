@@ -17,6 +17,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+      # The Claude Code plugin's bundles are committed (a plugin installs from git): they must
+      # match a fresh build of the sources.
+      - run: npm run bundle:claude-code:check
 
   vscode-extension:
     runs-on: ubuntu-latest

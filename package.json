@@ -21,7 +21,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:corpus-live": "npm run build && node scripts/check-corpus-live.js",
-    "docs:rules": "npm run build && node scripts/generate-rule-docs.js"
+    "docs:rules": "npm run build && node scripts/generate-rule-docs.js",
+    "bundle:claude-code": "node scripts/bundle-claude-code.js",
+    "bundle:claude-code:check": "node scripts/bundle-claude-code.js --check"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",

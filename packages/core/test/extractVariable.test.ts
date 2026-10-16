@@ -187,8 +187,8 @@ describe("extract to a local variable", () => {
       const at = (text: string, sub: string) => {
         const [a] = actions(text, sub);
         const out = apply(text, a?.edits ?? []).split("\n");
-        const p = a?.rename as { line: number; character: number };
-        return (out[p.line] ?? "").slice(p.character, p.character + 5);
+        const p = a?.rename?.at as { line: number; character: number };
+        return (out[p.line] ?? "").slice(p.character, p.character + (a?.rename?.name.length ?? 0));
       };
       expect(at("/def f = /echo $[a + 1]\n", "a + 1")).toBe("value");
       expect(at("/def f = /echo x%; $[a + 1]\n", "$[a + 1]")).toBe("value");

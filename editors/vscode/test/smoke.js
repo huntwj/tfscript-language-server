@@ -134,7 +134,8 @@ const timeout = setTimeout(() => {
     variable.command?.command === "tfscript.renameAt" &&
     variable.command.arguments?.[0] === varUri &&
     variable.command.arguments?.[1]?.line === 0 &&
-    variable.command.arguments?.[1]?.character === 14;
+    variable.command.arguments?.[1]?.character === 14 &&
+    variable.command.arguments?.[2] === "value";
   if (!ok) {
     console.error("Unexpected server behaviour. diagnostics:", JSON.stringify(diag.diagnostics));
     console.error("completion labels:", labels.length, "includes echo:", labels.includes("echo"));

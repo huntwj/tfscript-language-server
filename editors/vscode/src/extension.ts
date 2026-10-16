@@ -81,16 +81,26 @@ export function activate(context: vscode.ExtensionContext): void {
       },
     ),
     // After a code action that makes a name: put the cursor on it and start VS Code's rename,
-    // so the name can be typed straight away.
-    vscode.commands.registerCommand("tfscript.renameAt", async (uri: string, position: { line: number; character: number }) => {
-      const convert = client?.protocol2CodeConverter;
-      if (!convert) return;
-      const target = vscode.Uri.parse(uri);
-      const editor =
-        vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === target.toString()) ?? (await vscode.window.showTextDocument(target));
-      const at = convert.asPosition(position);
-      editor.selection = new vscode.Selection(at, at);
-      await vscode.commands.executeCommand("editor.action.rename");
+    // so the name can be typed straight away. In the focused editor when it shows the file, and
+    // only when the name is still there; the edit has been made either way, so any failure is
+    // just no rename.
+    vscode.commands.registerCommand("tfscript.renameAt", async (uri: string, position: { line: number; character: number }, name: string) => {
+      try {
+        const convert = client?.protocol2CodeConverter;
+        if (!convert || typeof name !== "string" || name === "") return;
+        const target = vscode.Uri.parse(uri).toString();
+        const active = vscode.window.activeTextEditor;
+        const editor =
+          (active?.document.uri.toString() === target ? active : undefined) ??
+          vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === target) ??
+          (await vscode.window.showTextDocument(vscode.Uri.parse(uri)));
+        const at = convert.asPosition(position);
+        if (editor.document.getText(new vscode.Range(at, at.translate(0, name.length))) !== name) return;
+        editor.selection = new vscode.Selection(at, at);
+        await vscode.commands.executeCommand("editor.action.rename");
+      } catch {
+        // No rename, then: the variable is there to rename by hand.
+      }
     }),
     vscode.window.onDidChangeActiveTextEditor(() => void refreshStatus(status)),
     vscode.workspace.onDidSaveTextDocument(() => void refreshStatus(status)),

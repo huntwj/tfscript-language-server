@@ -100,9 +100,9 @@ describe("routeCodeActions", () => {
 
     it("asks the client to rename the new name, when the client has a command for it", () => {
       const [action] = routeCodeActions(body, { range: sum, only: [REFACTOR_EXTRACT] });
-      expect(action?.rename).toEqual({ line: 0, character: 14 });
+      expect(action?.rename).toEqual({ at: { line: 0, character: 14 }, name: "value" });
       const lsp = toLspCodeAction(action as RoutedCodeAction, "file:///a.tf", (d) => d, "tfscript.renameAt");
-      expect(lsp.command).toEqual({ title: "Rename", command: "tfscript.renameAt", arguments: ["file:///a.tf", { line: 0, character: 14 }] });
+      expect(lsp.command).toEqual({ title: "Rename", command: "tfscript.renameAt", arguments: ["file:///a.tf", { line: 0, character: 14 }, "value"] });
       expect(lsp.edit?.changes["file:///a.tf"]).toEqual(action?.edits);
       // A client that names no command gets the edit alone; so does a disabled action.
       expect(toLspCodeAction(action as RoutedCodeAction, "file:///a.tf", (d) => d)).not.toHaveProperty("command");

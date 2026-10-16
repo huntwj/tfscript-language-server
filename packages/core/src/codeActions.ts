@@ -104,19 +104,20 @@ export interface RoutedCodeAction {
   preferred?: boolean;
   /** Why it can't run: shown greyed out, with this reason. */
   disabled?: string;
-  /** Where a name the action made is once its edits are applied, to rename it straight after. */
-  rename?: Position;
+  /** A name the action made, and where it is once its edits are applied, to rename it straight after. */
+  rename?: { at: Position; name: string };
 }
 
 /**
  * `action` as an LSP code action for the document at `uri`, its diagnostic converted with
  * `toDiagnostic`. With `renameCommand`, a command of the client's own (it names it in its
  * initializationOptions), an action that made a name also runs that command with the document's
- * URI and the name's position once its edit is applied, so the client can start a rename there.
+ * URI, the name's position once its edit is applied and the name, so the client can check the
+ * name is there and start a rename on it.
  * A client that names no such command gets the edit alone.
  */
 export function toLspCodeAction<D>(action: RoutedCodeAction, uri: string, toDiagnostic: (d: TfDiagnostic) => D, renameCommand?: string) {
-  const rename = action.disabled === undefined && renameCommand && action.rename ? { command: { title: "Rename", command: renameCommand, arguments: [uri, action.rename] } } : {};
+  const rename = action.disabled === undefined && renameCommand && action.rename ? { command: { title: "Rename", command: renameCommand, arguments: [uri, action.rename.at, action.rename.name] } } : {};
   return {
     title: action.title,
     kind: action.kind,

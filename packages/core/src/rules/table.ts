@@ -648,7 +648,8 @@ export const RULE_SECTIONS: RuleSection[] = [
           "says what to fix: the path, or the `tfscript` setting that tells this check where tf runs.",
         detail:
           "a `/load` or `/require`, in a file on the load path, whose file tf wouldn't find; (information) one built from " +
-          "something this check can't follow: a variable it doesn't know, a `~` with no home directory set, or `~user`. Turned off by " +
+          "something this check can't follow: a variable it doesn't know, a `~` with no home directory set, `~user`, or " +
+          "one of tf's library files with no library folder set (`tfscript.libraryPath`). Turned off by " +
           "`tfscript.diagnostics.unresolvedLoads`",
       },
       {

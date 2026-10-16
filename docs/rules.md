@@ -324,7 +324,7 @@ A call of a macro no loaded file defines prints "NAME: no such command or macro"
 
 **Warning (information where it can't follow the path).** tf won't find the file this `/load` or `/require` names, or this check can't follow the path. The message says what to fix: the path, or the `tfscript` setting that tells this check where tf runs.
 
-A `/load` or `/require`, in a file on the load path, whose file tf wouldn't find; (information) one built from something this check can't follow: a variable it doesn't know, a `~` with no home directory set, or `~user`. Turned off by `tfscript.diagnostics.unresolvedLoads`.
+A `/load` or `/require`, in a file on the load path, whose file tf wouldn't find; (information) one built from something this check can't follow: a variable it doesn't know, a `~` with no home directory set, `~user`, or one of tf's library files with no library folder set (`tfscript.libraryPath`). Turned off by `tfscript.diagnostics.unresolvedLoads`.
 
 ### undefined-macro
 

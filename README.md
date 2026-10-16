@@ -15,7 +15,8 @@ changes whitespace tf ignores, and refactorings that split a macro body onto sep
 join it onto one, extract some of its statements to a new macro, extract part of an
 expression to a local variable, or inline a macro's body where it is called. There is a VS Code
 extension (`editors/vscode/`) for syntax highlighting plus everything the server does; other editors can wire up the stdio server
-directly, and `tfscript check` reports the same diagnostics from the command line — see "Use".
+directly, `tfscript check` reports the same diagnostics from the command line, and a Claude Code
+plugin (`editors/claude-code/`) checks each tf script Claude edits — see "Use".
 
 ## Why every rule here is proven against real tf, not taken from the manual
 
@@ -215,6 +216,12 @@ under `tfscript`):
 | `diagnostics.ignoreMacros` | macro names `undefined-macro` leaves alone, ignoring case; `*` is a wildcard | none |
 | `format.splitStatements` | when formatting, put each `%;` statement of a macro body on its own line | on |
 
+Outside an editor, the same settings (less `codeLens` and `format`) can be kept in a
+`tfscript.json`, the keys without the `tfscript.` prefix and relative paths relative to its folder:
+`tfscript check` and the Claude Code plugin's hook read it. Its JSON schema is
+[schemas/tfscript.schema.json](schemas/tfscript.schema.json); the loader is
+`packages/core/src/workspace/configFile.ts`. The server doesn't read it yet.
+
 tf may be started more than one way — a tfrc per MUD or per character — and the same file can be
 loaded by several of them, seeing different macros in each. Each entry of `contexts` gets its own
 load path, and a file is seen through `activeContext` when that context loads it, else through
@@ -378,7 +385,8 @@ packages/core/            @tfscript/core: the analysis, with no LSP dependency
                           settings and their defaults), workspaceIndex.ts (per-folder graphs,
                           unsaved edits, library files) — see "Load paths" above;
                           documentDiagnostics.ts (a file's own diagnostics, then its load-path
-                          ones), nodeFileSystem.ts (reading files and walking folders on disk)
+                          ones), nodeFileSystem.ts (reading files and walking folders on disk),
+                          configFile.ts (tfscript.json: finding, checking and loading it)
     data/                commands, functions, special variables and selectors, with usage
                           synopses and descriptions — see "Command data" above
   test/
@@ -439,15 +447,23 @@ packages/cli/             @tfscript/cli: `tfscript check`, the server's diagnost
     args.ts              the options, as tfscript.* settings
     check.ts             each file's diagnostics, through core's workspace index
     format.ts            the human and JSON output
+    hook/                the Claude Code plugin's PostToolUse hook: which files it checks, the
+                          Terraform gate (terraform.ts), the root (root.ts), the report (report.ts)
   test/
     bin.test.ts          the built bin, end to end
     serverParity.test.ts  the built CLI and server report the same diagnostics and fixes
+    claudePlugin.test.ts  the plugin's manifests, and its bundled hook and server, end to end
 test-support/             what the server's and the CLI's tests share: a fixture workspace
                           (fixtures/ws, with a tf library in fixtures/tflib; fixtures/variants
-                          for unresolved loads of each kind) and lspClient.ts,
+                          for unresolved loads of each kind; fixtures/terraform and
+                          fixtures/claude-code for the hook) and lspClient.ts,
                           a minimal LSP client that drives the built server over stdio
 editors/vscode/           the VS Code extension, which bundles the server
+editors/claude-code/      the Claude Code plugin: hook, server and skill, with single-file bundles
+.claude-plugin/           marketplace.json, the marketplace that lists the plugin
+schemas/                  tfscript.schema.json, the JSON schema of tfscript.json
 scripts/
+  bundle-claude-code.js  builds the plugin's bundles (npm run bundle:claude-code; --check in CI)
   check-corpus-live.js  slow, Docker-backed: cross-checks this engine against real tf
                         (tf-script-check) for each configured corpus. Not part of `npm test`.
   extract-command-tables.js  regenerates packages/core/src/data/*.generated.ts from tinyfugue/; run by
@@ -528,8 +544,29 @@ node packages/cli/dist/cli.js check tfrc scripts/
 node packages/cli/dist/cli.js check --format json scripts/   # one JSON report, for tools
 ```
 
-The options, the exit status and the JSON shape are in `packages/cli/README.md`. The package is
-private for now; it isn't published to npm.
+The settings can also be kept in a `tfscript.json` (the `tfscript.*` settings without the prefix,
+paths relative to its folder), which `tfscript check` reads from the root or from `--config`; the
+options go over it. Its JSON schema is `schemas/tfscript.schema.json`.
+
+The options, the settings file, the exit status and the JSON shape are in `packages/cli/README.md`.
+The package is private for now; it isn't published to npm.
+
+### Claude Code
+
+The plugin in `editors/claude-code/` gives Claude Code the server's diagnostics while Claude edits
+tf scripts. After each Edit or Write of a `.tf` file, `tfrc` or `.tfrc`, a hook runs `tfscript
+check` on the file and tells Claude about its errors and warnings (it never changes the file, and
+skips Terraform `.tf` files). The bundled language server gives Claude navigation and hover, with
+its diagnostics off, and the plugin carries the tf-scripting skill. Everything runs locally from
+files bundled in the plugin; it needs only Node.js. In Claude Code:
+
+```
+/plugin marketplace add huntwj/tfscript-language-server
+/plugin install tfscript@tfscript-language-server
+```
+
+What it reports, how it picks the folder to check from, and its `claudeCode` settings in
+`tfscript.json` are in `editors/claude-code/README.md`.
 
 ### Testing against real scripts
 

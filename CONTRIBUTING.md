@@ -42,6 +42,11 @@ from a plain clone of this repo. If you have a case you believe is real tf behav
   (`packages/core/test/ruleTable.test.ts` fails otherwise). Then run `npm run docs:rules`, which
   regenerates `docs/rules.md`, the README's rule table and the files under `docs/generated/`
   (`packages/core/test/ruleDocs.test.ts` fails while they are out of date).
+- The Claude Code plugin (`editors/claude-code`) carries the command line, the server and its hook
+  (`packages/cli/src/hook/`) as single-file bundles, committed because a plugin installs from git.
+  After changing any of their sources (core included), run `npm run bundle:claude-code` and commit
+  the bundles with the change; CI runs `npm run bundle:claude-code:check`, which fails while they
+  are out of date.
 - `scripts/check-corpus-live.js` and `scripts/extract-command-tables.js` only run inside the
   maintainer's own workspace layout (a sibling private notes checkout, Docker, `uv`) — you
   don't need either of them to contribute; they're documented for transparency about how

@@ -4,12 +4,16 @@
 
 - "Extract to a local variable" (`refactor.extract`): computes the selected part of an expression
   in a macro body in `/let value=%; /test value:=(...)` just before its statement, and reads it
-  back as `{value}`, or `%{value}` for a whole `$[...]` in substituted text. An assignment keeps
+  back as `{value}`, or `%{value}` for a whole `$[...]` in substituted text (`$[{value}]` after a
+  `%`). In VS Code the rename box then opens on the new name: the action carries the extension's
+  `tfscript.renameAt` command, which the server adds only for a client that names it in its
+  `renameCommand` initialization option. An assignment keeps
   the value's type, where `/let value=$[...]` would turn a real into text with fewer digits. It
   is shown disabled, with the reason, where the result could differ: a side effect in the
   selection or before it in its statement, a selection only evaluated some of the time (`&`, `|`, `?:`, a
   default, an `/elseif` or `/while` condition), a `%`, `$` or `\` the `/test` would substitute
-  again, `%?` read where the new statements change it, `whatis()`, a call with the wrong number of
+  again, `%?` read where the new statements change it, a variable tf assigns to (`x` in `x := 5`,
+  `++x` or `tfread(fh, x)`), `whatis()`, a call with the wrong number of
   arguments, and two tf bugs (a true `? :` whose value is used crashes tf in a macro body, and a
   `,` in a `$[...]` in command text drops the text before it).
 - `tfscript check`, a command line checker (`packages/cli`, `@tfscript/cli`, not yet published):

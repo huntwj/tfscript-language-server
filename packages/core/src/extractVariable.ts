@@ -54,7 +54,11 @@ import { findFunctionCalls, findMacroCalls, SPECIAL_VARIABLE_NAMES } from "./var
  *    (`id:float` for `float`); nothing else tells them apart (an assignment, `$[...]`, a
  *    `/return` and a macro's arguments all take the value). Refused as `whatis()`'s argument.
  *  - The new local shadows any global of its name for the rest of the macro and what it calls, so
- *    its name, `value` (or `value2` and on), is one no file that can be seen mentions.
+ *    its name, `value` (or `value2` and on), is one no file that can be seen mentions. A global
+ *    set where no file shows it (typed at tf's prompt, or by a file the workspace doesn't index)
+ *    isn't known: then the macro reads the local, as intended, but tf runs the SHADOW hook each
+ *    time it runs, which by default warns that the local variable overshadows the global. The
+ *    rename offered after the edit is the way to pick another name.
  *
  * A `/let` lasts for the rest of the macro body it runs in, and no longer: at the top level its
  * variable was gone by the next command, and so was one made in a `/repeat` or `/for` text; one

@@ -781,13 +781,23 @@ before the statement it is in, and reads the variable back in its place:
 The selection can be part of an `/if` condition, or the whole of one (with or without its
 parentheses), an operand in a `$[...]`, or part of the text of a `/test`, `/return` or `/result`;
 the reference is then `{value}`. A whole `$[...]` in text tf substitutes (a command's arguments, or
-a `/test`'s text) becomes `%{value}`. It has to be one whole operand as tf groups it (in
+a `/test`'s text) becomes `%{value}`, or `$[{value}]` right after a `%` (where `%{value}` would
+make `%%{value}`, an escaped `%`: in tf, `50%$[1 + 2]` printed `50%{value}`, and `$[{value}]` printed
+`50%3` after one, two or three `%`s). It has to be one whole operand as tf groups it (in
 `a - b - c`, `a - b` but not `b - c`); blanks at its ends are dropped. The new statements go on
 the statement's line, or, when the statement starts a line of a body written over several, on
 lines of their own, indented like it and ending as the body's lines do. The variable is
 `value`, or `value2` and on when the file, or another file the workspace can see, mentions that
-word; rename it afterwards like any other local. Where it can't be done safely it is offered
-disabled, with the reason.
+word. In VS Code, the rename box then opens on the new name, so you can type the one you want
+(the action carries a command of the extension's, `tfscript.renameAt`, which the server only
+adds for a client that names it in its `renameCommand` initialization option; any other client
+gets the edit alone, and can rename the variable like any other local). Where it can't be done
+safely it is offered disabled, with the reason.
+
+A global of the same name that no file the workspace can see sets (one typed at tf's prompt, or
+set by a file outside it) isn't known. The macro still reads its own local, as intended, but tf
+then runs the `SHADOW` hook every time the macro runs, which by default prints a warning that
+the local variable overshadows the global: rename the variable when that happens.
 
 Why `/let value=%; /test value:=(...)` and not `/let value=$[...]`, proven in real tf
 (tf-script-check, 2026-10-15): `$[...]` makes the value text, so a real loses digits (from `1/3.0`,
@@ -821,6 +831,10 @@ When it is disabled, each checked in tf where the reason is a behaviour:
   and for an `/if`, neither may the first statement of each branch nor, when no branch may run,
   the statement after it, which must be there: an `/if` whose branch doesn't run leaves `%?` as
   it was (a macro ending in one returned the `/test`'s value instead of the one before);
+- a variable tf assigns to: the target of `:=`, `+=` and the like (in parentheses too), the
+  operand of `++` or `--`, and the variable `tfread()` reads into. `{value}` compiles as the name
+  `value` does, so the rewrite would assign `value` instead (in tf, `x := 5` with `x` extracted
+  left `x` as it was);
 - `whatis()` of the selection, which says `id:float` of the variable where it said `float`;
 - a `? :` in the selection, and a `,` in a `$[...]` in command text: two bugs of tf's, found
   here. In a macro body, a `? :` whose condition is true and whose value is used (in `$[...]`,
@@ -829,7 +843,7 @@ When it is disabled, each checked in tf where the reason is a behaviour:
 - a `%|` or `%\` before the statement, a tab in the selection, or comment lines inside it.
 
 It isn't offered in an `/alias`, at the top level, or in a file with CRLF line endings. Over tf's
-library and the WoTMUD scripts, of the 2,191 sub-expressions in macro bodies, 847 can be
+library and the WoTMUD scripts, of the 2,191 sub-expressions in macro bodies, 806 can be
 extracted and the rest are disabled with a reason (most often a side effect in the selection,
 175, or a branch of `?:`, 117); none of the extractions adds a diagnostic. Twenty-eight rewrites
 covering each context (a condition, `$[...]` in text, `%{value}`, `/test`, `/return` and `/result`,

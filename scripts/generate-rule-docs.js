@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Writes the docs generated from the rule table (packages/core/src/rules/table.ts): docs/rules.md, the README's
- * rule table, and the notes page's rule list and the tf-scripting skill under docs/generated/.
+ * rule table, the notes page's rule list and the tf-scripting skill under docs/generated/, and the
+ * Claude Code plugin's copy of the skill (editors/claude-code/skills/tf-scripting/SKILL.md).
  * Run `npm run docs:rules` (it builds first, as this reads core's dist/) after changing the table;
  * packages/core/test/ruleDocs.test.ts fails while a checked-in copy is out of date.
  */

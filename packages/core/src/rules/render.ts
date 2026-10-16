@@ -161,5 +161,7 @@ export function generatedFiles(): Record<string, string> {
     "docs/rules.md": renderRulesDoc(),
     "docs/generated/scripting-rules.md": renderNotesRules(),
     "docs/generated/tf-scripting-skill.md": renderSkill(),
+    // The Claude Code plugin's copy, at the path a plugin's skills are loaded from.
+    "editors/claude-code/skills/tf-scripting/SKILL.md": renderSkill(),
   };
 }

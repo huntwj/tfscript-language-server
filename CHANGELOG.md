@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- A Claude Code plugin, `editors/claude-code`, listed in the repo's marketplace
+  (`/plugin marketplace add huntwj/tfscript-language-server`, then
+  `/plugin install tfscript@tfscript-language-server`). After each Edit or Write of a `.tf` file,
+  `tfrc` or `.tfrc`, a PostToolUse hook runs `tfscript check` on the file and tells Claude what it
+  found: every error (as a block on the edit), the first 20 warnings with a count of the rest, and
+  information notes only if a `tfscript.json` asks for them, each with the titles of its fixes. It
+  never changes a file, says nothing for a clean one, and skips a `.tf` file that is Terraform (a
+  `.terraform` folder, `.terraform.lock.hcl`, `*.tfvars` or `*.tf.json` beside it, or a top-level
+  Terraform block in it). It checks from the folder of the nearest `tfscript.json`, else the
+  project folder, else the file's own folder, and gives up with a short notice after 10 seconds.
+  The plugin also registers the language server for `.tf` files, with its diagnostics off, for
+  navigation and hover, and carries the tf-scripting skill. Everything runs locally from single-file
+  bundles in the plugin (`npm run bundle:claude-code`; CI checks they match the sources).
+- `tfscript.json`: the `tfscript.*` settings in a file, without the prefix, with relative paths
+  relative to its folder, and a `claudeCode` section for the Claude Code hook. `tfscript check` reads
+  the root's, or the one `--config` names (its folder then the root, unless `--root` is given), with
+  the options over it. A bad file is reported with what is wrong and how to fix it, and nothing is
+  checked (exit 2). Its JSON schema is `schemas/tfscript.schema.json`. The server doesn't read it yet.
 - `unresolved-load` on one of tf's own library files (`/load alias.tf`, any of the `.tf` files tf
   installs) when no library folder is known (no `tfscript.libraryPath`, no `TFLIBDIR`, and an
   empty TFPATH) is now a note asking for `tfscript.libraryPath`, rather than a warning to set

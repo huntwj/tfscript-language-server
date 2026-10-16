@@ -45,8 +45,11 @@ describe("unresolved-load", () => {
     const alias = found.find((d) => d.code === "undefined-macro");
     expect(load).toMatchObject({ code: "unresolved-load", severity: "information", label: "can't follow" });
     expect(load?.message).toBe(
-      "tf's library isn't known here, and alias.tf is one of its files: set tfscript.libraryPath to the folder that holds stdlib.tf.",
+      "tf's library isn't known here, and \"alias.tf\" is one of its files: set tfscript.libraryPath to the folder that holds stdlib.tf.",
     );
+    // tf finds ./alias.tf in TFLIBDIR too.
+    const dotted = check({ [p("tfrc")]: "/load ./alias.tf\n" }, p("tfrc"));
+    expect(dotted).toMatchObject([{ severity: "information", label: "can't follow" }]);
     // A macro that file would define is then only a note, naming the load.
     expect(alias).toMatchObject({ code: "undefined-macro", severity: "information" });
     expect(alias?.message).toContain("the load of alias.tf (tfrc line 1) can't be followed");
@@ -61,6 +64,9 @@ describe("unresolved-load", () => {
       const graph = buildLoadGraph({ entryFiles: [p("tfrc")], workingDir: p("cwd"), readFile, ...where });
       expect(missing(graph)).toMatchObject([{ severity: "warning", message: expect.stringMatching(/^tf won't find "alias.tf"/) }]);
     }
+    // A script's own empty TFLIBDIR leaves tf nowhere to look (command.c:530-534).
+    const emptied = check({ [p("tfrc")]: "/set TFLIBDIR=\n/load alias.tf\n" }, p("tfrc"));
+    expect(emptied).toMatchObject([{ severity: "warning", message: expect.stringMatching(/^tf won't find "alias.tf"/) }]);
   });
 
   it("gives working-directory advice only for a relative path, which is the only kind tf searches", () => {

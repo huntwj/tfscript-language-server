@@ -202,6 +202,16 @@ export interface LoadPathEnvironment {
 }
 
 /**
+ * Whether tf would find relative path `file` among the files it installs in TFLIBDIR: a library
+ * file's name, maybe after `./`, in any case where file names ignore it (Windows).
+ */
+function isLibraryFile(file: string): boolean {
+  const name = file.replace(/^(?:\.\/)+/, "");
+  const fold = (s: string) => (process.platform === "win32" ? s.toLowerCase() : s);
+  return LIBRARY_FILES.some((f) => fold(f) === fold(name));
+}
+
+/**
  * Where tf finds the file `/load file` names (rules in the header comment), and every place it
  * tries, as files here: an absolute path tf would open (the file's, a TFPATH or TFLIBDIR entry,
  * HOME) goes through the path mappings first, unless it came from the settings.
@@ -344,7 +354,9 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
       const user = /^~([^/]+)/.exec(file)?.[1];
       if (user) return fail("user-home", `~${user} is user ${user}'s home directory, unless there is no such user`, searched);
       // tf would look in TFLIBDIR next, which may well hold it: this check just doesn't know where that is.
-      if (LIBRARY_FILES.includes(file) && !vars.get("TFLIBDIR") && !vars.get("TFPATH")) {
+      // Only while TFLIBDIR is still the settings' (empty) one: a script's own /set TFLIBDIR= really
+      // leaves tf nowhere to look (command.c:530-534).
+      if (isLibraryFile(file) && !vars.get("TFLIBDIR") && local.has("TFLIBDIR") && !vars.get("TFPATH")) {
         return fail("unknown-library", "tf's library folder isn't known here", searched);
       }
       return fail("not-found", "file not found", searched);

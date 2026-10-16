@@ -277,7 +277,7 @@ function unresolvedDetail(u: UnresolvedLoad): Pick<TfDiagnostic, "message" | "la
   }
   if (u.kind === "unknown-library") {
     return {
-      message: `tf's library isn't known here, and ${u.file} is one of its files: set tfscript.libraryPath to the folder that holds stdlib.tf.`,
+      message: `tf's library isn't known here, and "${u.file}" is one of its files: set tfscript.libraryPath to the folder that holds stdlib.tf.`,
       label: "can't follow",
       explanation:
         `tf looks for a relative path in its current directory, then in ${code("TFLIBDIR")} (when ${code("TFPATH")} is empty), ` +

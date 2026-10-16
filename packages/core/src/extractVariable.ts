@@ -212,15 +212,25 @@ function plan(text: string, entry: LogicalEntry, range: Range, options: ExtractV
       return { disabled: `The selection is ${where}, which tf only evaluates some of the time, but the /let before the statement would evaluate it every time: select the whole condition instead.` };
     }
   }
-  // `{value}` is a variable, which only whatis() tells from a value (it gave `id:float` for
-  // `float`): refused where the selection's value reaches it unchanged.
+  // `{value}` compiles as the name `value` does: where tf wants a variable rather than a value
+  // (an assignment's target, the operand of `++` or `--`, tfread()'s last argument), the rewrite
+  // would assign `value` instead (in tf, `x := 5` with x selected left x as it was), and
+  // whatis() says `id:` before its type (`id:float` for `float`). Refused where the selection
+  // reaches one of those, through parentheses, a `,` or a `?:`.
   for (let k = path.length - 1; k > 0; k -= 1) {
     const parent = path[k - 1] as ExprNode;
+    const child = path[k] as ExprNode;
+    if ((parent.kind === "assign" && parent.left === child) || (parent.kind === "prefix" && (parent.op === "++" || parent.op === "--"))) {
+      return { disabled: "The selection is the variable this assigns to, which can't be replaced by another: select the value instead." };
+    }
     if (parent.kind === "call") {
+      if (parent.name === "tfread" && parent.args[parent.args.length - 1] === child) {
+        return { disabled: "The selection is the variable tfread() reads into, which can't be replaced by another: it can't be extracted." };
+      }
       if (parent.name === "whatis") return { disabled: "whatis() would see a variable in place of the selection's value, and say id: before its type: it can't be extracted." };
       break;
     }
-    const passes = parent.kind === "paren" || parent.kind === "bracket" || parent.kind === "conditional" || (parent.kind === "binary" && parent.op === "," && parent.right === path[k]);
+    const passes = parent.kind === "paren" || parent.kind === "bracket" || parent.kind === "conditional" || (parent.kind === "binary" && parent.op === "," && parent.right === child);
     if (!passes) break;
   }
   // A $[...] in substituted text: tf drops the text before it when it holds a `,`.

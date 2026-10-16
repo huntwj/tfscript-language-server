@@ -277,6 +277,22 @@ describe("extract to a local variable", () => {
       expect(extract("/def f = /echo $[whatis(1 / 3.0 + 1)]\n", "1 / 3.0")).toBe("/def f = /let value=%; /test value:=(1 / 3.0)%; /echo $[whatis({value} + 1)]\n");
     });
 
+    it("refuses a variable tf assigns to, which {value} would replace with another", () => {
+      const target = /^The selection is the variable this assigns to/;
+      expect(reason("/def f = /test x := 5\n", "x")).toMatch(target);
+      expect(reason("/def f = /test x += 2\n", "x")).toMatch(target);
+      expect(reason("/def f = /test ++x\n", "x")).toMatch(target);
+      expect(reason("/def f = /test --x\n", "x")).toMatch(target);
+      expect(reason("/def f = /echo $[x := 7]\n", "x")).toMatch(target);
+      expect(reason("/def f = /test (x) := 9\n", "(x)")).toMatch(target);
+      expect(reason("/def f = /test (x) := 9\n", "x")).toMatch(target);
+      expect(reason("/def f = /test tfread(fh, line)\n", "line")).toMatch(/^The selection is the variable tfread\(\) reads into/);
+      expect(reason("/def f = /test tfread(line)\n", "line")).toMatch(/^The selection is the variable tfread\(\) reads into/);
+      // The value assigned is fine, and so is tfread()'s handle.
+      expect(extract("/def f = /test x := y + 1\n", "y + 1")).toBe("/def f = /let value=%; /test value:=(y + 1)%; /test x := {value}\n");
+      expect(extract("/def f = /test tfread(fh + 0, line)\n", "fh + 0")).toBe("/def f = /let value=%; /test value:=(fh + 0)%; /test tfread({value}, line)\n");
+    });
+
     it("refuses a statement tied to the one before by %|", () => {
       expect(reason("/def f = /echo a %| /echo $[x + 1]\n", "x + 1")).toMatch(/^A %\| or %\\ ties this statement/);
     });

@@ -4158,6 +4158,55 @@ function documentDiagnostics(text, file, index) {
 // packages/core/src/workspace/loadGraph.ts
 var path3 = __toESM(require("node:path"));
 
+// packages/core/src/data/libraryFiles.generated.ts
+var LIBRARY_FILES = [
+  "activity_status.tf",
+  "activity_status2.tf",
+  "alias.tf",
+  "at.tf",
+  "changes.tf",
+  "color.tf",
+  "complete.tf",
+  "cylon.tf",
+  "factoral.tf",
+  "filexfer.tf",
+  "finger.tf",
+  "grep.tf",
+  "hanoi.tf",
+  "kb-bash.tf",
+  "kb-emacs.tf",
+  "kb-old.tf",
+  "kb_badterm.tf",
+  "kbbind.tf",
+  "kbfunc.tf",
+  "kbregion.tf",
+  "kbstack.tf",
+  "lisp.tf",
+  "local-eg.tf",
+  "map.tf",
+  "pcmd.tf",
+  "psh.tf",
+  "quoter.tf",
+  "relog.tf",
+  "rwho.tf",
+  "savehist.tf",
+  "spc-page.tf",
+  "spedwalk.tf",
+  "spell.tf",
+  "stack-q.tf",
+  "stdlib.tf",
+  "testcolor.tf",
+  "textencode.tf",
+  "textutil.tf",
+  "tfstatus.tf",
+  "tick.tf",
+  "tintin.tf",
+  "tools.tf",
+  "tr.tf",
+  "watch.tf",
+  "world-q.tf"
+];
+
 // packages/core/src/workspace/settings.ts
 var path2 = __toESM(require("node:path"));
 function toLocalPath(p, mappings) {
@@ -4248,6 +4297,11 @@ function expandVariables(text, vars) {
     }
   );
   return missing ? { ok: false, reason: `%{${missing}} is not set to literal text on this load path`, variable: missing } : { ok: true, value };
+}
+function isLibraryFile(file) {
+  const name = file.replace(/^(?:\.\/)+/, "");
+  const fold = (s) => process.platform === "win32" ? s.toLowerCase() : s;
+  return LIBRARY_FILES.some((f) => fold(f) === fold(name));
 }
 function resolveLoadPath(file, env) {
   const mappings = env.pathMappings ?? [];
@@ -4355,6 +4409,9 @@ function buildLoadGraph(options) {
       if (namesVariable && !load.pending.includes("full")) return fail("not-substituted", "this path is not substituted here; prefix the command with /eval", searched);
       const user = /^~([^/]+)/.exec(file)?.[1];
       if (user) return fail("user-home", `~${user} is user ${user}'s home directory, unless there is no such user`, searched);
+      if (isLibraryFile(file) && !vars.get("TFLIBDIR") && local.has("TFLIBDIR") && !vars.get("TFPATH")) {
+        return fail("unknown-library", "tf's library folder isn't known here", searched);
+      }
       return fail("not-found", "file not found", searched);
     }
     resolved.push({ from, line, offset: load.start, raw, file: path3.resolve(found), kind: load.kind });
@@ -7016,7 +7073,9 @@ function defines(defs, name) {
   return defs.names.has(name) || defs.prefixes.some((p) => name.startsWith(p));
 }
 function unfollowedOnPath(graph, label = (f) => path5.basename(f)) {
-  return graph.unresolved.filter((u) => u.kind === "unknown-variable" || u.kind === "guarded-variable" || u.kind === "user-home" || u.searched.some(isForeignPath)).map((u) => ({ raw: u.raw, label: label(u.from), line: u.line }));
+  return graph.unresolved.filter(
+    (u) => u.kind === "unknown-variable" || u.kind === "guarded-variable" || u.kind === "user-home" || u.kind === "unknown-library" || u.searched.some(isForeignPath)
+  ).map((u) => ({ raw: u.raw, label: label(u.from), line: u.line }));
 }
 function onPathNames(graph, file, ownText, namesOf) {
   const names = new Map([...COMMAND_NAMES2].map((n) => [n, n]));
@@ -7135,6 +7194,13 @@ function unresolvedDetail(u) {
       message: `This load can't be followed here, since ~${user} depends on whether user ${user} exists: write the full path to have it checked.`,
       label: "can't follow",
       explanation: `tf takes ${code(`~${user}`)} from user ${code(user)}'s home directory, or, if there is no such user, as a folder named ${code(`~${user}`)} in its current directory. ${userHomeExplanation(u)}`
+    };
+  }
+  if (u.kind === "unknown-library") {
+    return {
+      message: `tf's library isn't known here, and "${u.file}" is one of its files: set tfscript.libraryPath to the folder that holds stdlib.tf.`,
+      label: "can't follow",
+      explanation: `tf looks for a relative path in its current directory, then in ${code("TFLIBDIR")} (when ${code("TFPATH")} is empty), where ${code(u.file)} is installed with tf. This check takes ${code("TFLIBDIR")} from ${code("tfscript.libraryPath")}, or the ${code("TFLIBDIR")} environment variable, and neither is set.`
     };
   }
   const shown = u.file === u.raw ? `"${u.raw}"` : `"${u.raw}" (${u.file})`;
@@ -8422,7 +8488,7 @@ var RULE_SECTIONS = [
         code: "unresolved-load",
         severity: "warning (information where it can't follow the path)",
         summary: "tf won't find the file this `/load` or `/require` names, or this check can't follow the path. The message says what to fix: the path, or the `tfscript` setting that tells this check where tf runs.",
-        detail: "a `/load` or `/require`, in a file on the load path, whose file tf wouldn't find; (information) one built from something this check can't follow: a variable it doesn't know, a `~` with no home directory set, or `~user`. Turned off by `tfscript.diagnostics.unresolvedLoads`"
+        detail: "a `/load` or `/require`, in a file on the load path, whose file tf wouldn't find; (information) one built from something this check can't follow: a variable it doesn't know, a `~` with no home directory set, `~user`, or one of tf's library files with no library folder set (`tfscript.libraryPath`). Turned off by `tfscript.diagnostics.unresolvedLoads`"
       },
       {
         code: "undefined-macro",

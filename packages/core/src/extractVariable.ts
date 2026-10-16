@@ -358,7 +358,9 @@ function plan(text: string, entry: LogicalEntry, range: Range, options: ExtractV
   const spacing = /%;( *)\\\s*$/.exec(lines.slice(entry.startLine, entry.endLine + 1).find((l) => /%;( *)\\\s*$/.test(l)) ?? "")?.[1] ?? "";
   const statements = [`/let ${name}=`, `/test ${name}:=(${value})`];
   const inserted = ownLine ? statements.map((st) => `${st}%;${spacing}\\\n${lead}`).join("") : statements.map((st) => `${st}%; `).join("");
-  const ref = reference === "text" ? `%{${name}}` : `{${name}}`;
+  // After a `%`, `%{value}` would make `%%{value}`, an escaped `%` and the text `{value}` (in tf,
+  // `50%$[1 + 2]` printed `50%{value}`); `$[{value}]` printed `50%3` after one, two or three `%`s.
+  const ref = reference === "text" ? (s[from - 1] === "%" ? `$[{${name}}]` : `%{${name}}`) : `{${name}}`;
   const selRange = { start: selStart, end: { line: selLast.line, character: selLast.character + 1 } };
   const edits: TfTextEdit[] =
     compare(holderPos, selStart) === 0

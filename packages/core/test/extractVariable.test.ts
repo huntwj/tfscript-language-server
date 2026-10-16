@@ -158,6 +158,12 @@ describe("extract to a local variable", () => {
       expect(extract(text, "a + \\\n    b")).toBe(["/def f = /let value=%; /test value:=(a + b)%; /echo $[{value}]", ""].join("\n"));
     });
 
+    it("keeps a whole $[...] after a % as $[...], where %{value} would make an escaped %", () => {
+      expect(extract("/def f = /echo 50%$[1 + 2] x\n", "$[1 + 2]")).toBe("/def f = /let value=%; /test value:=(1 + 2)%; /echo 50%$[{value}] x\n");
+      expect(extract("/def f = /echo 50%%$[1 + 2] x\n", "$[1 + 2]")).toBe("/def f = /let value=%; /test value:=(1 + 2)%; /echo 50%%$[{value}] x\n");
+      expect(extract("/def f = /echo 50%%%$[1 + 2] x\n", "$[1 + 2]")).toBe("/def f = /let value=%; /test value:=(1 + 2)%; /echo 50%%%$[{value}] x\n");
+    });
+
     it("joins the statements and the reference when the statement starts with the selection", () => {
       const text = "/def f = /echo x%; $[a + 1]\n";
       expect(extract(text, "$[a + 1]")).toBe("/def f = /echo x%; /let value=%; /test value:=(a + 1)%; %{value}\n");

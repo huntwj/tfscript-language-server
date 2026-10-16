@@ -311,6 +311,24 @@ describe("extract to a local variable", () => {
       expect(extract("/def f = /test tfread(fh + 0, line)\n", "fh + 0")).toBe("/def f = /let value=%; /test value:=(fh + 0)%; /test tfread({value}, line)\n");
     });
 
+    it("follows the target through | and &, which hand on the operand that decided them", () => {
+      const target = /^The selection is the variable this assigns to/;
+      expect(reason("/def f = /test x | y := 5\n", "x")).toMatch(target);
+      expect(reason("/def f = /test x & y := 5\n", "x")).toMatch(target);
+      expect(reason("/def f = /test (x & y) := 5\n", "x")).toMatch(target);
+      expect(reason("/def f = /test (y, x | y) := 5\n", "x")).toMatch(target);
+      expect(reason("/def f = /test x | y += 5\n", "x")).toMatch(target);
+      expect(reason("/def f = /test ++(x | y)\n", "x")).toMatch(target);
+      expect(reason("/def f = /test x ?: y := 5\n", "x")).toMatch(target);
+      expect(reason("/def f = /test tfread(fh, line | y)\n", "line")).toMatch(/^The selection is the variable tfread\(\) reads into/);
+      expect(reason("/def f = /echo $[whatis(x | y)]\n", "x")).toMatch(/^whatis\(\) would see a variable/);
+    });
+
+    it("lets the condition of a ? : through, as the branch it picks is what is assigned or seen", () => {
+      expect(extract("/def f = /test k ? y : z := 9\n", "k")).toBe("/def f = /let value=%; /test value:=(k)%; /test {value} ? y : z := 9\n");
+      expect(extract("/def f = /echo $[whatis(k ? y : z)]\n", "k")).toBe("/def f = /let value=%; /test value:=(k)%; /echo $[whatis({value} ? y : z)]\n");
+    });
+
     it("refuses in a body tf can't compile, which never runs", () => {
       expect(reason("/def f = /echo $[010 + 1] $[0x10 + 1]\n", "010")).toBe("This macro has an expression tf can't compile, so it never runs: fix that first.");
       expect(reason("/def f = /if (a + 1 > 2) /echo y%; /else /echo $[b c]%; /endif\n", "a + 1")).toMatch(/^This macro has an expression tf can't compile/);

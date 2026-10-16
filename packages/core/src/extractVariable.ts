@@ -232,7 +232,10 @@ function plan(text: string, entry: LogicalEntry, range: Range, options: ExtractV
   // (an assignment's target, the operand of `++` or `--`, tfread()'s last argument), the rewrite
   // would assign `value` instead (in tf, `x := 5` with x selected left x as it was), and
   // whatis() says `id:` before its type (`id:float` for `float`). Refused where the selection
-  // reaches one of those, through parentheses, a `,` or a `?:`.
+  // reaches one of those through an operator that hands on an operand itself: parentheses, the
+  // right of a `,`, a branch of `?:` (and the condition of `x ?: y`, which is its value), and
+  // either side of `|` and `&`, which leave the operand that decided them on the stack (expr.c's
+  // DUP shares the Value: in tf, `x | y := 5` assigned x when x was 1).
   for (let k = path.length - 1; k > 0; k -= 1) {
     const parent = path[k - 1] as ExprNode;
     const child = path[k] as ExprNode;
@@ -246,7 +249,11 @@ function plan(text: string, entry: LogicalEntry, range: Range, options: ExtractV
       if (parent.name === "whatis") return { disabled: "whatis() would see a variable in place of the selection's value, and say id: before its type: it can't be extracted." };
       break;
     }
-    const passes = parent.kind === "paren" || parent.kind === "bracket" || parent.kind === "conditional" || (parent.kind === "binary" && parent.op === "," && parent.right === child);
+    const passes =
+      parent.kind === "paren" ||
+      parent.kind === "bracket" ||
+      (parent.kind === "conditional" && (child !== parent.test || parent.then === undefined)) ||
+      (parent.kind === "binary" && (parent.op === "|" || parent.op === "&" || (parent.op === "," && parent.right === child)));
     if (!passes) break;
   }
   // A $[...] in substituted text: tf drops the text before it when it holds a `,`.

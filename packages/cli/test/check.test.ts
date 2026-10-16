@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -106,5 +106,59 @@ describe("check", () => {
     expect(noRoot).toEqual({ files: [], problems: ["The root folder nowhere doesn't exist: give --root a folder that does."] });
     const fileRoot = check({ paths: ["lib.tf"], root: "tfrc", settings: {}, cwd: WS }, testHost());
     expect(fileRoot).toEqual({ files: [], problems: ["The root tfrc is a file, not a folder: give --root the folder that holds it."] });
+  });
+});
+
+describe("tfscript.json", () => {
+  /** A copy of the fixture workspace in a temporary folder, with `config` as its tfscript.json if given. */
+  function workspace(config?: unknown): string {
+    const dir = mkdtempSync(path.join(TMP, "configured-"));
+    cpSync(WS, dir, { recursive: true });
+    if (config !== undefined) writeFileSync(path.join(dir, "tfscript.json"), typeof config === "string" ? config : JSON.stringify(config));
+    return dir;
+  }
+  const library = path.join(FIXTURES, "tflib");
+
+  it("reads the root's own tfscript.json, its relative paths against its folder", () => {
+    const dir = workspace({ libraryPath: `../${path.relative(TMP, library)}` });
+    const result = check({ paths: ["."], settings: {}, cwd: dir }, testHost());
+    expect(result.problems).toEqual([]);
+    expect(codes(result)).toEqual([
+      "main.tf:4 error invalid-macro-name",
+      "main.tf:3 warning undefined-macro",
+      "main.tf:3 information undefined-macro",
+      "tfrc:4 warning unresolved-load",
+    ]);
+  });
+
+  it("puts the options over the file's settings, and each diagnostics key over the file's", () => {
+    const dir = workspace({ libraryPath: library, diagnostics: { unresolvedLoads: false, ignoreMacros: ["nothing"] } });
+    const result = check({ paths: ["."], settings: { diagnostics: { ignoreMacros: ["gr*"] } }, cwd: dir }, testHost());
+    expect(codes(result)).toEqual(["main.tf:4 error invalid-macro-name", "main.tf:3 information undefined-macro"]);
+  });
+
+  it("reads the file --config names, its folder the root unless --root is given", () => {
+    const dir = workspace();
+    const elsewhere = mkdtempSync(path.join(TMP, "elsewhere-"));
+    writeFileSync(path.join(elsewhere, "settings.json"), JSON.stringify({ libraryPath: library, diagnostics: { unresolvedLoads: false } }));
+    const named = check({ paths: ["main.tf"], root: ".", config: path.join(elsewhere, "settings.json"), settings: {}, cwd: dir }, testHost());
+    expect(codes(named)).toEqual(["main.tf:4 error invalid-macro-name", "main.tf:3 warning undefined-macro", "main.tf:3 information undefined-macro"]);
+    writeFileSync(path.join(dir, "other.json"), JSON.stringify({ diagnostics: { undefinedMacros: false } }));
+    const rooted = check({ paths: ["main.tf"], config: "other.json", settings: {}, cwd: dir }, testHost());
+    expect(codes(rooted)).toEqual(["main.tf:4 error invalid-macro-name"]);
+  });
+
+  it("checks nothing when the file is bad, and says what is wrong and how to fix it", () => {
+    const dir = workspace({ entryFiles: "tfrc" });
+    expect(check({ paths: ["."], settings: {}, cwd: dir }, testHost())).toEqual({
+      files: [],
+      problems: ['tfscript.json gives "entryFiles" as the text "tfrc", not a list of paths: write it as "entryFiles": ["tfrc"].'],
+    });
+    const broken = workspace("{");
+    expect(check({ paths: ["."], settings: {}, cwd: broken }, testHost()).problems[0]).toMatch(/^tfscript\.json isn't valid JSON/);
+    expect(check({ paths: ["."], config: "nowhere.json", settings: {}, cwd: dir }, testHost())).toEqual({
+      files: [],
+      problems: ["The settings file nowhere.json doesn't exist: check the path given to --config."],
+    });
   });
 });

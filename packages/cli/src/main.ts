@@ -35,7 +35,16 @@ export function main(argv: readonly string[], io: Io, host: CheckHost = nodeHost
     return EXIT_OK;
   }
 
-  const result = check({ paths: command.paths, settings: command.settings, cwd: io.cwd, ...(command.root === undefined ? {} : { root: command.root }) }, host);
+  const result = check(
+    {
+      paths: command.paths,
+      settings: command.settings,
+      cwd: io.cwd,
+      ...(command.root === undefined ? {} : { root: command.root }),
+      ...(command.config === undefined ? {} : { config: command.config }),
+    },
+    host,
+  );
   if (command.format === "json") io.out(`${JSON.stringify(toJsonReport(result.files, io.cwd, result.problems), null, 2)}\n`);
   else io.out(formatHuman(result.files, io.cwd));
   for (const problem of result.problems) io.err(`tfscript: ${problem}\n`);

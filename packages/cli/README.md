@@ -50,7 +50,8 @@ default settings.
 
 | Option | Setting |
 |---|---|
-| `--root <folder>` | the workspace folder (default: the current folder) |
+| `--root <folder>` | the workspace folder (default: the folder of `--config`, else the current folder) |
+| `--config <file>` | a `tfscript.json` to read the settings from (default: the root's own, if it has one) |
 | `--entry-file <file>`, repeatable | `entryFiles` |
 | `--context <name>=<file>`, repeatable (files of one name add up) | `contexts` |
 | `--active-context <name>` | `activeContext` |
@@ -64,18 +65,48 @@ default settings.
 | `--no-undefined-macros` | `diagnostics.undefinedMacros: false` |
 | `--ignore-macro <name>`, repeatable | `diagnostics.ignoreMacros` |
 
+## Settings file: tfscript.json
+
+The settings can be kept in a `tfscript.json` instead of given as options each time. Its keys are
+the `tfscript.*` settings without the prefix: `entryFiles`, `contexts`, `activeContext`,
+`libraryPath`, `tfPath`, `workingDirectory`, `homeDirectory`, `pathMappings`, `variables`, and
+`diagnostics` with `unresolvedLoads`, `undefinedMacros` and `ignoreMacros`. Relative paths in it
+are relative to its own folder.
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/huntwj/tfscript-language-server/main/schemas/tfscript.schema.json",
+  "entryFiles": ["tfrc"],
+  "libraryPath": "../tinyfugue/lib/tf",
+  "diagnostics": { "ignoreMacros": ["gag_*"] }
+}
+```
+
+`tfscript check` reads the root's `tfscript.json` if there is one, or the file `--config` names
+(whose folder is then the root, unless `--root` is given). The options go over the file's
+settings: an option given replaces that setting, and under `diagnostics` each key is replaced on
+its own. A file that isn't valid JSON, or has a key that isn't a setting or a value of the wrong
+kind, isn't used: nothing is checked, each problem is reported as a sentence saying what is wrong
+and how to fix it, and the exit status is 2.
+
+The JSON schema, [schemas/tfscript.schema.json](../../schemas/tfscript.schema.json), lets an
+editor check and complete the file; the `$schema` line above points to it. The `claudeCode`
+section is read only by the Claude Code plugin's hook (see
+[editors/claude-code](../../editors/claude-code/README.md)); the command line ignores it.
+
 Output and exit status:
 
 | Option | Meaning |
 |---|---|
 | `--format human` (default) | one line per diagnostic on stdout, `path:line:col: severity code: message`, then a count on stderr |
-| `--format json` | one JSON report on stdout (below); stderr has only the paths that couldn't be checked (also in the report's `problems`) and the `--max-warnings` message |
+| `--format json` | one JSON report on stdout (below); stderr has only the paths that couldn't be checked and a `tfscript.json`'s problems (also in the report's `problems`) and the `--max-warnings` message |
 | `--max-warnings <n>` | exit 1 when there are more than `n` warnings |
 
 - **0**: no errors (warnings and information notes don't count, unless `--max-warnings` is exceeded).
 - **1**: at least one error, or more warnings than `--max-warnings`.
 - **2**: the command line is wrong (no command, an unknown command or option, an option
-  missing its value or given a bad one, nothing to check), `--root` is missing or is a file, or a
+  missing its value or given a bad one, nothing to check), `--root` is missing or is a file, the
+  `tfscript.json` is missing (for `--config`) or bad, or a
   path can't be checked (it doesn't exist, can't be read, or is a folder with no tf scripts in it).
   Any other paths are still checked and reported. An internal failure (a bug) also exits 2, so it
   never reads as "errors found".
@@ -122,7 +153,7 @@ field.
 | `codeDescription` | `{ "href" }`, the code's entry in docs/rules.md, or `null` for a code with none |
 | `fixes` | the titles of the quick fixes an editor offers for it, in its order (empty when there is none) |
 | `related` | other places the diagnostic points at, each a `range` and a `message` |
-| `problems` | the paths that couldn't be checked (missing, unreadable, a folder with no tf scripts), each a sentence saying why and what to do; the same lines go to stderr, and any of them makes the exit status 2 |
+| `problems` | the paths that couldn't be checked (missing, unreadable, a folder with no tf scripts) and what is wrong with a `tfscript.json`, each a sentence saying why and what to do; the same lines go to stderr, and any of them makes the exit status 2 |
 | `summary` | how many files were checked, and how many diagnostics of each severity |
 
 Both formats give the same order: files by name (as `file` names them), and within a file by

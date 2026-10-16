@@ -12,6 +12,8 @@ export type Command =
       maxWarnings?: number;
       /** The workspace folder, as an editor would have it open; relative to the current folder. */
       root?: string;
+      /** A tfscript.json to read the settings from, rather than the root's own; relative to the current folder. */
+      config?: string;
       /** The tfscript.* settings the options give, resolved by core like the editor's. */
       settings: RawSettings;
     };
@@ -28,6 +30,7 @@ export const OPTIONS: Readonly<Record<string, Kind>> = {
   format: "value",
   "max-warnings": "value",
   root: "value",
+  config: "value",
   "entry-file": "list",
   context: "list",
   "active-context": "value",
@@ -166,12 +169,14 @@ export function parseArgs(argv: readonly string[]): Command {
   }
 
   const root = p.values.get("root")?.[0];
+  const config = p.values.get("config")?.[0];
   return {
     kind: "check",
     paths,
     format,
     ...(maxWarnings === undefined ? {} : { maxWarnings }),
     ...(root === undefined ? {} : { root }),
+    ...(config === undefined ? {} : { config }),
     settings: settingsOf(p),
   };
 }

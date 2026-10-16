@@ -26,6 +26,8 @@ describe("parseArgs", () => {
     const command = parseArgs([
       "check",
       "--root=ws",
+      "--config",
+      "ws/tfscript.json",
       "--entry-file",
       "tfrc",
       "--entry-file",
@@ -68,6 +70,7 @@ describe("parseArgs", () => {
       format: "json",
       maxWarnings: 3,
       root: "ws",
+      config: "ws/tfscript.json",
       settings: {
         entryFiles: ["tfrc", "more.tf"],
         contexts: { wot: ["wot.tfrc", "extra.tf"], diku: ["diku.tfrc"] },

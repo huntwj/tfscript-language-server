@@ -17,7 +17,10 @@ Output:
   --max-warnings <n>            exit 1 when there are more than n warnings
 
 Where tf runs (each is named after the tfscript.* setting in brackets):
-  --root <folder>               the workspace folder (default: the current folder)
+  --root <folder>               the workspace folder (default: the folder of --config, else
+                                the current folder)
+  --config <file>               a tfscript.json to read these settings from (default: the
+                                root's tfscript.json, if it has one); the options go over it
   --entry-file <file>           a file tf loads after stdlib.tf; repeat for more (entryFiles;
                                 default: a tfrc, .tfrc or tfrc.tf in the root, else ~/.tfrc)
   --context <name>=<file>       a named way tf starts and a file it loads; repeat for more files
@@ -41,12 +44,13 @@ Which diagnostics:
   --version                     show the version
 
 Relative paths in the options are relative to the root, not to the current folder, as the
-editor's settings are relative to the workspace folder. With --root ws, the tfrc in ws is
+editor's settings are relative to the workspace folder; in a tfscript.json, they are relative to
+its own folder. With --root ws, the tfrc in ws is
 --entry-file tfrc, not --entry-file ws/tfrc:
   tfscript check --root ws --entry-file tfrc ws/
 
 Exit status: 0 when no errors are found, 1 when there are errors (or more warnings than
 --max-warnings), 2 when it can't check: the command line is wrong, --root is missing or is a
-file, a path doesn't exist, can't be read or is a folder with no tf scripts, or an internal
-error.
+file, the tfscript.json is missing or bad, a path doesn't exist, can't be read or is a folder
+with no tf scripts, or an internal error.
 `;

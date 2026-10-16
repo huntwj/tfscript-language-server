@@ -1,6 +1,7 @@
 import { readdirSync, realpathSync, statSync } from "node:fs";
 import * as path from "node:path";
 import type { TfDiagnostic } from "@tfscript/core/diagnostics";
+import { CONFIG_FILE, overlaySettings, readConfig } from "@tfscript/core/workspace/configFile";
 import { documentDiagnostics } from "@tfscript/core/workspace/documentDiagnostics";
 import { fileKey } from "@tfscript/core/workspace/loadGraph";
 import { isSkippedDir, nodeEnvironment, nodeFileSystem } from "@tfscript/core/workspace/nodeFileSystem";
@@ -10,11 +11,16 @@ import { WorkspaceIndex, type FileSystem } from "@tfscript/core/workspace/worksp
 export interface CheckRequest {
   /** Files and folders to check, absolute or relative to `cwd`. */
   paths: string[];
-  /** The workspace folder, as an editor would have it open. Defaults to `cwd`. */
+  /** The workspace folder, as an editor would have it open. Defaults to the folder of `config` if given, else `cwd`. */
   root?: string;
   /**
-   * The tfscript.* settings for the root folder. Core resolves them as it does the editor's
-   * (resolveSettings()); a settings file would be read into these too, under the options.
+   * A tfscript.json to read settings from, relative to `cwd`. Without it, the root's own
+   * tfscript.json is read, if it has one.
+   */
+  config?: string;
+  /**
+   * The tfscript.* settings the options give, for the root folder. They go over the
+   * tfscript.json's, and core resolves the result as it does the editor's (resolveSettings()).
    */
   settings: RawSettings;
   cwd: string;
@@ -130,7 +136,8 @@ function expand(request: CheckRequest, host: CheckHost, problems: string[]): { f
  */
 export function check(request: CheckRequest, host: CheckHost = nodeHost()): CheckResult {
   const problems: string[] = [];
-  const root = path.resolve(request.cwd, request.root ?? ".");
+  const given = request.config === undefined ? undefined : path.resolve(request.cwd, request.config);
+  const root = path.resolve(request.cwd, request.root ?? (given === undefined ? "." : path.dirname(given)));
   const rootKind = host.kind(root);
   if (rootKind === "file") {
     return { files: [], problems: [`The root ${request.root ?? root} is a file, not a folder: give --root the folder that holds it.`] };
@@ -138,13 +145,25 @@ export function check(request: CheckRequest, host: CheckHost = nodeHost()): Chec
   if (rootKind !== "dir") {
     return { files: [], problems: [`The root folder ${request.root ?? root} doesn't exist: give --root a folder that does.`] };
   }
+  // The settings: a tfscript.json's (named, or the root's own), with the options over them.
+  const configFile = given ?? path.join(root, CONFIG_FILE);
+  let settings = request.settings;
+  if (given !== undefined || host.kind(configFile) === "file") {
+    const label = path.relative(request.cwd, configFile) || configFile;
+    if (given !== undefined && host.kind(given) !== "file") {
+      return { files: [], problems: [`The settings file ${request.config} doesn't exist: check the path given to --config.`] };
+    }
+    const loaded = readConfig(configFile, (f) => host.fs.readFile(f), label);
+    if (!loaded.config) return { files: [], problems: loaded.problems };
+    settings = overlaySettings(loaded.config.settings, request.settings);
+  }
   const files = expand(request, host, problems);
   // Whether a file is in the root, and where its loads lead, is worked out from where each really
   // is, so a file named through a link (or a root that is one) is placed as the file itself.
   const realRoot = host.realpath(root);
   const index = new WorkspaceIndex(host.fs, host.environment);
   index.setFolders([realRoot]);
-  index.setSettings(realRoot, request.settings);
+  index.setSettings(realRoot, settings);
   const checked: CheckedFile[] = [];
   for (const { file, real } of files) {
     const text = host.fs.readFile(real);

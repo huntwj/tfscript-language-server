@@ -1,0 +1,13 @@
+{
+  "name": "tfscript",
+  "version": "0.2.0",
+  "description": "TinyFugue scripts (tfscript) in Claude Code: the language server's diagnostics after each edit of a .tf file, tfrc or .tfrc, navigation and hover through the server, and the tf-scripting skill. Runs locally, from bundled files.",
+  "author": {
+    "name": "Wil Hunt",
+    "url": "https://github.com/huntwj"
+  },
+  "homepage": "https://github.com/huntwj/tfscript-language-server/tree/main/editors/claude-code",
+  "repository": "https://github.com/huntwj/tfscript-language-server",
+  "license": "MIT",
+  "keywords": ["tinyfugue", "tf", "tfscript", "mud", "language-server", "lsp"]
+}

@@ -1,0 +1,4 @@
+{
+  "$schema": "../../../../schemas/tfscript.schema.json",
+  "claudeCode": { "enabled": false }
+}

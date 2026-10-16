@@ -1,0 +1,10 @@
+{
+  "tfscript": {
+    "command": "node",
+    "args": ["${CLAUDE_PLUGIN_ROOT}/bundle/tfscript-language-server.js"],
+    "extensionToLanguage": {
+      ".tf": "tf"
+    },
+    "diagnostics": false
+  }
+}

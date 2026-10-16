@@ -1,0 +1,19 @@
+{
+  "description": "After Claude edits or writes a tf script (.tf, tfrc, .tfrc) or a tfscript.json, checks it with the bundled tfscript check and tells Claude what it found. Never changes a file.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/bundle/tfscript-hook.js"],
+            "timeout": 30,
+            "statusMessage": "Checking the tf script"
+          }
+        ]
+      }
+    ]
+  }
+}

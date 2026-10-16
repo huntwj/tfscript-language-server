@@ -1,0 +1,16 @@
+{
+  "name": "tfscript-language-server",
+  "description": "Tools for tfscript, TinyFugue's macro language.",
+  "owner": {
+    "name": "Wil Hunt",
+    "url": "https://github.com/huntwj"
+  },
+  "plugins": [
+    {
+      "name": "tfscript",
+      "source": "./editors/claude-code",
+      "description": "TinyFugue scripts (tfscript) in Claude Code: diagnostics after each edit of a tf script, navigation and hover, and the tf-scripting skill.",
+      "version": "0.2.0"
+    }
+  ]
+}

@@ -311,6 +311,11 @@ describe("extract to a local variable", () => {
       expect(extract("/def f = /test tfread(fh + 0, line)\n", "fh + 0")).toBe("/def f = /let value=%; /test value:=(fh + 0)%; /test tfread({value}, line)\n");
     });
 
+    it("refuses in a body tf can't compile, which never runs", () => {
+      expect(reason("/def f = /echo $[010 + 1] $[0x10 + 1]\n", "010")).toBe("This macro has an expression tf can't compile, so it never runs: fix that first.");
+      expect(reason("/def f = /if (a + 1 > 2) /echo y%; /else /echo $[b c]%; /endif\n", "a + 1")).toMatch(/^This macro has an expression tf can't compile/);
+    });
+
     it("refuses a statement tied to the one before by %|", () => {
       expect(reason("/def f = /echo a %| /echo $[x + 1]\n", "x + 1")).toMatch(/^A %\| or %\\ ties this statement/);
     });

@@ -176,6 +176,18 @@ function plan(text: string, entry: LogicalEntry, range: Range, options: ExtractV
     reference = "expression";
   }
   if (!root) return undefined;
+  // tf compiles a body's conditions and $[...]s with the body, and a syntax error in one stops
+  // the whole macro from ever running, rewritten or not (in tf, `$[0x10 + 1]` did): nothing to
+  // keep the same, and tf reported the error at a different place once the body changed.
+  for (const r of regions.expressions) {
+    if (r.kind === "statement") continue;
+    try {
+      parseExpression(s, r.start, rEnd(r), (at) => subEnds.get(at));
+    } catch (e) {
+      if (e instanceof ExprSyntaxError) return { disabled: "This macro has an expression tf can't compile, so it never runs: fix that first." };
+      throw e;
+    }
+  }
 
   let tree: ExprNode;
   try {

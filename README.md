@@ -840,7 +840,8 @@ When it is disabled, each checked in tf where the reason is a behaviour:
   here. In a macro body, a `? :` whose condition is true and whose value is used (in `$[...]`,
   `echo(...)` or an assignment, not in a condition) crashes tf, and a `,` in a `$[...]` in
   command text throws away the text before it;
-- a `%|` or `%\` before the statement, a tab in the selection, or comment lines inside it.
+- a `%|` or `%\` before the statement, a tab in the selection, or comment lines inside it;
+- a body with a condition or `$[...]` tf can't compile, which never runs either way.
 
 It isn't offered in an `/alias`, at the top level, or in a file with CRLF line endings. Over tf's
 library and the WoTMUD scripts, of the 2,191 sub-expressions in macro bodies, 806 can be

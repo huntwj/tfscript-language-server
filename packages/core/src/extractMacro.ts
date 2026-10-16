@@ -102,7 +102,7 @@ export const RUNS_OTHER_CODE = new Set(["trigger", "not", "quote"]);
 export const ENDS_MACRO = new Set(["return", "result", "exit"]);
 const ALIAS_RE = /^\s*\/alias\b/i;
 
-function compare(a: Position, b: Position): number {
+export function compare(a: Position, b: Position): number {
   return a.line - b.line || a.character - b.character;
 }
 
@@ -114,7 +114,7 @@ export function trimEnd(s: string, start: number, end: number): number {
 }
 
 /** The selection as offsets into the entry's text: the characters it covers. */
-function selected(entry: LogicalEntry, range: Range): { from: number; to: number } {
+export function selected(entry: LogicalEntry, range: Range): { from: number; to: number } {
   let from = entry.text.length;
   let to = 0;
   entry.offsetMap.forEach((p, k) => {

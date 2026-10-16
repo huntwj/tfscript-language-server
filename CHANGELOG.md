@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `unresolved-load` on one of tf's own library files (`/load alias.tf`, any of the `.tf` files tf
+  installs) when no library folder is known (no `tfscript.libraryPath`, no `TFLIBDIR`, and an
+  empty TFPATH) is now a note asking for `tfscript.libraryPath`, rather than a warning to set
+  the working directory: tf would find the file in its library. Macros such a file defines, like
+  `/alias`, get a note naming that load instead of an `undefined-macro` warning. The list of
+  library files is generated from tf's `unix/unix.mak`, and checked against it.
 - "Extract to a local variable" (`refactor.extract`): computes the selected part of an expression
   in a macro body in `/let value=%; /test value:=(...)` just before its statement, and reads it
   back as `{value}`, or `%{value}` for a whole `$[...]` in substituted text (`$[{value}]` after a

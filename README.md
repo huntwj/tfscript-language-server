@@ -12,8 +12,8 @@ go-to-definition and find-references for macros and variables across every file 
 highlighting every use of the name under the cursor, call hierarchy and "N references" lenses
 for macros, workspace-wide symbol search, rename, clickable `/load` and `/require` filenames, formatting that only
 changes whitespace tf ignores, and refactorings that split a macro body onto separate lines,
-join it onto one, extract some of its statements to a new macro, or inline a macro's body
-where it is called. There is a VS Code
+join it onto one, extract some of its statements to a new macro, extract part of an
+expression to a local variable, or inline a macro's body where it is called. There is a VS Code
 extension (`editors/vscode/`) for syntax highlighting plus everything the server does; other editors can wire up the stdio server
 directly, and `tfscript check` reports the same diagnostics from the command line — see "Use".
 
@@ -357,6 +357,9 @@ packages/core/            @tfscript/core: the analysis, with no LSP dependency
                           or join one onto a single line, when tf would run the same program
     extractMacro.ts      getExtractActions(text, range): move selected statements of a macro body
                           to a new /def and call it, when tf would run the same
+    extractVariable.ts   getExtractVariableActions(text, range): compute part of an expression in
+                          a /let before its statement and read it back, when tf would get the same
+    expressionTree.ts    parseExpression(): a tf expression's syntax tree, as expr.c reads it
     inlineMacro.ts       getInlineActions(text, range): replace a call with the macro's body, or
                           every call and the /def, when tf would run the same
     documentLinks.ts     the filename in each /load and /require, as tf parses the command
@@ -387,6 +390,9 @@ packages/core/            @tfscript/core: the analysis, with no LSP dependency
                           the four above
     bodyLayout.test.ts    split and join: layouts, when they aren't offered, and round trips
     extractMacro.test.ts  extract to a new macro: what moves, the call left behind, and why not
+    extractVariable.test.ts  extract to a local variable: each context, the layout, the name, why not
+    expressionTree.test.ts, functionEffects.test.ts  the expression tree, and the table of what
+                          each of tf's functions changes
     inlineMacro.test.ts   inline a macro: the body in place of the call, the layout, and why not
     units.test.ts         the statements and blocks of a body, and the list each runs in
     codeActionRouting.test.ts  which kinds of code action a request gets, and when
@@ -760,6 +766,75 @@ It isn't offered in an `/alias` or in a file with CRLF line endings. Over tf's l
 WoTMUD scripts, of the 3,763 runs of consecutive statements in a list, 1,480 can be extracted
 and the rest are disabled with a reason (most often a `/let` the rest of the macro uses, 870, or
 a `/return`, 640); none of the extractions adds a diagnostic.
+
+### Extracting an expression to a local variable
+
+"Extract to a local variable" (a `refactor.extract` code action) takes the selected part of an
+expression in a `/def`, `/bind`, `/hook` or `/trig*` body, computes it in two new statements just
+before the statement it is in, and reads the variable back in its place:
+
+```
+/def f = /if (hp * 100 / maxhp < 30) /echo low%; /else /echo ok%; /endif
+/def f = /let value=%; /test value:=(hp * 100 / maxhp)%; /if ({value} < 30) /echo low%; /else /echo ok%; /endif
+```
+
+The selection can be part of an `/if` condition, or the whole of one (with or without its
+parentheses), an operand in a `$[...]`, or part of the text of a `/test`, `/return` or `/result`;
+the reference is then `{value}`. A whole `$[...]` in text tf substitutes (a command's arguments, or
+a `/test`'s text) becomes `%{value}`. It has to be one whole operand as tf groups it (in
+`a - b - c`, `a - b` but not `b - c`); blanks at its ends are dropped. The new statements go on
+the statement's line, or, when the statement starts a line of a body written over several, on
+lines of their own, indented like it and ending as the body's lines do. The variable is
+`value`, or `value2` and on when the file, or another file the workspace can see, mentions that
+word; rename it afterwards like any other local. Where it can't be done safely it is offered
+disabled, with the reason.
+
+Why `/let value=%; /test value:=(...)` and not `/let value=$[...]`, proven in real tf
+(tf-script-check, 2026-10-15): `$[...]` makes the value text, so a real loses digits (from `1/3.0`,
+`value*3` gave `0.999999999999999` and `value == 1/3.0` gave 0, where the expression gave `1.` and
+1). The assignment keeps the value and its type: reals, `9223372036854775807`, strings with
+blanks and quotes, an empty string, `2.0`, `1:30`. The `/let` first makes it this macro's local,
+whatever global of that name there is. A `/let` only lasts for the rest of its macro body: at the
+top level, or in `/repeat`, `/for` or a macro's `/eval` text, its variable was gone by the next
+command, so it is offered only in a macro body's own statements.
+
+When it is disabled, each checked in tf where the reason is a behaviour:
+
+- a `%`, `$` or `\` in the selection, as the text after `/test` is substituted once more before it
+  is evaluated, where a condition or a `$[...]` isn't (`"a %%; b"` became `a %; b`); in `/test`,
+  `/return` or `/result` text, one anywhere in that text;
+- a side effect in the selection, or in what its statement evaluates before it, which would now
+  come after it: an assignment, `++` or `--`, `$(...)`, or a function that isn't known to change
+  nothing. Every function of tf's is classified (`data/functionEffects.ts`); a name that isn't
+  one of them may be a macro. What the statement evaluates after the selection, an operator
+  around it included, runs after it either way, so `/test total := base + bonus * 2` gives up
+  `bonus * 2` (and `$[x + 1] $[x := 5]` printed `2 5` before and after);
+- a selection tf only evaluates some of the time: the right of `&` or `|` (with `ok` 0,
+  `ok & 1/ok > 0` was false, but computed first it stopped the macro with "division by zero"), a
+  branch of `?:`, the default of a `%{x-...}`, an `/elseif` condition, or a `/while` condition,
+  which runs on every turn (computed once before the loop, it never changed and the loop ran on);
+  inside a `$(...)` or a condition list;
+- a function call with the wrong number of arguments: in a `$[...]` tf refuses to compile the
+  macro, in the `/test` it only fails that statement and the macro runs on;
+- `%?`, the last command's result, where it would be seen: `/let` sets it to 1 and the `/test` to
+  the value. So the statement may not read `%?` or run a macro (a macro reads its caller's `%?`),
+  and for an `/if`, neither may the first statement of each branch nor, when no branch may run,
+  the statement after it, which must be there: an `/if` whose branch doesn't run leaves `%?` as
+  it was (a macro ending in one returned the `/test`'s value instead of the one before);
+- `whatis()` of the selection, which says `id:float` of the variable where it said `float`;
+- a `? :` in the selection, and a `,` in a `$[...]` in command text: two bugs of tf's, found
+  here. In a macro body, a `? :` whose condition is true and whose value is used (in `$[...]`,
+  `echo(...)` or an assignment, not in a condition) crashes tf, and a `,` in a `$[...]` in
+  command text throws away the text before it;
+- a `%|` or `%\` before the statement, a tab in the selection, or comment lines inside it.
+
+It isn't offered in an `/alias`, at the top level, or in a file with CRLF line endings. Over tf's
+library and the WoTMUD scripts, of the 2,191 sub-expressions in macro bodies, 847 can be
+extracted and the rest are disabled with a reason (most often a side effect in the selection,
+175, or a branch of `?:`, 117); none of the extractions adds a diagnostic. Twenty-eight rewrites
+covering each context (a condition, `$[...]` in text, `%{value}`, `/test`, `/return` and `/result`,
+a branch, a loop, a trigger, a continued body, `&`, an assignment after the selection, reals, big
+integers, strings, times and an empty value) printed the same in tf as the originals.
 
 ### Inlining a macro
 

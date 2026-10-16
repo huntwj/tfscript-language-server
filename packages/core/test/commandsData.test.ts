@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { BUILTIN_COMMANDS } from "../src/data/builtinCommands.generated";
 import { KEYWORD_COMMANDS } from "../src/data/keywordCommands.generated";
 import { STDLIB_COMMANDS } from "../src/data/stdlibCommands.generated";
+import { LIBRARY_FILES } from "../src/data/libraryFiles.generated";
 import { ALL_COMMANDS } from "../src/data/commands";
 import { COMMAND_DESCRIPTIONS } from "../src/data/commandDescriptions";
 import { COMMAND_USAGES } from "../src/data/commandUsages.generated";
@@ -45,6 +46,12 @@ describeOrSkip("command tables (vs. the sibling tinyfugue checkout)", () => {
   it("matches lib/tf/stdlib.tf's top-level /def macros", () => {
     const text = readFileSync(join(TINYFUGUE_DIR, "lib", "tf", "stdlib.tf"), "utf8");
     expect([...STDLIB_COMMANDS]).toEqual(extractor.extractStdlibMacros(text, splitLogicalEntries));
+  });
+
+  it("matches unix/unix.mak's list of the .tf files make install puts in tf's library", () => {
+    const text = readFileSync(join(TINYFUGUE_DIR, "unix", "unix.mak"), "utf8");
+    expect([...LIBRARY_FILES]).toEqual(extractor.extractLibraryFiles(text));
+    expect(LIBRARY_FILES).toContain("alias.tf");
   });
 
   it("matches htmldoc/commands/*.html's usage synopses", () => {

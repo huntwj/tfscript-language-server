@@ -1,6 +1,6 @@
 import { FUNCTION_EFFECTS } from "./data/functionEffects";
 import { FUNCTIONS } from "./data/functions.generated";
-import type { Range, TfTextEdit } from "./diagnostics";
+import type { Position, Range, TfTextEdit } from "./diagnostics";
 import { applyEdits, compare, isDefEntry, mentions, readerOutside, selected, trimEnd, type TfExtractAction } from "./extractMacro";
 import { alwaysEvaluated, ExprSyntaxError, nodes, parseExpression, pathTo, type ExprNode } from "./expressionTree";
 import { isTfSpace, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
@@ -75,7 +75,7 @@ const READS_RESULT = /%+\{?\?|\{\?\}/;
 /** Text the `/test` would substitute again: a `%`, a `$` or a `\`. */
 const SUBSTITUTED = /[%$\\]/;
 
-type Plan = { disabled: string } | { name: string; edits: TfTextEdit[] };
+type Plan = { disabled: string } | { name: string; edits: TfTextEdit[]; rename: Position };
 
 function describe(s: string, n: ExprNode): string {
   const t = s.slice(n.start, n.end);
@@ -373,7 +373,8 @@ function plan(text: string, entry: LogicalEntry, range: Range, options: ExtractV
   const normal = (t: string): string => t.replace(/[ \t]*%;[ \t]*/g, "%;");
   if (!out || out.incomplete || out.text.slice(0, body) !== entry.text.slice(0, body) || normal(out.text.slice(body)) !== normal(expected)) return undefined;
   if (!parseUnits(out.text.slice(body)).complete) return undefined;
-  return { name, edits };
+  // The new statements start where the holder did, so the name is just after `/let `.
+  return { name, edits, rename: { line: holderPos.line, character: holderPos.character + "/let ".length } };
 }
 
 /** The "Extract to a local variable" action for a selection in an expression of a macro body. */
@@ -385,5 +386,5 @@ export function getExtractVariableActions(text: string, range: Range, options: E
   const result = plan(text, entry, range, options);
   if (!result) return [];
   if ("disabled" in result) return [{ title: TITLE, edits: [], disabled: result.disabled }];
-  return [{ title: `${TITLE}, ${result.name}`, edits: result.edits }];
+  return [{ title: TITLE, edits: result.edits, rename: result.rename }];
 }

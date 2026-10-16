@@ -46,7 +46,7 @@ describe("extract to a local variable", () => {
       expect(extract(text, "hp * 100 / maxhp")).toBe(
         "/def f = /echo hi%; /let value=%; /test value:=(hp * 100 / maxhp)%; /if ({value} < 30) /echo low%; /endif%; /echo done\n",
       );
-      expect(actions(text, "hp * 100 / maxhp")[0]?.title).toBe("Extract to a local variable, value");
+      expect(actions(text, "hp * 100 / maxhp")[0]?.title).toBe("Extract to a local variable");
     });
 
     it("takes a whole condition, with or without its parentheses", () => {
@@ -181,6 +181,18 @@ describe("extract to a local variable", () => {
       const edits = getRenameEdits(out, { line: 0, character: out.indexOf("value") + 1 }, "total");
       expect(Array.isArray(edits) ? edits.length : edits).toBe(3);
       expect(apply(out, Array.isArray(edits) ? edits : [])).toBe("/def f = /let total=%; /test total:=(a + 1)%; /echo %{total} %{n}\n");
+    });
+
+    it("says where the name is once the edits are applied, for the rename after", () => {
+      const at = (text: string, sub: string) => {
+        const [a] = actions(text, sub);
+        const out = apply(text, a?.edits ?? []).split("\n");
+        const p = a?.rename as { line: number; character: number };
+        return (out[p.line] ?? "").slice(p.character, p.character + 5);
+      };
+      expect(at("/def f = /echo $[a + 1]\n", "a + 1")).toBe("value");
+      expect(at("/def f = /echo x%; $[a + 1]\n", "$[a + 1]")).toBe("value");
+      expect(at(["/def f = \\", "    /echo a%;\\", "    /echo $[x + 1]", ""].join("\n"), "x + 1")).toBe("value");
     });
 
     it("skips a name another file mentions", () => {

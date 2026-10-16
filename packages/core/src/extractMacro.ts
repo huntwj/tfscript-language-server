@@ -58,6 +58,8 @@ export interface TfExtractAction {
   edits: TfTextEdit[];
   /** Why the selection can't be extracted, when it can't. */
   disabled?: string;
+  /** Where, once the edits are applied, the name it made is, for a rename to follow. */
+  rename?: Position;
 }
 
 export interface ExtractOptions {

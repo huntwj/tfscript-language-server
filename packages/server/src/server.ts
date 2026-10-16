@@ -99,6 +99,12 @@ let canRefreshTokens = false;
 let canRefreshLenses = false;
 /** The client's command that opens a list of locations, from its initializationOptions (the VS Code extension's tfscript.showReferences). */
 let showReferencesCommand: string | undefined;
+/**
+ * The client's command that starts a rename at a position, from its initializationOptions (the
+ * VS Code extension's tfscript.renameAt): run after an action that makes a new name. A client
+ * that names none gets the edit alone.
+ */
+let renameCommand: string | undefined;
 
 function toPath(uri: string): string | undefined {
   if (!uri.startsWith("file:")) return undefined;
@@ -186,6 +192,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
   canRefreshLenses = Boolean(params.capabilities.workspace?.codeLens?.refreshSupport);
   const command = (params.initializationOptions as { showReferencesCommand?: unknown } | undefined)?.showReferencesCommand;
   showReferencesCommand = typeof command === "string" && command.length > 0 ? command : undefined;
+  const rename = (params.initializationOptions as { renameCommand?: unknown } | undefined)?.renameCommand;
+  renameCommand = typeof rename === "string" && rename.length > 0 ? rename : undefined;
   canWatch = Boolean(params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration);
   canWatchOutside = canWatch && Boolean(params.capabilities.workspace?.didChangeWatchedFiles?.relativePatternSupport);
   canShowDisabled = Boolean(params.capabilities.textDocument?.codeAction?.disabledSupport);
@@ -351,7 +359,7 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   if (file && index.isLibraryFile(file)) request.library = true;
   let functions: ((name: string) => boolean) | undefined;
   if (file) request.calledAsFunction = (name) => (functions ??= index.macroCalledAsFunction(file, document.getText()))(name);
-  return routeCodeActions(document.getText(), request).map((action) => toLspCodeAction(action, document.uri, (d) => toLspDiagnostic(d, document.uri)));
+  return routeCodeActions(document.getText(), request).map((action) => toLspCodeAction(action, document.uri, (d) => toLspDiagnostic(d, document.uri), renameCommand));
 });
 
 connection.onHover((params: TextDocumentPositionParams): Hover | null => {

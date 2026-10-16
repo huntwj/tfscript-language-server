@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { QUICK_FIX, REFACTOR_EXTRACT, REFACTOR_REWRITE, routeCodeActions, TRIGGER_AUTOMATIC, TRIGGER_INVOKED } from "../src/codeActions";
+import {
+  QUICK_FIX,
+  REFACTOR_EXTRACT,
+  REFACTOR_REWRITE,
+  routeCodeActions,
+  toLspCodeAction,
+  TRIGGER_AUTOMATIC,
+  TRIGGER_INVOKED,
+  type RoutedCodeAction,
+} from "../src/codeActions";
 
 // One line with a quick fix (whitespace after the \) and a body that can be split.
 const TEXT = "/def -i a = /echo a%; /echo b\n/echo x \\ \n";
@@ -71,14 +80,14 @@ describe("routeCodeActions", () => {
 
     it("offers it as an extract refactoring for a selection in an expression", () => {
       expect(kinds(routeCodeActions(body, { range: sum, triggerKind: TRIGGER_AUTOMATIC, only: [REFACTOR_EXTRACT] }))).toEqual([
-        "refactor.extract: Extract to a local variable, value",
+        "refactor.extract: Extract to a local variable",
       ]);
       expect(routeCodeActions(body, { range: sum, only: [REFACTOR_REWRITE] })).toEqual([]);
     });
 
     it("names the variable past the words other files mention", () => {
       const [action] = routeCodeActions(body, { range: sum, only: [REFACTOR_EXTRACT], mentionedOutside: (n) => n === "value" });
-      expect(action?.title).toBe("Extract to a local variable, value2");
+      expect(action?.edits.map((e) => e.newText)).toEqual(["/let value2=%; /test value2:=(x + 1)%; ", "{value2}"]);
     });
 
     it("shows a selection it can't extract as disabled, with the reason, only where the client can", () => {
@@ -87,6 +96,19 @@ describe("routeCodeActions", () => {
       expect(routeCodeActions(effect, { range, only: [REFACTOR_EXTRACT] })).toEqual([]);
       const [action] = routeCodeActions(effect, { range, only: [REFACTOR_EXTRACT], disabledSupport: true });
       expect(action).toMatchObject({ kind: "refactor.extract", edits: [], disabled: expect.stringMatching(/^In the selection, \+\+x changes a variable/) });
+    });
+
+    it("asks the client to rename the new name, when the client has a command for it", () => {
+      const [action] = routeCodeActions(body, { range: sum, only: [REFACTOR_EXTRACT] });
+      expect(action?.rename).toEqual({ line: 0, character: 14 });
+      const lsp = toLspCodeAction(action as RoutedCodeAction, "file:///a.tf", (d) => d, "tfscript.renameAt");
+      expect(lsp.command).toEqual({ title: "Rename", command: "tfscript.renameAt", arguments: ["file:///a.tf", { line: 0, character: 14 }] });
+      expect(lsp.edit?.changes["file:///a.tf"]).toEqual(action?.edits);
+      // A client that names no command gets the edit alone; so does a disabled action.
+      expect(toLspCodeAction(action as RoutedCodeAction, "file:///a.tf", (d) => d)).not.toHaveProperty("command");
+      expect(toLspCodeAction({ ...(action as RoutedCodeAction), disabled: "no" }, "file:///a.tf", (d) => d, "tfscript.renameAt")).not.toHaveProperty("command");
+      const [macro] = routeCodeActions("/def -i a = /echo a%; /echo b\n", { range: { start: { line: 0, character: 12 }, end: { line: 0, character: 19 } }, only: [REFACTOR_EXTRACT] });
+      expect(toLspCodeAction(macro as RoutedCodeAction, "file:///a.tf", (d) => d, "tfscript.renameAt")).not.toHaveProperty("command");
     });
   });
 });

@@ -104,16 +104,26 @@ export interface RoutedCodeAction {
   preferred?: boolean;
   /** Why it can't run: shown greyed out, with this reason. */
   disabled?: string;
+  /** Where a name the action made is once its edits are applied, to rename it straight after. */
+  rename?: Position;
 }
 
-/** `action` as an LSP code action for the document at `uri`, its diagnostic converted with `toDiagnostic`. */
-export function toLspCodeAction<D>(action: RoutedCodeAction, uri: string, toDiagnostic: (d: TfDiagnostic) => D) {
+/**
+ * `action` as an LSP code action for the document at `uri`, its diagnostic converted with
+ * `toDiagnostic`. With `renameCommand`, a command of the client's own (it names it in its
+ * initializationOptions), an action that made a name also runs that command with the document's
+ * URI and the name's position once its edit is applied, so the client can start a rename there.
+ * A client that names no such command gets the edit alone.
+ */
+export function toLspCodeAction<D>(action: RoutedCodeAction, uri: string, toDiagnostic: (d: TfDiagnostic) => D, renameCommand?: string) {
+  const rename = action.disabled === undefined && renameCommand && action.rename ? { command: { title: "Rename", command: renameCommand, arguments: [uri, action.rename] } } : {};
   return {
     title: action.title,
     kind: action.kind,
     ...(action.preferred ? { isPreferred: true } : {}),
     ...(action.diagnostic ? { diagnostics: [toDiagnostic(action.diagnostic)] } : {}),
     ...(action.disabled === undefined ? { edit: { changes: { [uri]: action.edits } } } : { disabled: { reason: action.disabled } }),
+    ...rename,
   };
 }
 
@@ -146,7 +156,7 @@ export function routeCodeActions(text: string, request: CodeActionRequest): Rout
     };
     const variable = request.mentionedOutside ? { mentionedOutside: request.mentionedOutside } : {};
     for (const a of [...getExtractActions(text, request.range, options), ...getExtractVariableActions(text, request.range, variable)]) {
-      if (a.disabled === undefined) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: a.edits });
+      if (a.disabled === undefined) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: a.edits, ...(a.rename ? { rename: a.rename } : {}) });
       else if (request.disabledSupport) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: [], disabled: a.disabled });
     }
   }

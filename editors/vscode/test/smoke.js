@@ -66,12 +66,13 @@ const timeout = setTimeout(() => {
 }, 10_000);
 
 (async () => {
-  // As the extension starts it: the lenses need the command that opens the references peek.
+  // As the extension starts it: the lenses need the command that opens the references peek, and
+  // extracting a variable the one that starts a rename.
   await request("initialize", {
     processId: process.pid,
     rootUri: null,
     capabilities: {},
-    initializationOptions: { showReferencesCommand: "tfscript.showReferences" },
+    initializationOptions: { showReferencesCommand: "tfscript.showReferences", renameCommand: "tfscript.renameAt" },
   });
   send("initialized", {});
 
@@ -101,6 +102,17 @@ const timeout = setTimeout(() => {
   const items = await request("textDocument/prepareCallHierarchy", { textDocument: { uri: defsUri }, position: { line: 0, character: 9 } });
   const incoming = items && (await request("callHierarchy/incomingCalls", { item: items[0] }));
 
+  // "Extract to a local variable" carries the extension's tfscript.renameAt, pointed at the name
+  // it inserts: `/def v = /let value=...`, the name at character 14.
+  const varUri = require("node:url").pathToFileURL(path.join(__dirname, "smoke-var.tf")).href;
+  send("textDocument/didOpen", { textDocument: { uri: varUri, languageId: "tf", version: 1, text: "/def v = /echo $[a + 1]\n" } });
+  const extract = await request("textDocument/codeAction", {
+    textDocument: { uri: varUri },
+    range: { start: { line: 0, character: 17 }, end: { line: 0, character: 22 } },
+    context: { diagnostics: [], only: ["refactor.extract"] },
+  });
+  const variable = extract?.find((a) => a.title === "Extract to a local variable");
+
   await request("shutdown", null);
   send("exit", null);
   proc.kill();
@@ -117,13 +129,19 @@ const timeout = setTimeout(() => {
     lens.command.arguments?.[0] === defsUri &&
     lens.command.arguments?.[2]?.[0]?.range?.start?.line === 1 &&
     items?.[0]?.name === "greet" &&
-    incoming?.[0]?.from?.name === "main";
+    incoming?.[0]?.from?.name === "main" &&
+    variable?.edit?.changes?.[varUri]?.length === 2 &&
+    variable.command?.command === "tfscript.renameAt" &&
+    variable.command.arguments?.[0] === varUri &&
+    variable.command.arguments?.[1]?.line === 0 &&
+    variable.command.arguments?.[1]?.character === 14;
   if (!ok) {
     console.error("Unexpected server behaviour. diagnostics:", JSON.stringify(diag.diagnostics));
     console.error("completion labels:", labels.length, "includes echo:", labels.includes("echo"));
     console.error("contextInfo:", JSON.stringify(contexts));
     console.error("lenses:", JSON.stringify(lenses), "resolved:", JSON.stringify(lens));
     console.error("call hierarchy:", JSON.stringify(items), JSON.stringify(incoming));
+    console.error("extract to a local variable:", JSON.stringify(extract));
   }
   console.log(ok ? "smoke test passed" : "smoke test FAILED");
   process.exit(ok ? 0 : 1);

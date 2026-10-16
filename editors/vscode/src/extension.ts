@@ -52,8 +52,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "tf" }],
     synchronize: { configurationSection: "tfscript" },
-    // The "N references" lenses run this command (registered below) to open the references peek.
-    initializationOptions: { showReferencesCommand: "tfscript.showReferences" },
+    // The "N references" lenses run this command (registered below) to open the references peek,
+    // and "Extract to a local variable" runs the rename one on the variable it made.
+    initializationOptions: { showReferencesCommand: "tfscript.showReferences", renameCommand: "tfscript.renameAt" },
   };
 
   client = new LanguageClient("tfscript", "tfscript", serverOptions, clientOptions);
@@ -79,6 +80,18 @@ export function activate(context: vscode.ExtensionContext): void {
         );
       },
     ),
+    // After a code action that makes a name: put the cursor on it and start VS Code's rename,
+    // so the name can be typed straight away.
+    vscode.commands.registerCommand("tfscript.renameAt", async (uri: string, position: { line: number; character: number }) => {
+      const convert = client?.protocol2CodeConverter;
+      if (!convert) return;
+      const target = vscode.Uri.parse(uri);
+      const editor =
+        vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === target.toString()) ?? (await vscode.window.showTextDocument(target));
+      const at = convert.asPosition(position);
+      editor.selection = new vscode.Selection(at, at);
+      await vscode.commands.executeCommand("editor.action.rename");
+    }),
     vscode.window.onDidChangeActiveTextEditor(() => void refreshStatus(status)),
     vscode.workspace.onDidSaveTextDocument(() => void refreshStatus(status)),
     vscode.workspace.onDidChangeConfiguration((e) => {

@@ -93,7 +93,7 @@ function notOneNode(s: string, root: ExprNode, from: number, to: number): string
     else if (s[k] === ")" || s[k] === "]") depth -= 1;
   }
   if (depth !== 0) return "The selection has a parenthesis without its partner: select both, or neither.";
-  return "The selection isn't one whole operand: tf groups the operators around it differently (a - b - c is (a - b) - c). Select a whole operand, or add parentheses first.";
+  return "The selection isn't one whole operand, as tf groups the operators around it: select a whole operand, or add parentheses.";
 }
 
 /** What a node's evaluation changes, as a reason, or undefined. */
@@ -236,7 +236,7 @@ function plan(text: string, entry: LogicalEntry, range: Range, options: ExtractV
   // A $[...] in substituted text: tf drops the text before it when it holds a `,`.
   const substitutedBracket = root.kind === "bracket" && !regions.expressions.some((r) => r !== root && r.kind !== "statement" && r.start <= root.start && rEnd(root) <= rEnd(r));
   if (substitutedBracket && nodes(tree).some((n) => n.kind === "binary" && n.op === ",")) {
-    return { disabled: "This $[...] has a , in it, and tf mis-compiles a , in a $[...] in command text (the text before it is lost), so the result of rewriting it can't be predicted: it can't be extracted." };
+    return { disabled: "tf mis-compiles the , in this $[...], losing the text before it, so rewriting it can't be checked: it can't be extracted." };
   }
   // Inside a substitution whose default only runs when the variable is empty, or a $(...).
   const within = regions.spans.find((sp) => sp.kind === "substitution" && sp.start < from && to <= sp.end && (s[sp.start] === "%" || s[sp.start] === "{" || s.startsWith("${", sp.start) || s.startsWith("$(", sp.start)));

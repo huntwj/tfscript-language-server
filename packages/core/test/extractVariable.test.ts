@@ -199,7 +199,7 @@ describe("extract to a local variable", () => {
     });
 
     it("refuses one tf groups differently", () => {
-      expect(reason("/def f = /echo $[a - b - c]\n", "b - c")).toMatch(/^The selection isn't one whole operand: tf groups/);
+      expect(reason("/def f = /echo $[a - b - c]\n", "b - c")).toMatch(/^The selection isn't one whole operand, as tf groups/);
       expect(reason("/def f = /echo $[a * b + c]\n", "b + c")).toMatch(/^The selection isn't one whole operand/);
     });
 
@@ -248,7 +248,7 @@ describe("extract to a local variable", () => {
 
     it("refuses a ? : in the selection, which crashes tf, and a , in a $[...] in command text", () => {
       expect(reason("/def f = /echo $[(a ? 1 : 2) + 1]\n", "(a ? 1 : 2)")).toMatch(/^The selection has a \? : in it, which crashes tf/);
-      expect(reason("/def f = /echo $[(a, b + 1)]\n", "b + 1")).toMatch(/^This \$\[\.\.\.\] has a , in it/);
+      expect(reason("/def f = /echo $[(a, b + 1)]\n", "b + 1")).toMatch(/^tf mis-compiles the , in this \$\[\.\.\.\]/);
       expect(extract("/def f = /if ((a, b + 1)) /echo y%; /else /echo n%; /endif\n", "b + 1")).toBeDefined();
     });
 

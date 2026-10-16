@@ -38,6 +38,31 @@ describe("unresolved-load", () => {
     expect(d?.explanation).toContain("not from this file's folder");
   });
 
+  it("asks for tf's library, quietly, for one of its files when no library folder is known", () => {
+    const files = { [p("tfrc")]: "/load alias.tf\n/alias ki /kill %{*}\n" };
+    const found = check(files, p("tfrc"));
+    const load = found.find((d) => d.code === "unresolved-load");
+    const alias = found.find((d) => d.code === "undefined-macro");
+    expect(load).toMatchObject({ code: "unresolved-load", severity: "information", label: "can't follow" });
+    expect(load?.message).toBe(
+      "tf's library isn't known here, and alias.tf is one of its files: set tfscript.libraryPath to the folder that holds stdlib.tf.",
+    );
+    // A macro that file would define is then only a note, naming the load.
+    expect(alias).toMatchObject({ code: "undefined-macro", severity: "information" });
+    expect(alias?.message).toContain("the load of alias.tf (tfrc line 1) can't be followed");
+  });
+
+  it("still warns about a library file name when tf would search somewhere else instead", () => {
+    const missing = (graph: ReturnType<typeof buildLoadGraph>) =>
+      loadPathDiagnostics(p("tfrc"), "/load alias.tf\n", graph, { unresolvedLoads: true, undefinedMacros: false });
+    const readFile = (f: string) => (path.resolve(f) === p("tfrc") ? "/load alias.tf\n" : undefined);
+    // A library folder that doesn't hold it, and a TFPATH, which tf searches instead of TFLIBDIR.
+    for (const where of [{ libraryDir: p("lib") }, { tfPath: [p("tf")] }]) {
+      const graph = buildLoadGraph({ entryFiles: [p("tfrc")], workingDir: p("cwd"), readFile, ...where });
+      expect(missing(graph)).toMatchObject([{ severity: "warning", message: expect.stringMatching(/^tf won't find "alias.tf"/) }]);
+    }
+  });
+
   it("gives working-directory advice only for a relative path, which is the only kind tf searches", () => {
     const [abs] = check({ [p("tfrc")]: `/load ${p("lib", "gone.tf")}\n` }, p("tfrc"));
     expect(abs?.message).toMatch(new RegExp(`^tf won't find "${p("lib", "gone.tf").replace(/\\/g, "\\\\")}": fix the path`));

@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { LIBRARY_FILES } from "../data/libraryFiles.generated";
 import { entryCommands, shortenPercents, type LoadCommand } from "../loadCommands";
 import type { SubLevel } from "../structure";
 import { splitLogicalEntries, type LogicalEntry } from "../logicalEntries";
@@ -80,7 +81,14 @@ export interface SearchEnvironment {
  * changed it ("guarded-variable"); a top-level path isn't substituted; or ~user, whose home
  * directory can't be checked.
  */
-export type UnresolvedKind = "not-found" | "unknown-variable" | "guarded-variable" | "not-substituted" | "user-home";
+export type UnresolvedKind =
+  | "not-found"
+  | "unknown-variable"
+  | "guarded-variable"
+  | "not-substituted"
+  | "user-home"
+  // One of tf's library files, with no library folder known here to look in.
+  | "unknown-library";
 
 export interface UnresolvedLoad {
   from: string;
@@ -335,6 +343,10 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
       if (namesVariable && !load.pending.includes("full")) return fail("not-substituted", "this path is not substituted here; prefix the command with /eval", searched);
       const user = /^~([^/]+)/.exec(file)?.[1];
       if (user) return fail("user-home", `~${user} is user ${user}'s home directory, unless there is no such user`, searched);
+      // tf would look in TFLIBDIR next, which may well hold it: this check just doesn't know where that is.
+      if (LIBRARY_FILES.includes(file) && !vars.get("TFLIBDIR") && !vars.get("TFPATH")) {
+        return fail("unknown-library", "tf's library folder isn't known here", searched);
+      }
       return fail("not-found", "file not found", searched);
     }
     resolved.push({ from, line, offset: load.start, raw, file: path.resolve(found), kind: load.kind });

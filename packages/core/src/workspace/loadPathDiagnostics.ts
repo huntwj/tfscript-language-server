@@ -108,7 +108,14 @@ function defines(defs: MacroNames, name: string): boolean {
  */
 export function unfollowedOnPath(graph: LoadGraph, label: (file: string) => string = (f) => path.basename(f)): UnfollowedLoad[] {
   return graph.unresolved
-    .filter((u) => u.kind === "unknown-variable" || u.kind === "guarded-variable" || u.kind === "user-home" || u.searched.some(isForeignPath))
+    .filter(
+      (u) =>
+        u.kind === "unknown-variable" ||
+        u.kind === "guarded-variable" ||
+        u.kind === "user-home" ||
+        u.kind === "unknown-library" ||
+        u.searched.some(isForeignPath),
+    )
     .map((u) => ({ raw: u.raw, label: label(u.from), line: u.line }));
 }
 
@@ -266,6 +273,16 @@ function unresolvedDetail(u: UnresolvedLoad): Pick<TfDiagnostic, "message" | "la
       explanation:
         `tf takes ${code(`~${user}`)} from user ${code(user)}'s home directory, or, if there is no such user, as a ` +
         `folder named ${code(`~${user}`)} in its current directory. ${userHomeExplanation(u)}`,
+    };
+  }
+  if (u.kind === "unknown-library") {
+    return {
+      message: `tf's library isn't known here, and ${u.file} is one of its files: set tfscript.libraryPath to the folder that holds stdlib.tf.`,
+      label: "can't follow",
+      explanation:
+        `tf looks for a relative path in its current directory, then in ${code("TFLIBDIR")} (when ${code("TFPATH")} is empty), ` +
+        `where ${code(u.file)} is installed with tf. This check takes ${code("TFLIBDIR")} from ${code("tfscript.libraryPath")}, ` +
+        `or the ${code("TFLIBDIR")} environment variable, and neither is set.`,
     };
   }
   const shown = u.file === u.raw ? `"${u.raw}"` : `"${u.raw}" (${u.file})`;

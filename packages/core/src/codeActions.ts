@@ -1,6 +1,7 @@
 import { getRefactorActions } from "./bodyLayout";
 import { getDiagnostics, type Position, type Range, type TfDiagnostic, type TfTextEdit } from "./diagnostics";
 import { getExtractActions } from "./extractMacro";
+import { getExtractVariableActions } from "./extractVariable";
 import { getInlineActions } from "./inlineMacro";
 
 /**
@@ -81,7 +82,10 @@ export interface CodeActionRequest {
   isTaken?: (name: string) => boolean;
   /** Whether a macro (lower case) may also be defined outside this file, for inlining. */
   definedOutside?: (name: string) => boolean;
-  /** Whether a file other than this one names a macro (lower case), before its /def is removed. */
+  /**
+   * Whether a file other than this one names a macro (lower case), before its /def is removed; and
+   * whether it mentions a word at all, before a new local variable takes it as its name.
+   */
   mentionedOutside?: (name: string) => boolean;
   /** The file is in tf's library, whose macros aren't inlined. */
   library?: boolean;
@@ -140,7 +144,8 @@ export function routeCodeActions(text: string, request: CodeActionRequest): Rout
       ...(request.isTaken ? { isTaken: request.isTaken } : {}),
       ...(request.calledAsFunction ? { calledAsFunction: request.calledAsFunction } : {}),
     };
-    for (const a of getExtractActions(text, request.range, options)) {
+    const variable = request.mentionedOutside ? { mentionedOutside: request.mentionedOutside } : {};
+    for (const a of [...getExtractActions(text, request.range, options), ...getExtractVariableActions(text, request.range, variable)]) {
       if (a.disabled === undefined) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: a.edits });
       else if (request.disabledSupport) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: [], disabled: a.disabled });
     }

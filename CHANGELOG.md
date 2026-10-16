@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- "Extract to a local variable" (`refactor.extract`): computes the selected part of an expression
+  in a macro body in `/let value=%; /test value:=(...)` just before its statement, and reads it
+  back as `{value}`, or `%{value}` for a whole `$[...]` in substituted text. An assignment keeps
+  the value's type, where `/let value=$[...]` would turn a real into text with fewer digits. It
+  is shown disabled, with the reason, where the result could differ: a side effect in the
+  selection or before it in its statement, a selection only evaluated some of the time (`&`, `|`, `?:`, a
+  default, an `/elseif` or `/while` condition), a `%`, `$` or `\` the `/test` would substitute
+  again, `%?` read where the new statements change it, `whatis()`, a call with the wrong number of
+  arguments, and two tf bugs (a true `? :` whose value is used crashes tf in a macro body, and a
+  `,` in a `$[...]` in command text drops the text before it).
 - `tfscript check`, a command line checker (`packages/cli`, `@tfscript/cli`, not yet published):
   for the files and folders it is given, it reports the diagnostics the server would publish,
   including `unresolved-load` and `undefined-macro`, worked out from a root folder as the server

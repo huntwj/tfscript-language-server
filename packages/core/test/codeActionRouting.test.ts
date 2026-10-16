@@ -63,4 +63,30 @@ describe("routeCodeActions", () => {
       expect(action).toMatchObject({ kind: "refactor.extract", edits: [], disabled: expect.stringMatching(/^\/return in the selection/) });
     });
   });
+
+  describe("extract to a local variable", () => {
+    const body = "/def a = /echo $[x + 1]\n";
+    // "x + 1".
+    const sum = { start: { line: 0, character: 17 }, end: { line: 0, character: 22 } };
+
+    it("offers it as an extract refactoring for a selection in an expression", () => {
+      expect(kinds(routeCodeActions(body, { range: sum, triggerKind: TRIGGER_AUTOMATIC, only: [REFACTOR_EXTRACT] }))).toEqual([
+        "refactor.extract: Extract to a local variable, value",
+      ]);
+      expect(routeCodeActions(body, { range: sum, only: [REFACTOR_REWRITE] })).toEqual([]);
+    });
+
+    it("names the variable past the words other files mention", () => {
+      const [action] = routeCodeActions(body, { range: sum, only: [REFACTOR_EXTRACT], mentionedOutside: (n) => n === "value" });
+      expect(action?.title).toBe("Extract to a local variable, value2");
+    });
+
+    it("shows a selection it can't extract as disabled, with the reason, only where the client can", () => {
+      const effect = "/def a = /echo $[++x + 1]\n";
+      const range = { start: { line: 0, character: 17 }, end: { line: 0, character: 20 } };
+      expect(routeCodeActions(effect, { range, only: [REFACTOR_EXTRACT] })).toEqual([]);
+      const [action] = routeCodeActions(effect, { range, only: [REFACTOR_EXTRACT], disabledSupport: true });
+      expect(action).toMatchObject({ kind: "refactor.extract", edits: [], disabled: expect.stringMatching(/^In the selection, \+\+x changes a variable/) });
+    });
+  });
 });

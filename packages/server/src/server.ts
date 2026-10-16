@@ -342,7 +342,8 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   // Only worked out when an extracted macro needs a name.
   let taken: ((name: string) => boolean) | undefined;
   if (file) request.isTaken = (name) => (taken ??= index.macroNameTaken(file, document.getText()))(name);
-  // And, for inlining, whether the macro's /def is the only one, and whether other files name it.
+  // And, for inlining, whether the macro's /def is the only one, and whether other files name it
+  // (or, for a new local variable's name, mention the word at all).
   let outside: ((name: string) => boolean) | undefined;
   let mentioned: ((name: string) => boolean) | undefined;
   if (file) request.definedOutside = (name) => (outside ??= index.macroDefinedOutside(file))(name);

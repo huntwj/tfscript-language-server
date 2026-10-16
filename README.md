@@ -831,10 +831,12 @@ When it is disabled, each checked in tf where the reason is a behaviour:
   and for an `/if`, neither may the first statement of each branch nor, when no branch may run,
   the statement after it, which must be there: an `/if` whose branch doesn't run leaves `%?` as
   it was (a macro ending in one returned the `/test`'s value instead of the one before);
-- a variable tf assigns to: the target of `:=`, `+=` and the like (in parentheses too), the
-  operand of `++` or `--`, and the variable `tfread()` reads into. `{value}` compiles as the name
-  `value` does, so the rewrite would assign `value` instead (in tf, `x := 5` with `x` extracted
-  left `x` as it was);
+- a variable tf assigns to: the target of `:=`, `+=` and the like, the operand of `++` or `--`,
+  and the variable `tfread()` reads into, also through parentheses, a branch of `?:`, the right
+  of a `,`, and either side of `|` or `&`, which hand on the operand that decided them (in tf,
+  `x | y := 5` assigned `x` when it was 1). `{value}` compiles as the name `value` does, so the
+  rewrite would assign `value` instead (in tf, `x := 5` with `x` extracted left `x` as it was).
+  The condition of `k ? y : z` isn't the value, so it can be extracted there;
 - `whatis()` of the selection, which says `id:float` of the variable where it said `float`;
 - a `? :` in the selection, and a `,` in a `$[...]` in command text: two bugs of tf's, found
   here. In a macro body, a `? :` whose condition is true and whose value is used (in `$[...]`,

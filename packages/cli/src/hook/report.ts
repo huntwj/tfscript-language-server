@@ -27,8 +27,9 @@ export interface ShapedReport {
   text: string;
 }
 
-function line(d: JsonDiagnostic): string {
-  const where = `${d.file}:${d.range.start.line}:${d.range.start.column}`;
+/** One diagnostic's line. `label` names the file as the first line does (the hook checks one file). */
+function line(d: JsonDiagnostic, label: string): string {
+  const where = `${label}:${d.range.start.line}:${d.range.start.column}`;
   const fixes = d.fixes.length === 0 ? "" : ` Quick fix${d.fixes.length === 1 ? "" : "es"} an editor offers: ${d.fixes.join("; ")}.`;
   return `- ${where}: ${d.severity} ${d.code}: ${d.message}${fixes}`;
 }
@@ -60,7 +61,7 @@ export function shapeReport(report: JsonReport, label: string, options: ReportOp
   // Room for the closing line.
   const reserve = 300;
   for (const d of chosen) {
-    const text = line(d);
+    const text = line(d, label);
     if (length + 1 + text.length > budget - reserve) break;
     lines.push(text);
     length += 1 + text.length;

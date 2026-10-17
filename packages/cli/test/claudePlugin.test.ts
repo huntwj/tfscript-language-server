@@ -89,7 +89,7 @@ describe("the bundled hook, run as Claude Code runs it", () => {
     const out = JSON.parse(stdout);
     expect(out.decision).toBe("block");
     expect(out.hookSpecificOutput).toEqual({ hookEventName: "PostToolUse" });
-    const label = path.join("scripts", "error.tf");
+    const label = "scripts/error.tf";
     expect(out.reason).toBe(
       `tfscript found 1 error in ${label}:\n` +
         `- ${label}:3:6: error invalid-macro-name: This /def has no = after its name, so tf takes all of "oops /echo the" as the name, which can't hold a space, and defines nothing: put = after oops. Quick fix an editor offers: Put = after oops.`,
@@ -110,14 +110,32 @@ describe("the bundled hook, run as Claude Code runs it", () => {
     expect(text).not.toContain("--");
   });
 
+  // The command the hook names for the full list must run as written in Git Bash, which eats
+  // backslashes, so it is tried in a POSIX shell where one is at hand (on Windows, only Git Bash's
+  // or another MSYS one: WSL's bash would see C:/ paths that don't exist for it).
+  const shell = spawnSync("bash", ["-c", "uname -s"], { encoding: "utf8" });
+  const posix = shell.status === 0 && (process.platform === "win32" ? /^(MINGW|MSYS|CYGWIN)/.test(shell.stdout) : true);
+  it.skipIf(!posix)("names a command for the rest that runs as written in a POSIX shell", () => {
+    const { stdout } = hook(path.join(PROJECT, "capped", "tfrc"));
+    const text = JSON.parse(stdout).hookSpecificOutput.additionalContext as string;
+    expect(text.split("\n")[0]).toBe("tfscript found 1 warning in capped/tfrc:");
+    const command = /; to see them all, run (.+)\.$/.exec(text)?.[1];
+    expect(command).toMatch(/^node "[^\\"]+" check --setting-names config --root "[^\\"]+" "[^\\"]+"$/);
+    const run = spawnSync("bash", ["-c", command as string], { encoding: "utf8", cwd: path.join(REPO, "packages") });
+    // Only the human format's count on stderr: no "file not found" from a mangled path.
+    expect(run.stderr).toBe("0 errors, 1 warning, 0 notes in 1 file.\n");
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain("warning unresolved-load: tf won't find \"missing.tf\"");
+  });
+
   it("says what is wrong with a bad tfscript.json, and how to fix it", () => {
     const { status, stdout, stderr } = hook(path.join(PROJECT, "bad-config", "script.tf"));
     expect({ status, stderr }).toEqual({ status: 0, stderr: "" });
-    const config = path.join("bad-config", "tfscript.json");
+    const config = "bad-config/tfscript.json";
     expect(JSON.parse(stdout)).toEqual({
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
-        additionalContext: `tfscript didn't check ${path.join("bad-config", "script.tf")}, because it can't use ${config}: ${config} gives "entryFiles" as the text "tfrc", not a list of paths: write it as "entryFiles": ["tfrc"].`,
+        additionalContext: `tfscript didn't check bad-config/script.tf, because it can't use ${config}: ${config} gives "entryFiles" as the text "tfrc", not a list of paths: write it as "entryFiles": ["tfrc"].`,
       },
     });
   });

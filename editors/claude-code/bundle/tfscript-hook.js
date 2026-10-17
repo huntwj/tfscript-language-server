@@ -244,8 +244,8 @@ var plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 // packages/cli/src/hook/report.ts
 var DEFAULT_WARNING_LIMIT = 20;
 var DEFAULT_BUDGET = 9e3;
-function line(d) {
-  const where = `${d.file}:${d.range.start.line}:${d.range.start.column}`;
+function line(d, label) {
+  const where = `${label}:${d.range.start.line}:${d.range.start.column}`;
   const fixes = d.fixes.length === 0 ? "" : ` Quick fix${d.fixes.length === 1 ? "" : "es"} an editor offers: ${d.fixes.join("; ")}.`;
   return `- ${where}: ${d.severity} ${d.code}: ${d.message}${fixes}`;
 }
@@ -266,7 +266,7 @@ function shapeReport(report, label, options) {
   let listed = 0;
   const reserve = 300;
   for (const d of chosen) {
-    const text = line(d);
+    const text = line(d, label);
     if (length + 1 + text.length > budget - reserve) break;
     lines.push(text);
     length += 1 + text.length;
@@ -368,11 +368,18 @@ function block(text) {
   return { stdout: `${JSON.stringify({ decision: "block", reason: text, hookSpecificOutput: { hookEventName: "PostToolUse" } })}
 ` };
 }
-function labelOf(file, projectDir) {
-  if (projectDir === void 0 || !isInside(file, path4.resolve(projectDir))) return file;
-  return path4.relative(path4.resolve(projectDir), file) || file;
+var slash = (p) => p.replace(/\\/g, "/");
+var quote = (p) => `"${slash(p)}"`;
+function labelOf(file, projectDir, realpath) {
+  if (projectDir !== void 0) {
+    const project = path4.resolve(projectDir);
+    if (isInside(file, project)) return slash(path4.relative(project, file)) || slash(file);
+    const real = realpath(file);
+    const realProject = realpath(project);
+    if (isInside(real, realProject)) return slash(path4.relative(realProject, real)) || slash(file);
+  }
+  return slash(file);
 }
-var quote = (s) => /\s/.test(s) ? `"${s}"` : s;
 function runHook(input, deps) {
   let call;
   try {
@@ -385,7 +392,7 @@ function runHook(input, deps) {
   const file = path4.resolve(call.cwd ?? deps.projectDir ?? ".", given);
   const kind = kindOf2(file);
   if (kind === void 0 || !deps.isFile(file)) return QUIET;
-  const label = labelOf(file, deps.projectDir);
+  const label = labelOf(file, deps.projectDir, deps.realpath);
   if (kind === "config") {
     const loaded = readConfig(file, deps.readFile, label);
     return loaded.config ? QUIET : context(`tfscript can't use ${label}: ${loaded.problems.join(" ")}`);
@@ -394,7 +401,7 @@ function runHook(input, deps) {
   const { root, config, fileOnly } = hookRoot(file, deps.projectDir, deps);
   let claudeCode = {};
   if (config !== void 0) {
-    const configLabel = labelOf(config, deps.projectDir);
+    const configLabel = labelOf(config, deps.projectDir, deps.realpath);
     const loaded = readConfig(config, deps.readFile, configLabel);
     if (!loaded.config) {
       return context(`tfscript didn't check ${label}, because it can't use ${configLabel}: ${loaded.problems.join(" ")}`);
@@ -403,28 +410,27 @@ function runHook(input, deps) {
     claudeCode = loaded.config.claudeCode;
   }
   const seconds = claudeCode.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
-  const cwd = deps.projectDir !== void 0 && isInside(file, path4.resolve(deps.projectDir)) ? path4.resolve(deps.projectDir) : root;
-  const args = ["check", "--format", "json", "--setting-names", "config", ...fileOnly ? ["--no-undefined-macros"] : [], "--root", root, file];
-  const run = deps.runCli(args, cwd, seconds * 1e3);
-  const fullCommand = `node ${quote(deps.cliPath)} check --root ${quote(root)} ${quote(file)}`;
+  const flags = ["--setting-names", "config", ...fileOnly ? ["--no-undefined-macros"] : []];
+  const run = deps.runCli(["check", "--format", "json", ...flags, "--root", root, file], root, seconds * 1e3);
+  const fullCommand = `node ${quote(deps.cliPath)} check ${flags.join(" ")} --root ${quote(root)} ${quote(file)}`;
   const options = { warningLimit: claudeCode.warningLimit ?? DEFAULT_WARNING_LIMIT, showInformation: claudeCode.showInformation ?? false };
   if (run.timedOut) {
     const own = path4.dirname(file);
-    const quick = deps.runCli(["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", own, file], cwd, RETRY_SECONDS * 1e3);
+    const quick = deps.runCli(["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", own, file], own, RETRY_SECONDS * 1e3);
     const quickReport = quick.timedOut || quick.error !== void 0 ? void 0 : parseReport(quick.stdout);
     if (quickReport === void 0 || quickReport.problems.length > 0 && quickReport.diagnostics.length === 0) {
       return context(
-        `tfscript didn't finish checking ${label} within ${seconds} seconds, so it is unchecked. Its root, ${root}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`
+        `tfscript didn't finish checking ${label} within ${seconds} seconds, so it is unchecked. Its root, ${slash(root)}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`
       );
     }
-    const note = `The full check of ${label} didn't finish within ${seconds} seconds (its root, ${root}, may hold too many files), so this is a quick check of the file alone, without undefined-macro. For the full check, put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`;
+    const note = `The full check of ${label} didn't finish within ${seconds} seconds (its root, ${slash(root)}, may hold too many files), so this is a quick check of the file alone, without undefined-macro. For the full check, put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`;
     const shaped2 = shapeReport(quickReport, label, { ...options, budget: DEFAULT_BUDGET - note.length });
     if (shaped2 === void 0) return context(note);
     const text = `${shaped2.text}
 ${note}`;
     return shaped2.errors > 0 ? block(text) : context(text);
   }
-  if (run.error !== void 0) return context(`tfscript couldn't check ${label}, because it couldn't start (${run.error}): check that node can run ${deps.cliPath}.`);
+  if (run.error !== void 0) return context(`tfscript couldn't check ${label}, because it couldn't start (${run.error}): check that node can run ${slash(deps.cliPath)}.`);
   const report = parseReport(run.stdout);
   if (report === void 0) {
     const why = run.stderr.trim().split("\n")[0] ?? "";

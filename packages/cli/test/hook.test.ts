@@ -11,6 +11,7 @@ import { hookRoot, type RootHost } from "../src/hook/root";
 
 const ROOT = path.resolve("/fake");
 const p = (...parts: string[]) => path.join(ROOT, ...parts);
+const slash = (s: string) => s.replace(/\\/g, "/");
 
 describe("the hook's root", () => {
   const files = new Set([p("mud", "tfscript.json"), p("tfscript.json")]);
@@ -209,12 +210,12 @@ describe("runHook", () => {
     const many = report([diagnostic("warning", 1), diagnostic("warning", 2), diagnostic("information", 3)]);
     const d = deps({ [p("proj", "mud", "tfscript.json")]: config, [p("proj", "mud", "wot", "a.tf")]: "" }, () => ran(many));
     const out = parsed(runHook(input(p("proj", "mud", "wot", "a.tf")), d).stdout);
-    expect(d.calls[0]).toEqual({ args: ["check", "--format", "json", "--setting-names", "config", "--root", p("proj", "mud"), p("proj", "mud", "wot", "a.tf")], cwd: p("proj"), timeoutMs: 2000 });
+    expect(d.calls[0]).toEqual({ args: ["check", "--format", "json", "--setting-names", "config", "--root", p("proj", "mud"), p("proj", "mud", "wot", "a.tf")], cwd: p("proj", "mud"), timeoutMs: 2000 });
     expect(out.hookSpecificOutput.additionalContext?.split("\n")).toEqual([
-      `tfscript found 2 warnings and 1 information note in ${path.join("mud", "wot", "a.tf")}:`,
-      "- a.tf:1:1: warning warning-code: A warning on line 1: fix it.",
-      "- a.tf:3:1: information information-code: A information on line 3: fix it.",
-      `- 1 more is not listed; to see them all, run node ${p("plugin", "bundle", "tfscript.js")} check --root ${p("proj", "mud")} ${p("proj", "mud", "wot", "a.tf")}.`,
+      "tfscript found 2 warnings and 1 information note in mud/wot/a.tf:",
+      "- mud/wot/a.tf:1:1: warning warning-code: A warning on line 1: fix it.",
+      "- mud/wot/a.tf:3:1: information information-code: A information on line 3: fix it.",
+      `- 1 more is not listed; to see them all, run node "${slash(p("plugin", "bundle", "tfscript.js"))}" check --setting-names config --root "${slash(p("proj", "mud"))}" "${slash(p("proj", "mud", "wot", "a.tf"))}".`,
     ]);
   });
 
@@ -227,6 +228,22 @@ describe("runHook", () => {
     };
     expect(runHook(input(p("home", "a.tf")), d)).toEqual({ stdout: "" });
     expect(calls).toEqual([["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", p("home"), p("home", "a.tf")]]);
+  });
+
+  it("names the file the same way in its first line and on each diagnostic, with forward slashes", () => {
+    const one = report([diagnostic("warning", 1)]);
+    const text = (file: string, projectDir: string | undefined, realpath: (f: string) => string = (f) => f) => {
+      const d = { ...deps({ [file]: "" }, () => ran(one)), realpath };
+      if (projectDir === undefined) delete d.projectDir;
+      else d.projectDir = projectDir;
+      return parsed(runHook(input(file), d).stdout).hookSpecificOutput.additionalContext?.split("\n").slice(0, 2);
+    };
+    const outside = slash(p("elsewhere", "a.tf"));
+    expect(text(p("elsewhere", "a.tf"), p("proj"))).toEqual([`tfscript found 1 warning in ${outside}:`, `- ${outside}:1:1: warning warning-code: A warning on line 1: fix it.`]);
+    expect(text(p("elsewhere", "a.tf"), undefined)).toEqual([`tfscript found 1 warning in ${outside}:`, `- ${outside}:1:1: warning warning-code: A warning on line 1: fix it.`]);
+    // Through a junction into the project: named from the project, by where it really is.
+    const viaLink = (f: string) => (f.startsWith(p("link")) ? p("proj") + f.slice(p("link").length) : f);
+    expect(text(p("link", "s", "a.tf"), p("proj"), viaLink)).toEqual(["tfscript found 1 warning in s/a.tf:", "- s/a.tf:1:1: warning warning-code: A warning on line 1: fix it."]);
   });
 
   it("checks nothing under a tfscript.json that turns it off", () => {
@@ -252,7 +269,7 @@ describe("runHook", () => {
     const files = { [p("proj", "a.tf")]: "" };
     const timedOut: CliRun = { status: null, stdout: "", stderr: "", timedOut: true };
     const note =
-      `The full check of a.tf didn't finish within 10 seconds (its root, ${p("proj")}, may hold too many files), so this is a quick check of the file alone, without undefined-macro. ` +
+      `The full check of a.tf didn't finish within 10 seconds (its root, ${slash(p("proj"))}, may hold too many files), so this is a quick check of the file alone, without undefined-macro. ` +
       "For the full check, put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.";
 
     let n = 0;
@@ -274,7 +291,7 @@ describe("runHook", () => {
     const files = { [p("proj", "a.tf")]: "" };
     const timedOut = parsed(runHook(input(p("proj", "a.tf")), deps(files, () => ({ status: null, stdout: "", stderr: "", timedOut: true }))).stdout);
     expect(timedOut.hookSpecificOutput.additionalContext).toBe(
-      `tfscript didn't finish checking a.tf within 10 seconds, so it is unchecked. Its root, ${p("proj")}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`,
+      `tfscript didn't finish checking a.tf within 10 seconds, so it is unchecked. Its root, ${slash(p("proj"))}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`,
     );
     const noStart = parsed(runHook(input(p("proj", "a.tf")), deps(files, () => ({ status: null, stdout: "", stderr: "", timedOut: false, error: "spawn ENOENT" }))).stdout);
     expect(noStart.hookSpecificOutput.additionalContext).toMatch(/^tfscript couldn't check a\.tf, because it couldn't start \(spawn ENOENT\): check that node can run /);

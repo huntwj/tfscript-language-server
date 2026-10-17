@@ -78,13 +78,27 @@ function block(text: string): HookResult {
   return { stdout: `${JSON.stringify({ decision: "block", reason: text, hookSpecificOutput: { hookEventName: "PostToolUse" } })}\n` };
 }
 
-/** `file` as Claude would know it: relative to the project folder when inside it, else absolute. */
-function labelOf(file: string, projectDir: string | undefined): string {
-  if (projectDir === undefined || !isInside(file, path.resolve(projectDir))) return file;
-  return path.relative(path.resolve(projectDir), file) || file;
-}
+/** `p` with forward slashes, which every shell takes, Git Bash's included (it eats backslashes). */
+const slash = (p: string): string => p.replace(/\\/g, "/");
 
-const quote = (s: string): string => (/\s/.test(s) ? `"${s}"` : s);
+/** `p` quoted for a shell, with forward slashes. */
+const quote = (p: string): string => `"${slash(p)}"`;
+
+/**
+ * `file` as the hook names it, in its first line and on each diagnostic's alike: relative to the
+ * project folder when inside it (by its path, or else by where it really is), else absolute;
+ * with forward slashes either way.
+ */
+function labelOf(file: string, projectDir: string | undefined, realpath: (p: string) => string): string {
+  if (projectDir !== undefined) {
+    const project = path.resolve(projectDir);
+    if (isInside(file, project)) return slash(path.relative(project, file)) || slash(file);
+    const real = realpath(file);
+    const realProject = realpath(project);
+    if (isInside(real, realProject)) return slash(path.relative(realProject, real)) || slash(file);
+  }
+  return slash(file);
+}
 
 /** Runs the hook on `input`, the PostToolUse JSON from stdin. */
 export function runHook(input: string, deps: HookDeps): HookResult {
@@ -99,7 +113,7 @@ export function runHook(input: string, deps: HookDeps): HookResult {
   const file = path.resolve(call.cwd ?? deps.projectDir ?? ".", given);
   const kind = kindOf(file);
   if (kind === undefined || !deps.isFile(file)) return QUIET;
-  const label = labelOf(file, deps.projectDir);
+  const label = labelOf(file, deps.projectDir, deps.realpath);
 
   if (kind === "config") {
     const loaded = readConfig(file, deps.readFile, label);
@@ -111,7 +125,7 @@ export function runHook(input: string, deps: HookDeps): HookResult {
   const { root, config, fileOnly } = hookRoot(file, deps.projectDir, deps);
   let claudeCode: ClaudeCodeSettings = {};
   if (config !== undefined) {
-    const configLabel = labelOf(config, deps.projectDir);
+    const configLabel = labelOf(config, deps.projectDir, deps.realpath);
     const loaded = readConfig(config, deps.readFile, configLabel);
     if (!loaded.config) {
       return context(`tfscript didn't check ${label}, because it can't use ${configLabel}: ${loaded.problems.join(" ")}`);
@@ -121,12 +135,13 @@ export function runHook(input: string, deps: HookDeps): HookResult {
   }
   const seconds = claudeCode.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
 
-  const cwd = deps.projectDir !== undefined && isInside(file, path.resolve(deps.projectDir)) ? path.resolve(deps.projectDir) : root;
-  // A file checked alone (its folder too big to search) has undefined-macro off: it would search the whole folder.
-  // Messages name a setting as its tfscript.json key, which is how the hook is set up.
-  const args = ["check", "--format", "json", "--setting-names", "config", ...(fileOnly ? ["--no-undefined-macros"] : []), "--root", root, file];
-  const run = deps.runCli(args, cwd, seconds * 1000);
-  const fullCommand = `node ${quote(deps.cliPath)} check --root ${quote(root)} ${quote(file)}`;
+  // Messages name a setting as its tfscript.json key, which is how the hook is set up. A file
+  // checked alone (its folder too big to search) has undefined-macro off, which would search it.
+  const flags = ["--setting-names", "config", ...(fileOnly ? ["--no-undefined-macros"] : [])];
+  // Run from the root, so nothing in the check depends on where Claude Code started the hook.
+  const run = deps.runCli(["check", "--format", "json", ...flags, "--root", root, file], root, seconds * 1000);
+  // What Claude can run to see the whole report: absolute paths, so it works from any folder.
+  const fullCommand = `node ${quote(deps.cliPath)} check ${flags.join(" ")} --root ${quote(root)} ${quote(file)}`;
 
   const options = { warningLimit: claudeCode.warningLimit ?? DEFAULT_WARNING_LIMIT, showInformation: claudeCode.showInformation ?? false };
 
@@ -134,23 +149,23 @@ export function runHook(input: string, deps: HookDeps): HookResult {
     // Try once more, quickly: the file alone from its own folder, with undefined-macro off, so it
     // needn't search any folder for what defines each macro.
     const own = path.dirname(file);
-    const quick = deps.runCli(["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", own, file], cwd, RETRY_SECONDS * 1000);
+    const quick = deps.runCli(["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", own, file], own, RETRY_SECONDS * 1000);
     const quickReport = quick.timedOut || quick.error !== undefined ? undefined : parseReport(quick.stdout);
     if (quickReport === undefined || (quickReport.problems.length > 0 && quickReport.diagnostics.length === 0)) {
       return context(
         `tfscript didn't finish checking ${label} within ${seconds} seconds, so it is unchecked. ` +
-          `Its root, ${root}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`,
+          `Its root, ${slash(root)}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`,
       );
     }
     const note =
-      `The full check of ${label} didn't finish within ${seconds} seconds (its root, ${root}, may hold too many files), so this is a quick check of the file alone, without undefined-macro. ` +
+      `The full check of ${label} didn't finish within ${seconds} seconds (its root, ${slash(root)}, may hold too many files), so this is a quick check of the file alone, without undefined-macro. ` +
       `For the full check, put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`;
     const shaped = shapeReport(quickReport, label, { ...options, budget: DEFAULT_BUDGET - note.length });
     if (shaped === undefined) return context(note);
     const text = `${shaped.text}\n${note}`;
     return shaped.errors > 0 ? block(text) : context(text);
   }
-  if (run.error !== undefined) return context(`tfscript couldn't check ${label}, because it couldn't start (${run.error}): check that node can run ${deps.cliPath}.`);
+  if (run.error !== undefined) return context(`tfscript couldn't check ${label}, because it couldn't start (${run.error}): check that node can run ${slash(deps.cliPath)}.`);
 
   const report = parseReport(run.stdout);
   if (report === undefined) {

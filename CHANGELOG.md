@@ -9,16 +9,20 @@
   found: every error (as a block on the edit), the first 20 warnings with a count of the rest, and
   information notes only if a `tfscript.json` asks for them, each with the titles of its fixes. It
   never changes a file, says nothing for a clean one, and skips a `.tf` file that is Terraform (a
-  `.terraform` folder, `.terraform.lock.hcl`, `*.tfvars` or `*.tf.json` beside it, or a top-level
-  Terraform block in it). It checks from the folder of the nearest `tfscript.json`, else the
-  project folder, else the file's own folder, and gives up with a short notice after 10 seconds.
+  `.terraform` folder, `.terraform.lock.hcl`, `*.tfvars`, `*.tf.json` or `*.tfstate` beside it, a
+  top-level Terraform block in it, or a first line that opens an HCL block). A message names a
+  setting as its `tfscript.json` key. It checks from the folder of the nearest `tfscript.json` (no
+  higher than the project folder), else the project folder; a file outside the project is checked
+  from its own folder, or alone if that folder is too big to search. When the full check takes
+  more than 10 seconds, it checks the file alone, quickly and without `undefined-macro`, and says so.
   The plugin also registers the language server for `.tf` files, with its diagnostics off, for
   navigation and hover, and carries the tf-scripting skill. Everything runs locally from single-file
   bundles in the plugin (`npm run bundle:claude-code`; CI checks they match the sources).
 - `tfscript.json`: the `tfscript.*` settings in a file, without the prefix, with relative paths
   relative to its folder, and a `claudeCode` section for the Claude Code hook. `tfscript check` reads
   the root's, or the one `--config` names (its folder then the root, unless `--root` is given), with
-  the options over it. A bad file is reported with what is wrong and how to fix it, and nothing is
+  the options over it. `--setting-names config` makes a message name a setting as its `tfscript.json`
+  key rather than its option. A bad file is reported with what is wrong and how to fix it, and nothing is
   checked (exit 2). Its JSON schema is `schemas/tfscript.schema.json`. The server doesn't read it yet.
 - `unresolved-load` on one of tf's own library files (`/load alias.tf`, any of the `.tf` files tf
   installs) when no library folder is known (no `tfscript.libraryPath`, no `TFLIBDIR`, and an

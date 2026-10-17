@@ -12,6 +12,8 @@
  *     or the same once the blanks beside each `%;` separator are dropped (formatting.ts's
  *     guarantee: nothing else may differ), and the load must print the same messages but for
  *     the line numbers they name.
+ *     An entry with a comment or blank line among its lines is only re-indented, so its macro
+ *     must list identically.
  *  2. For each macro whose listing differs at all, run it (`/#<number>`, no arguments) with tf
  *     connected to a server here that records every byte tf sends it, and compare everything tf
  *     printed and sent. `/quit`, `/sh` and friends are stubbed out first.
@@ -217,9 +219,10 @@ async function checkStartup(image, dirs) {
 }
 
 function tallyOf(result) {
-  const tally = { entries: result.entries.length, changed: 0, refused: {}, crlf: result.crlf };
+  const tally = { entries: result.entries.length, changed: 0, reindented: 0, refused: {}, crlf: result.crlf };
   for (const e of result.entries) {
     if (e.changed) tally.changed += 1;
+    if (e.changed && e.reindentOnly) tally.reindented += 1;
     if (e.refused) tally.refused[e.refused] = (tally.refused[e.refused] ?? 0) + 1;
   }
   return tally;
@@ -228,7 +231,7 @@ function tallyOf(result) {
 async function main() {
   const image = tfImage();
   const scratch = mkdtempSync(path.join(os.tmpdir(), "tfscript-format-live-"));
-  const totals = { files: 0, formatted: 0, crlf: 0, entries: 0, changed: 0, refused: {}, macros: 0, identical: 0, normalised: 0, mismatches: 0, runs: 0, runMismatches: 0, movedMessages: 0 };
+  const totals = { files: 0, formatted: 0, crlf: 0, entries: 0, changed: 0, reindented: 0, refused: {}, macros: 0, identical: 0, normalised: 0, mismatches: 0, runs: 0, runMismatches: 0, movedMessages: 0 };
   const add = (r) => {
     totals.macros += r.macros;
     totals.identical += r.identical;
@@ -261,10 +264,12 @@ async function main() {
       totals.files += 1;
       totals.entries += tally.entries;
       totals.changed += tally.changed;
+      totals.reindented += tally.reindented;
       if (tally.crlf) totals.crlf += 1;
       for (const [why, n] of Object.entries(tally.refused)) totals.refused[why] = (totals.refused[why] ?? 0) + n;
       const refused = Object.entries(tally.refused).map(([w, n]) => `${w} ${n}`).join(", ");
-      const what = `${name}: ${tally.changed}/${tally.entries} entries changed${refused ? `; left: ${refused}` : ""}${tally.crlf ? "; CRLF, left alone" : ""}`;
+      const reindented = tally.reindented ? ` (${tally.reindented} with comment or blank lines, re-indented only)` : "";
+      const what = `${name}: ${tally.changed}/${tally.entries} entries changed${reindented}${refused ? `; left: ${refused}` : ""}${tally.crlf ? "; CRLF, left alone" : ""}`;
       if (result.edits.length === 0) {
         console.log(`  same  ${what}`);
         continue;

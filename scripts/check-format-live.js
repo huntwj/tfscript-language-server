@@ -99,18 +99,25 @@ const between = (lines, start, end) => {
 const normaliseList = (l) => l.replace(/(?<![%\\$/ ])[ \t]+(?=(?<!%)%;)/g, "").replace(/(?<!%)%;[ \t]+/g, "%;");
 
 /**
- * Whether `after` is `before` with only blanks beside `%;`s taken out, none of them inside a quoted
- * string (counting quotes from the start of the line, as an expression would): a second, plainer
- * reading of the guarantee than normaliseList(), so a blank dropped inside `"a%;  b"` is caught.
+ * Whether `after` is `before` with only blanks beside `%;`s taken out, none of them inside the
+ * brackets of an expression or substitution (`(...)`, `$[...]`, `${...}`, `%{...}`, a string in
+ * one): a second, plainer reading of the guarantee than normaliseList(), so a blank dropped
+ * inside `/if ("a%;  b" ...)` is caught. Quotes count only inside brackets, as tf reads a string
+ * only in an expression (`say don't%; ...` is two statements).
  */
 function onlySeparatorBlanksGone(before, after) {
   let j = 0;
   let quote = "";
+  let depth = 0;
   for (let i = 0; i < before.length; i += 1) {
     const ch = before[i];
     if (after[j] === ch) {
       j += 1;
-      if (quote ? ch === quote : ch === '"' || ch === "'") quote = quote ? "" : ch;
+      if (quote) {
+        if (ch === quote) quote = "";
+      } else if (depth > 0 && (ch === '"' || ch === "'" || ch === "`")) quote = ch;
+      else if (ch === "(" || ("[{".includes(ch) && (depth > 0 || before[i - 1] === "$" || before[i - 1] === "%"))) depth += 1;
+      else if (")]}".includes(ch) && depth > 0) depth -= 1;
       continue;
     }
     if (ch !== " " && ch !== "\t") return false;
@@ -119,7 +126,7 @@ function onlySeparatorBlanksGone(before, after) {
     let b = i;
     while (b < before.length && /[ \t]/.test(before[b])) b += 1;
     const nextToSep = before.startsWith("%;", b) || (a >= 2 && before.slice(a - 2, a) === "%;");
-    if (!nextToSep || quote) return false;
+    if (!nextToSep || quote || depth > 0) return false;
   }
   return j === after.length;
 }
@@ -160,11 +167,12 @@ async function compareRuns(image, dirs, setup, numbers, library, report) {
 }
 
 /**
- * A shell's complaints about a command the image doesn't have. spell.tf's /spell_line pipes into
- * `spell`, which isn't installed: whether the shell's "not found" or echo's "Broken pipe" comes
- * first is a race, the same either way the file is laid out.
+ * A shell's complaints, which arrive when they arrive. spell.tf's /spell_line pipes into `spell`,
+ * which the image lacks, and whether "not found", "Broken pipe" or "I/O error" is printed, and
+ * where, is a race; quoter.tf's macros, run with no arguments, start a shell that complains about
+ * its empty command at no fixed point in tf's output. The same either way the file is laid out.
  */
-const notShellNoise = (l) => !/^(?:sh: \d+: \S+: not found|.*\bBroken pipe\b.*)$/i.test(l.trim());
+const notShellNoise = (l) => !/\bsh: \d+: |\bBroken pipe\b/i.test(l);
 
 async function runBatches(image, dirs, setup, batches, library, report) {
   for (let batch = batches.shift(); batch; batch = batches.shift()) {

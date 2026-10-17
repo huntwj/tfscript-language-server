@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `block-structure` reads a `/break` that leaves a `$(...)` the way the tf named by
+  `tfscript.tfBuild` does: with `fork`, tf rejects the macro when it compiles it (as before); with
+  `upstream`, the default, tf compiles it and stops the macro with an internal error when it runs,
+  and the check goes on past it.
+
 ## 0.3.0
 
 - A cloud kit for Claude Code's cloud sessions, which load no plugins: `npm run cloud-kit -- <repo>`

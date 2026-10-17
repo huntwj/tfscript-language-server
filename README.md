@@ -303,9 +303,10 @@ server reads) and `--tf-build` on the command line:
     offered for both (each rewrite was run in the fork's tf, before and after).
   - `/else` no longer also runs after a true `/if` and a true `/elseif`. Nothing here
     depended on that bug.
-  - A `/break` inside a `$(...)` that would end a loop outside it is rejected when the macro is
-    compiled, whatever this setting says (`block-structure`); upstream tf compiles it, and
-    running it breaks tf's internal state.
+  - A `/break` inside a `$(...)` that would end a loop outside it, or that has more levels than
+    the loops inside it, is rejected when the macro is compiled, so nothing after it is checked
+    (`block-structure`). Upstream tf compiles it, and running it stops the macro with an internal
+    error; with `upstream` the check says so and goes on past it.
 
 ## Command data (drives completion and hover)
 

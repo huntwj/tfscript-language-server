@@ -698,9 +698,10 @@ default-library functions; `${name}` as a macro; tf's positional selectors (`%1`
 
 Formatting (Format Document, Format Selection, and `tfscript format` on the command line) lays a
 file out in one style, with no settings: a macro body (`/def`, `/bind`, `/hook`, `/trig*`,
-`/alias`) on the lines after its head, which ends `= \`; one statement per line ending `%;\`,
-the last with no `%;`; and each `/if`, `/elseif`, `/else` and `/while` block's contents two
-spaces further in, with `/endif` and `/done` lined up with the keyword that opened them.
+`/alias`) on the lines after its head, a `/def`'s head ending ` = \`; one statement per line
+ending `%;\`, the last with no `%;`; and each `/if`, `/elseif`, `/else` and `/while` block's
+contents two spaces further in, with `/endif` and `/done` lined up with the keyword that opened
+them.
 
 ```
 /def do_kill = \
@@ -712,17 +713,18 @@ spaces further in, with `/endif` and `/done` lined up with the keyword that open
   kill %{target}
 ```
 
-A body with one statement stays on its line. The condition of `/if list /then` and `/while list
-/do` stays on one line, and so does anything inside a `$(...)`. Your own line breaks inside a
-statement are kept, the line after one hanging a level deeper. A top-level command that isn't a
-macro definition only has its continuation lines re-indented; an entry's first line never moves
-(an indented one is what tf's "possibly missing trailing \" warning is about).
+A body with one statement stays on its line, head and all. The condition of `/if list /then` and
+`/while list /do` stays on one line, and so does anything inside a `$(...)`. Your own line breaks
+inside a statement are kept, the line after one hanging a level deeper. A top-level `/if` or
+`/while` block is re-indented the same way; any other top-level command is left as written
+(nested `/for` lines read better as their author indented them). An entry's first line never
+moves: an indented one is what tf's "possibly missing trailing \" warning is about.
 
 It only changes whitespace tf ignores, each fact proven against real tf or its source:
 
 - tf strips every line's leading whitespace, continuation lines included, and a trailing `\`
-  joins the next line, removing only the `\` (`load_file()`). So indentation is free, and a
-  break after a blank (`/if (x) \`) or after a `%;` joins back to the same text.
+  joins the next line, removing only the `\` (`do_file_load()` in `command.c`). So indentation
+  is free, and a break after a blank (`/if (x) \`) or after a `%;` joins back to the same text.
 - In a macro body, the blanks after a `%;` that separates statements are skipped before the next
   statement is read, and those before it are cut from the statement (`expand.c`). Bodies written
   `x   %;   y` and `x%;y` ran the same for `/echo`, text sent to the world, `/set`, `/let`,
@@ -730,33 +732,44 @@ It only changes whitespace tf ignores, each fact proven against real tf or its s
   `/if` bodies, a nested `/def` and a `%%;` one level down. The blanks before a `%;` stay after a
   `%`, `\`, `$` or `/`, which they keep from gluing on: `/echo 50% %;` would become `50%%;`, text.
 - Not every `%;` separates: one inside a string or the brackets of an expression
-  (`/if ("a%; b" =~ x)`, `$[strlen("a%;  b")]`) is text, whose blanks count. A `%;` is only
-  touched where tf's model of the body (`structure.ts`) and a scan wary of quotes and brackets
-  both say it separates; a body where they disagree (an apostrophe in text, say) is only
-  re-indented.
+  (`/if ("a%; b" =~ x)`, `$[strlen("a%;  b")]`) is text, whose blanks count. But a quote means
+  nothing outside an expression: `say don't%; say it's ok` is two sends, and so is a `"` in
+  `/echo` text or `/test` (tf cuts a statement at each `%;` before anything reads it). Nor does a
+  bare `[` or `{`, which only opens something after a `$` or `%`. A `%;` is only touched where
+  tf's model of the body (`structure.ts`) and a scan of its brackets both say it separates; a
+  body where they disagree (a `:-(` in text, say) is only re-indented.
+- A `/def`'s head can be spaced any way: macro.c trims the blanks after the name and skips those
+  before the body, and `/list` showed the same definition for `/def x=/y`, `/def   x   =   /y`
+  and `/def x = \` with the body below, options (`-p10 -mglob -t"a = b"`) included.
 - tf turns a tab into spaces out to the next tab stop of its physical line, so a tab after a
   line's indentation changes width if its line moves.
 
-So what tf stores is the same definition, but for blanks beside a separating `%;`. Anything that
-reads a body back as text (`/list`, `$(/list)`, `/edit`, `%mecho`) sees that difference; nothing
-else does.
+So what tf stores is the same definition, but for blanks beside a separating `%;`. Whatever
+reads a body back as text sees that difference: `/list` and `$(/list)`, `/save`, `/edit`, a
+`${name}` substitution (`/echo [${name}]` prints the body; alias.tf's `~listalias` shows an alias
+this way), and `%mecho` showing each command as it runs. Running the macro is the same.
 
-Left exactly as written: a file with CRLF line endings (tf doesn't join a line ending in `\`
-before a `\r`); a command the file ends in the middle of; one with a comment or blank line among
-its lines, a `%\`, a `\` followed by blanks, or a tab after a line's indentation; one tf would
-reject, or with a problem the checks find (an unbalanced `/if`, an empty statement, an error
-diagnostic); and one with a block keyword in the middle of a statement, which tf reads as text
-(`/echo a /else /echo b`). Every layout is joined again the way tf joins it and parsed again,
-and must give the same statements, or the entry is left alone. Formatting a file adds no
-diagnostic, and formatting it twice changes nothing more.
+Left exactly as written: a file with CRLF line endings, in the editor and on the command line
+alike (tf doesn't join a line ending in `\` before a `\r`); a command the file ends in the
+middle of; one with a comment or blank line among its lines, a `%\`, a `\` followed by blanks, a
+tab after a line's indentation, or a U+FFFD (what a byte that wasn't UTF-8 became when the file
+was read); one tf would reject, or with a problem the checks find (an unbalanced `/if`, an empty
+statement, an error diagnostic); and one with a block keyword in the middle of a statement,
+which tf reads as text (`/echo a /else /echo b`), unless the statement's text is itself commands
+(`/eval /if ...`, a nested `/def`). Every layout is joined again the way tf joins it and parsed
+again, and must give the same statements, or the entry is left alone. Formatting a file adds no
+diagnostic, and formatting it twice changes nothing more. `tfscript format` also leaves alone a
+file that isn't UTF-8, and replaces each file it changes in one step (a new file renamed over
+it).
 
 `npm run test:format-live` (`scripts/check-format-live.js`) loads each corpus file and its
 formatted version into real tf, with the formatted library as `TFLIBDIR` so tf starts from it,
 and compares every macro `/list` shows and what each changed macro prints and sends to a world.
-Over tf's library, the WoTMUD scripts and the tf-* repos (71 files, 2194 entries, 338 of them
-changed) every macro was the same or the same but for blanks beside `%;`, the 118 definitions
-that differed printed and sent the same when run, and the loads printed the same messages but
-for the line numbers they name; the WoTMUD scripts were already in this style.
+Over tf's library, the WoTMUD scripts and the tf-* repos (72 files, 2238 entries,
+327 of them changed) every macro was the same or the same but for blanks beside `%;`,
+the 127 definitions that differed printed and sent the same when run, and the loads printed
+the same messages but for the line numbers they name; the WoTMUD scripts were already in this
+style.
 
 ### Splitting and joining a body
 
@@ -768,9 +781,8 @@ on every cursor move.
 
 - **Split the body onto separate lines**, on a `/def`, `/alias`, `/bind`, `/hook` or `/trig*`
   written on one line: the formatter's layout for that entry, one statement per line ending
-  `%;\`, each block's children indented, using the file's own indentation (the smallest
-  indentation of a continuation line, else four spaces). A `%;` that ends the body stays on its
-  last line, which never ends in `\`.
+  `%;\`, each block's children indented, in the formatter's two spaces, so Format Document leaves
+  it as it is. A `%;` that ends the body stays on its last line, which never ends in `\`.
 - **Join the body onto one line**, on one that spans several: the text tf itself reads from the
   lines (each line's indentation dropped, the `\` removed), with one blank after each `%;`.
 

@@ -133,7 +133,9 @@ The style has no options.
 
 Each file that changes is named on stdout, then a count goes to stderr. A file with CRLF line
 endings is left as it is, with a note on stderr: tf doesn't join a line ending in `\` before a
-`\r`, so its layout can't be changed safely.
+`\r`, so its layout can't be changed safely. So is a file that isn't valid UTF-8, whose other
+bytes would be lost (a byte order mark is kept). Each changed file is written to a new file
+beside it, which is then renamed over it, so a write that fails leaves the old file whole.
 
 | Option | Meaning |
 |---|---|

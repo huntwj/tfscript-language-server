@@ -25,23 +25,31 @@
   the options over it. `--setting-names config` makes a message name a setting as its `tfscript.json`
   key rather than its option. A bad file is reported with what is wrong and how to fix it, and nothing is
   checked (exit 2). Its JSON schema is `schemas/tfscript.schema.json`. The server doesn't read it yet.
-- Formatting has one style: two-space indentation, a macro body on the lines after its
-  head (which ends `= \`), one statement per line ending `%;\` (the last with no `%;`), and each
-  `/if`, `/elseif`, `/else` and `/while` block's contents a level further in. The style has no
-  settings: `tfscript.format.splitStatements` is gone, and the editor's tab size no longer sets
-  the indentation. Formatting now leaves exactly as written a command with a comment or blank
-  line among its lines, a `%\`, a `\` followed by blanks, a structural problem, a block keyword
-  in the middle of a statement, or an error diagnostic, rather than only re-indenting it; and it
-  splits only at `%;`s that both tf's model and a quote-wary scan agree separate statements. A
-  plain top-level command's continuation lines are re-indented too. Formatting tf's library, the
-  WoTMUD scripts and the tf-* repos and loading both versions into real tf gave the same macros,
-  but for blanks beside `%;`, which ran the same.
+- **Breaking:** formatting has one style, with no settings: `tfscript.format.splitStatements` is
+  gone, and the editor's tab size and tabs-or-spaces no longer set the indentation. The style:
+  two-space indentation, a macro body on the lines after its head (a `/def`'s head ending
+  ` = \` however it was spaced), one statement per line ending `%;\` (the last with no `%;`), and
+  each `/if`, `/elseif`, `/else` and `/while` block's contents a level further in. The Split,
+  Extract and Inline refactorings lay bodies out the same way, in two spaces rather than the
+  file's own indentation.
+- Formatting now leaves exactly as written a command with a comment or blank line among its
+  lines, a `%\`, a `\` followed by blanks, a U+FFFD, a structural problem, a block keyword in the
+  middle of a statement (but for one in a command made of commands, like `/eval /if ...`), or an
+  error diagnostic, rather than only re-indenting it; and a plain top-level command that isn't a
+  block. It splits only at `%;`s that both tf's model and a scan of brackets agree separate
+  statements. A quote outside an expression no longer stops it (`say don't%; ...` is split), as
+  tf reads none there, nor does a bare `[` or `{`. Format Selection of whole lines no longer
+  takes in the line after them. Formatting tf's library, the WoTMUD scripts and the tf-* repos
+  and loading both versions into real tf gave the same macros, but for blanks beside `%;`, which
+  ran the same.
 - Fixed: formatting, and the "Split the body onto separate lines" refactoring, dropped the blank
   before a `%;` even after a `%` or `\`, turning `/echo 50% %; /echo b` into `/echo 50%%;/echo b`
   (one `/echo` of `50%;/echo b`) and `/echo a\ %;` into an escaped `%`. Those blanks are kept now.
 - `tfscript format [--check] <files or folders>`: the server's formatting from the command line.
-  It rewrites each file in place and names the ones it changed; with `--check` it changes
-  nothing, names the files that would change, and exits 1 if there are any.
+  It rewrites each file in place (through a new file renamed over it) and names the ones it
+  changed; with `--check` it changes nothing, names the files that would change, and exits 1 if
+  there are any. A file with CRLF line endings, or that isn't UTF-8, is left as it is, with a
+  note.
 - `unresolved-load` on one of tf's own library files (`/load alias.tf`, any of the `.tf` files tf
   installs) when no library folder is known (no `tfscript.libraryPath`, no `TFLIBDIR`, and an
   empty TFPATH) is now a note asking for `tfscript.libraryPath`, rather than a warning to set

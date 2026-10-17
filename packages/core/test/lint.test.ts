@@ -41,6 +41,26 @@ describe("text-sent-from-body", () => {
     expect(ds[0]?.fix?.title).toBe("Write it as /send -h");
   });
 
+  it("says to put /send -h in front, without quoting the text", () => {
+    expect(lint("/def go = kill orc\n", "text-sent-from-body")[0]?.message).toBe(
+      "This text is sent to the world: put /send -h in front of it to say so, or put ; tflint:ignore-nextline on the line before.",
+    );
+  });
+
+  it("leaves a macro that holds a value alone: one read as ${name}, or named in capitals", () => {
+    // tf's tfrc: /def LOGFILE = ~/tf-dir/tiny.log, which stdlib.tf reads as ${LOGFILE}.
+    expect(lint("/def LOGFILE = ~/tf-dir/tiny.log\n", "text-sent-from-body")).toEqual([]);
+    expect(lint("/def myfile = myfile.tf\n/def save = /echo ${myfile}\n", "text-sent-from-body")).toEqual([]);
+    expect(lint("/def myfile = myfile.tf\n", "text-sent-from-body")).toHaveLength(1);
+  });
+
+  it("leaves text either side of a %| alone, which tf refuses to pipe and so sends nothing", () => {
+    // Real tf: "Piping output of a server command is not allowed." / "Piping input to a server command is not allowed."
+    expect(lint("/def a = c3 %| /grep zzz\n", "text-sent-from-body")).toEqual([]);
+    expect(lint("/def a = /echo hi %| text10\n", "text-sent-from-body")).toEqual([]);
+    expect(lint("/def a = /echo hi %| /grep h%; kill orc\n", "text-sent-from-body")).toHaveLength(1);
+  });
+
   it("offers no fix for text /send could read as an option, and leaves $(...) and refused /defs alone", () => {
     const [dash] = lint("/def go = -5 hp\n", "text-sent-from-body");
     expect(dash?.fix).toBeUndefined();

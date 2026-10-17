@@ -1,7 +1,7 @@
 import { LIBRARY_FILES_WITH_LOADED } from "../data/libraryLoaded.generated";
 import { isTfSpace } from "../logicalEntries";
 import { code, commandParts, macroBodyStart, parseLayout } from "../structure";
-import { defFiresOnEvent, defHasInvalidOption } from "../symbols";
+import { definedMacro, defFiresOnEvent, defHasInvalidOption } from "../symbols";
 import { invalidMacroName } from "./invalidMacroName";
 import type { EntryMatch, EntryRule, FileFacts } from "./types";
 import type { LogicalEntry } from "../logicalEntries";
@@ -68,6 +68,11 @@ const SAFE_SEND_START = /^[^-%$\\{]/;
  * included (case lint-send-h; expand.c sends text through the hook, stdlib.tf's /send passes -h
  * on to send(), socket.c's handle_send_function() runs the hook for it). The quick fix writes the
  * `/send -h`, where the text can't be read as one of /send's options.
+ *
+ * Not flagged: a macro that holds a value rather than commands (tfrc's `/def LOGFILE = ...`,
+ * which stdlib.tf reads as `${LOGFILE}`): one the file reads as `${name}`, or one named in capitals
+ * by that convention; and text either side of a `%|`, which tf refuses to pipe ("Piping output of
+ * a server command is not allowed"), so it sends nothing, where `/send -h` would.
  */
 export const textSentFromBody: EntryRule = {
   id: "text-sent-from-body",
@@ -78,12 +83,19 @@ export const textSentFromBody: EntryRule = {
     const text = entry.text;
     const body = macroBodyStart(text);
     if (body < 0) return [];
+    const name = entry.isDefBody ? definedMacro(entry) : undefined;
+    if (name && (file.valueMacros.has(name.toLowerCase()) || (/[A-Z]/.test(name) && name === name.toUpperCase()))) return [];
     const b = text.slice(body);
     const layout = parseLayout(b, "body");
     if (layout.stopped) return [];
     const out: EntryMatch[] = [];
     for (const u of layout.units) {
       if (u.block || u.word !== "" || layout.lists[u.list]?.kind !== "body") continue;
+      // The separators either side of it, in its own list.
+      const seps = layout.separators.filter((sep) => sep.list === u.list);
+      const before = seps.filter((sep) => sep.at < u.start).pop();
+      const after = seps.find((sep) => sep.at >= u.start);
+      if (before?.char === "|" || (after && after.at <= u.end && after.char === "|")) continue;
       let s = u.start;
       let e = u.end;
       while (s < e && isTfSpace(b[s])) s += 1;
@@ -94,7 +106,7 @@ export const textSentFromBody: EntryRule = {
       out.push({
         start: body + s,
         end: body + e,
-        message: `This text is sent to the world: write it as /send -h ${said.length > 30 ? `${said.slice(0, 27)}...` : said} to say so, or ${IGNORE.replace(/`/g, "")}.`,
+        message: `This text is sent to the world: put /send -h in front of it to say so, or ${IGNORE.replace(/`/g, "")}.`,
         label: "sent to the world",
         explanation:
           `Text in a macro body that isn't a command is sent to the world when the macro runs, through the ` +

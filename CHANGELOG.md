@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A `/break` inside a `$(...)` with more levels than there are loops in it (`$(/break)`, or
+  `/break 2` from its only loop) now says tf rejects the macro when it compiles it, as the fork
+  does since its fix for the internal error it used to stop with, and nothing after it is
+  reported. tf's library list has `kv.tf`, which the fork now installs.
+
 - Formatting handles long lines as rustfmt does: it decides every line break in a macro, joining
   your own inside a statement, and keeps lines to 100 columns where they can be broken. A
   one-statement body stays on its head's line when it fits. A long line breaks with as much on

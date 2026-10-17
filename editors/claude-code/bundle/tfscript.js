@@ -744,12 +744,19 @@ function describeBlock(block) {
   }
 }
 var Parser = class _Parser {
-  constructor(s, mode) {
+  /**
+   * `build`: which tf's rules for a /break leaving a $(...) (breakOutOfCmdsub()). Only the
+   * diagnostics say which tf runs the file; every other caller checks a layout or an edit, where the
+   * fork's stricter reading is the safe one.
+   */
+  constructor(s, mode, build = "fork") {
     this.s = s;
     this.mode = mode;
+    this.build = build;
   }
   s;
   mode;
+  build;
   i = 0;
   block = "";
   cmdsub = 0;
@@ -1424,6 +1431,22 @@ var Parser = class _Parser {
     const ended = loops.slice(-levels).reverse();
     const outside = ended.find((o) => o.cmdsub < this.cmdsub);
     const rule = `A ${code("/break")} inside ${code("$(...)")} can only end ${code("/while")} loops that are inside the same ${code("$(...)")}: tf can't jump out of a command substitution part way through.`;
+    if ((outside || levels > loops.length) && this.build === "upstream") {
+      const cmdsubStart = this.cmdsubStarts[outside ? outside.cmdsub : this.cmdsubStarts.length - 1].at;
+      this.issues.push({
+        kind: "block",
+        start,
+        end: Math.max(end, start + 1),
+        message: "This /break would jump out of the $(...) around it, and tf stops the macro with an internal error when it runs: only break out of loops inside the $(...).",
+        label: "jumps out of the $(...)",
+        explanation: `${rule} This one ${outside ? "would end a loop opened outside it" : `has ${loops.length === 0 ? "no loop" : "more levels than there are loops"} to end inside it`}. tf compiles it, but running it stops the macro with "expression stack underflow or dirty" and "invalid frame". Move the ${code("/break")} out of the ${code("$(...)")}, into the loop's own body. (A tf with the fork's fixes, ${code("tfscript.tfBuild")} set to ${code("fork")}, rejects the macro when it compiles it.)`,
+        related: [
+          { start: cmdsubStart, end: cmdsubStart + 2, message: "the $(...) it would jump out of" },
+          ...outside ? [{ start: outside.start, end: outside.end, message: "the loop it would end" }] : []
+        ]
+      });
+      return;
+    }
     if (outside) {
       const cmdsubStart = this.cmdsubStarts[outside.cmdsub].at;
       const detail = {
@@ -1460,7 +1483,7 @@ var Parser = class _Parser {
     this.expressions.push({ start, end: this.i, kind: "statement", level: levelOf(subs) });
     const text = this.s.slice(start, this.i);
     if (subs >= FULL ? /[%$\\]/.test(text) : subs >= NEWLINE && text.includes("%%")) return;
-    const sub = new _Parser(text, this.mode);
+    const sub = new _Parser(text, this.mode, this.build);
     try {
       sub.expression(void 0, 0, `/${keyword}`);
     } catch (e) {
@@ -1955,14 +1978,16 @@ function noise(issues) {
 }
 var MAX_TRIES = 64;
 var Trial = class {
-  constructor(s, mode, baseNoise) {
+  constructor(s, mode, baseNoise, build = "fork") {
     this.s = s;
     this.mode = mode;
     this.baseNoise = baseNoise;
+    this.build = build;
   }
   s;
   mode;
   baseNoise;
+  build;
   tries = 0;
   /**
    * Where tf would first stop in `s` with `edits` applied, as an offset into `s` (Infinity if
@@ -1973,7 +1998,7 @@ var Trial = class {
     this.tries += 1;
     let t = this.s;
     for (const e of [...edits].sort((a, b) => b.start - a.start)) t = t.slice(0, e.start) + e.newText + t.slice(e.end);
-    const p = new Parser(t, this.mode);
+    const p = new Parser(t, this.mode, this.build);
     p.run();
     if (noise(p.issues) > this.baseNoise) return -1;
     const stop = firstStop(p.issues);
@@ -1983,12 +2008,12 @@ var Trial = class {
 function strayNote(issue) {
   return { start: issue.start, end: issue.end, message: issue.message.replace(/^This /, "the ").replace(/(?:: it is .*)?\.$/, "") };
 }
-function parseSettled(s, mode) {
-  const p = new Parser(s, mode);
+function parseSettled(s, mode, build = "fork") {
+  const p = new Parser(s, mode, build);
   p.run();
   const issues = [...p.issues];
   const swallowed = [];
-  const trial = new Trial(s, mode, noise(issues));
+  const trial = new Trial(s, mode, noise(issues), build);
   const block = issues.find((i) => i.kind === "block");
   const resolves = (edits) => !!block && trial.stopAfter(edits) === Infinity;
   if (block && block === firstStop(issues)) {
@@ -2075,14 +2100,16 @@ function entryStatements(entry) {
   return statements;
 }
 var cache = /* @__PURE__ */ new WeakMap();
-function entryModel(entry) {
-  let model = cache.get(entry);
+function entryModel(entry, build) {
+  let byBuild = cache.get(entry);
+  if (!byBuild) cache.set(entry, byBuild = /* @__PURE__ */ new Map());
+  let model = byBuild.get(build);
   if (!model) {
-    const top = parseSettled(entry.text, "top");
+    const top = parseSettled(entry.text, "top", build);
     model = { issues: top.issues, swallowed: [...top.swallowed] };
     const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(entry.text) : -1;
     if (body >= 0) {
-      const parser = parseSettled(entry.text.slice(body), "body");
+      const parser = parseSettled(entry.text.slice(body), "body", build);
       for (const issue of parser.issues) model.issues.push(shiftIssue(issue, body));
       for (const w of parser.swallowed) {
         const edits = w.edits.map((e) => ({ ...e, start: e.start + body, end: e.end + body }));
@@ -2090,15 +2117,15 @@ function entryModel(entry) {
         model.swallowed.push({ ...w, start: w.start + body, end: w.end + body, stmt: w.stmt + body, edits, ...stray ? { stray } : {} });
       }
     }
-    cache.set(entry, model);
+    byBuild.set(build, model);
   }
   return model;
 }
-function entryStructure(entry) {
-  return entryModel(entry).issues;
+function entryStructure(entry, build = "fork") {
+  return entryModel(entry, build).issues;
 }
-function entrySwallowed(entry) {
-  return entryModel(entry).swallowed;
+function entrySwallowed(entry, build = "fork") {
+  return entryModel(entry, build).swallowed;
 }
 
 // packages/core/src/joinFix.ts
@@ -2500,8 +2527,8 @@ var missingContinuation = {
   id: "missing-continuation",
   severity: "error",
   scope: "entry",
-  check(entry) {
-    return entryStructure(entry).filter((i) => i.kind === "continuation").map(({ kind: _kind, ...match }) => match);
+  check(entry, file) {
+    return entryStructure(entry, file.tfBuild).filter((i) => i.kind === "continuation").map(({ kind: _kind, ...match }) => match);
   }
 };
 var STRAY_RE = /^This \/(then|else|elseif|endif|do|done) has no \/(?:if|while) to (?:close|belong to)\.$/;
@@ -3429,9 +3456,9 @@ var keywordMidStatement = {
   id: "keyword-mid-statement",
   severity: "error",
   scope: "entry",
-  check(entry) {
+  check(entry, file) {
     const matches = [];
-    for (const issue of entryStructure(entry)) {
+    for (const issue of entryStructure(entry, file.tfBuild)) {
       if (issue.kind !== "keyword" && issue.kind !== "keyword-warning") continue;
       const { kind, ...match } = issue;
       matches.push(kind === "keyword-warning" ? { ...match, severity: "warning" } : match);
@@ -3460,9 +3487,9 @@ var conditionListText = {
   id: "condition-list-text",
   severity: "warning",
   scope: "entry",
-  check(entry) {
+  check(entry, file) {
     const matches = [];
-    for (const issue of entryStructure(entry)) {
+    for (const issue of entryStructure(entry, file.tfBuild)) {
       if (issue.kind !== "condition-text") continue;
       const { kind: _kind, ...match } = issue;
       matches.push(match);
@@ -3478,7 +3505,7 @@ var keywordNeedsSpace = {
   scope: "entry",
   check(entry, file) {
     const matches = [];
-    for (const issue of entryStructure(entry)) {
+    for (const issue of entryStructure(entry, file.tfBuild)) {
       if (issue.kind !== "glued" && issue.kind !== "glued-punct") continue;
       const { kind, ...match } = issue;
       if (kind === "glued-punct") {
@@ -3852,8 +3879,8 @@ var blockStructure = {
   id: "block-structure",
   severity: "error",
   scope: "entry",
-  check(entry) {
-    return entryStructure(entry).filter((i) => i.kind === "block").map(({ kind: _kind, ...match }) => match);
+  check(entry, file) {
+    return entryStructure(entry, file.tfBuild).filter((i) => i.kind === "block").map(({ kind: _kind, ...match }) => match);
   }
 };
 
@@ -3882,8 +3909,8 @@ var nestingTooDeep = {
   id: "nesting-too-deep",
   severity: "information",
   scope: "entry",
-  check(entry) {
-    return entryStructure(entry).filter((i) => i.kind === "too-deep").map(({ kind: _kind, ...match }) => match);
+  check(entry, file) {
+    return entryStructure(entry, file.tfBuild).filter((i) => i.kind === "too-deep").map(({ kind: _kind, ...match }) => match);
   }
 };
 
@@ -4076,7 +4103,7 @@ var reportRuleError = (rule, error) => {
   process.stderr.write(`tfscript: rule ${rule} failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}
 `);
 };
-function getDiagnostics(text, { joinFixes = true } = {}) {
+function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD } = {}) {
   const entries = splitLogicalEntries(text);
   let diagnostics = [];
   const abort = findAbortEntry(entries);
@@ -4090,7 +4117,7 @@ function getDiagnostics(text, { joinFixes = true } = {}) {
     const name = definedMacro(entry);
     if (name) macros.add(name.toLowerCase());
   }
-  const facts = { macros };
+  const facts = { macros, tfBuild };
   for (const rule of RULES) {
     let failed = false;
     const guarded = (run) => {
@@ -4202,7 +4229,8 @@ function joinedWord(lines, m) {
 
 // packages/core/src/workspace/documentDiagnostics.ts
 function documentDiagnostics(text, file, index) {
-  return [...getDiagnostics(text), ...file ? index.loadPathDiagnostics(file, text) : []];
+  const tfBuild = file ? index.tfBuildFor(file) : void 0;
+  return [...getDiagnostics(text, tfBuild ? { tfBuild } : {}), ...file ? index.loadPathDiagnostics(file, text) : []];
 }
 
 // packages/core/src/workspace/loadGraph.ts

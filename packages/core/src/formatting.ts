@@ -105,6 +105,12 @@ export interface FormatResult {
   entries: EntryResult[];
   /** The file has CRLF line endings, so nothing was changed. */
   crlf: boolean;
+  /**
+   * The text holds U+FFFD, so nothing was changed: it is what an editor shows for a byte that
+   * wasn't UTF-8 (a Latin-1 file opened as UTF-8), and an edit would make the document dirty, to be
+   * saved with EF BF BD in place of those bytes.
+   */
+  replacement?: boolean;
 }
 
 /**
@@ -516,6 +522,7 @@ function errorLines(text: string): Set<number> {
 export function formatDocument(text: string, options: Partial<FormatOptions> = {}, range?: Range): FormatResult {
   const opts = { ...DEFAULT_FORMAT_OPTIONS, ...options };
   if (text.includes("\r")) return { edits: [], entries: [], crlf: true };
+  if (text.includes("\uFFFD")) return { edits: [], entries: [], crlf: false, replacement: true };
   const indent = formatIndent(opts);
   const lines = splitRawLines(text);
   const errors = errorLines(text);

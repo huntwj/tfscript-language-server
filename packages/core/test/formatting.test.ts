@@ -247,8 +247,11 @@ describe("formatText: what it leaves exactly as written", () => {
     unchanged("/def go = /a%; /b%;\\\n", "incomplete");
   });
 
-  it("an entry holding U+FFFD, which a byte that wasn't UTF-8 became when the file was read", () => {
-    unchanged("/def go = /echo caf\uFFFD%; /echo b\n", "replacement-character");
+  it("a document holding U+FFFD, which a byte that wasn't UTF-8 became when the file was read", () => {
+    // A Latin-1 file opened as UTF-8: an edit anywhere would get it saved with EF BF BD bytes.
+    const text = "/def a = /x%; /y\n/def go = /echo caf\uFFFD%; /echo b\n";
+    expect(formatText(text)).toEqual([]);
+    expect(formatDocument(text).replacement).toBe(true);
   });
 
   it("a file with CRLF line endings, where \\ continues nothing", () => {

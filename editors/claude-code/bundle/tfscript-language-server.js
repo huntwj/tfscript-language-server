@@ -15521,6 +15521,7 @@ function errorLines(text) {
 function formatDocument(text, options = {}, range) {
   const opts = { ...DEFAULT_FORMAT_OPTIONS, ...options };
   if (text.includes("\r")) return { edits: [], entries: [], crlf: true };
+  if (text.includes("�")) return { edits: [], entries: [], crlf: false, replacement: true };
   const indent = formatIndent(opts);
   const lines = splitRawLines(text);
   const errors = errorLines(text);

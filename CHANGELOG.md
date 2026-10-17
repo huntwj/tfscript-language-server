@@ -8,7 +8,8 @@
   each line as fits, the rest hanging four spaces past its statement: a head between its options,
   a condition before its own `&` or `|`, `/echo`, `/_echo`, `/send` and world text at a blank
   between words (refilled), and a nested `/def` where its body starts and after its `%%;`s.
-  Anything else stays long, and comments aren't wrapped. A line that continues a statement now
+  Anything else stays long. A macro with a comment or blank line among its lines is only
+  re-indented, as before, keeping your breaks. A line that continues a statement now
   hangs two levels past it, not one, everywhere, re-indented entries included.
 
 - `tfscript.tfBuild` (`--tf-build` on the command line, `tfBuild` in the `tfscript.json` it and

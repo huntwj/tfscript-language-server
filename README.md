@@ -740,12 +740,13 @@ them.
   kill %{target}
 ```
 
-Long lines are handled as rustfmt handles them: the formatter decides every line break in a
-macro, your own inside a statement included, and keeps lines to 100 columns where they can be
-broken. A body with one statement stays on its head's line when the whole fits, and moves to the
-line after it when it doesn't. A line that is too long breaks, with as much on each line as
-fits, the rest hanging four spaces past the line its statement starts on (two levels, so it
-never lines up with a block's first statement):
+Long lines are handled as rustfmt handles them: in a macro it lays out, the formatter decides
+every line break, your own inside a statement included, and keeps lines to 100 columns where they
+can be broken. A body with one statement stays on its head's line when the whole fits (counted
+without the blanks the layout drops), and moves to the line after it when it doesn't. A line
+that is too long breaks, with as much on each line as fits, the rest hanging four spaces past the
+line its statement starts on (two levels, so it never lines up with a block's first statement;
+a head's lines hang four spaces in):
 
 - a macro's head between its options, a quoted value kept whole;
 - an `/if`, `/elseif` or `/while` condition before one of its own `&` or `|`;
@@ -755,8 +756,10 @@ never lines up with a block's first statement):
 - a command whose text is commands (a nested `/def`) where its own body starts, then after each
   `%%;` of its own.
 
-Nothing else is broken, so a long `/set`, `/test` or trigger pattern stays long, and comments are
-never wrapped. Each break comes right after a blank, which stays at the end of the line before
+Nothing else is broken, so a long `/set`, `/test` or trigger pattern stays long, and so does a
+command with one word too long to fit after it. A macro with a comment or blank line among its
+lines is only re-indented (below), keeping your breaks and its long lines, and so is one whose
+`%;` separators can't be told apart for certain. Each break comes right after a blank, which stays at the end of the line before
 the `\`, so tf joins the lines back to the same text, and never before a `;` or `#`, which would
 make the new line a comment tf skips.
 

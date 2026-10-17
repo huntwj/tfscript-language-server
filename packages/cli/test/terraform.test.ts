@@ -44,13 +44,37 @@ describe("the Terraform gate", () => {
     }
     expect(terraformSign(path.join(TERRAFORM, "outputs.tf"), host)).toBe('it has a Terraform block (output ")');
     const one = (text: string) => terraformSign("x.tf", { readFile: () => text, listDir: () => [] });
-    for (const text of ['resource "a" "b" {}', 'data "a" "b" {}', 'module "m" {}', 'provider "aws" {}', "terraform{\n}", "  locals {"]) {
-      expect(one(text), text).toBeDefined();
+    for (const text of [
+      'resource "a" "b" {}',
+      'data "a" "b" {}',
+      'module "m" {}',
+      'provider "aws" {}',
+      "terraform{\n}",
+      "  locals {",
+      "moved {\n  from = a.b\n}",
+      "import {\n  to = a.b\n}",
+      "removed {\n  from = a.b\n}",
+      'check "health" {',
+      'ephemeral "random_password" "db" {',
+      "resource aws_instance web {",
+      "variable region {",
+      '﻿resource "a" "b" {}',
+      "﻿# comment\nmoved {",
+    ]) {
+      expect(one(text), JSON.stringify(text)).toBeDefined();
     }
   });
 
+  it("knows any file whose first significant line opens an HCL block", () => {
+    const one = (text: string) => terraformSign("x.tf", { readFile: () => text, listDir: () => [] });
+    expect(one("# managed by terraform\n// header\n/* licence\n */\n\nbackend_config local {\n}")).toBe("its first line opens an HCL block (backend_config local {)");
+    expect(one('﻿dynamic "tag" {')).toBeDefined();
+    expect(one("; a tf comment\n/def x = /echo {")).toBeUndefined();
+    expect(one("")).toBeUndefined();
+  });
+
   it("knows Terraform by what is beside the file", () => {
-    for (const sign of [".terraform/", ".terraform.lock.hcl", "prod.tfvars", "prod.tfvars.json", "override.tf.json"]) {
+    for (const sign of [".terraform/", ".terraform.lock.hcl", "prod.tfvars", "prod.tfvars.json", "override.tf.json", "terraform.tfstate", "terraform.tfstate.backup"]) {
       expect(terraformSign(path.join(folder(sign), "script.tf"), host), sign).toBe(`${sign.replace(/\/$/, "")} is in its folder`);
     }
   });
@@ -66,6 +90,11 @@ describe("the Terraform gate", () => {
       "/def locals = /echo {",
       "/set terraform=1",
       "/def data = /echo data",
+      "/def -i check = /echo {",
+      "/def moved = /echo {",
+      "/import {",
+      "/eval /echo resource aws {",
+      "  /def -t'output * {' out = /echo",
     ]) {
       expect(one(text), text).toBeUndefined();
     }

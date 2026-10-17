@@ -284,17 +284,46 @@ function hookRoot(file, projectDir, exists) {
 // packages/cli/src/hook/terraform.ts
 var path3 = __toESM(require("node:path"));
 function isTerraformEntry(name) {
-  return name === ".terraform" || name === ".terraform.lock.hcl" || /\.tfvars(\.json)?$/.test(name) || name.endsWith(".tf.json");
+  return name === ".terraform" || name === ".terraform.lock.hcl" || /\.tfvars(\.json)?$/.test(name) || name.endsWith(".tf.json") || /\.tfstate(\.backup)?$/.test(name);
 }
-var HCL_BLOCK = /^[ \t]*(?:(?:resource|data|module|variable|output|provider)[ \t]+"|(?:terraform|locals)[ \t]*\{)/m;
+var LABEL = String.raw`(?:"[^"\n]*"|[A-Za-z_][\w-]*)`;
+var HCL_BLOCK = new RegExp(
+  String.raw`^[ \t]*(?:` + String.raw`(?:resource|data|module|variable|output|provider|check|ephemeral)[ \t]+(?:"|${LABEL}(?:[ \t]+${LABEL})*[ \t]*\{)` + String.raw`|(?:terraform|locals|moved|import|removed)[ \t]*\{` + String.raw`)`,
+  "m"
+);
+var ANY_BLOCK = new RegExp(String.raw`^[A-Za-z_][\w-]*(?:[ \t]+${LABEL})*[ \t]*\{`);
+function firstSignificantLine(text) {
+  let rest = text;
+  for (; ; ) {
+    rest = rest.replace(/^\s+/, "");
+    if (rest.startsWith("/*")) {
+      const end = rest.indexOf("*/");
+      if (end < 0) return void 0;
+      rest = rest.slice(end + 2);
+      continue;
+    }
+    if (rest === "") return void 0;
+    const newline = rest.indexOf("\n");
+    const line2 = newline < 0 ? rest : rest.slice(0, newline);
+    if (line2.startsWith("#") || line2.startsWith("//") || line2.startsWith(";")) {
+      rest = newline < 0 ? "" : rest.slice(newline + 1);
+      continue;
+    }
+    return line2.replace(/\r$/, "");
+  }
+}
 function terraformSign(file, host) {
   if (!file.toLowerCase().endsWith(".tf")) return void 0;
   const dir = path3.dirname(file);
   const beside = (host.listDir(dir) ?? []).find(isTerraformEntry);
   if (beside !== void 0) return `${beside} is in its folder`;
-  const text = host.readFile(file);
-  const match = text === void 0 ? null : HCL_BLOCK.exec(text);
+  const raw = host.readFile(file);
+  if (raw === void 0) return void 0;
+  const text = raw.replace(/^﻿/, "");
+  const match = HCL_BLOCK.exec(text);
   if (match) return `it has a Terraform block (${match[0].trim()})`;
+  const first = firstSignificantLine(text);
+  if (first !== void 0 && ANY_BLOCK.test(first)) return `its first line opens an HCL block (${first.trim()})`;
   return void 0;
 }
 

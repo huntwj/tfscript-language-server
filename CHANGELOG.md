@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The Claude Code plugin's tf-scripting skill is written for anyone who installs it: it no longer
+  names the notes repo's test cases or its `tf-script-check`, and says how to run the checker the
+  plugin bundles and where `tfscript.json` goes. The notes repo's copy is as before.
+
 - A `/break` inside a `$(...)` with more levels than there are loops in it (`$(/break)`, or
   `/break 2` from its only loop) now says tf rejects the macro when it compiles it, as the fork
   does since its fix for the internal error it used to stop with, and nothing after it is

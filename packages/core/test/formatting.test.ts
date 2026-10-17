@@ -227,6 +227,11 @@ describe("formatText: what it leaves exactly as written", () => {
   it("but a keyword is at home in a command whose text is commands", () => {
     expect(format("/def go = /eval /if (1) /echo a%%; /endif%; /echo b\n")).toBe(lines("/def go = \\", "  /eval /if (1) /echo a%%; /endif%;\\", "  /echo b"));
   });
+
+  it("but not over several lines, whose author indented the inner blocks", () => {
+    // stdlib.tf's /for: one hanging level would flatten the /while inside the /eval.
+    unchanged(lines("/def -i for = \\", "    /@eval \\", "        /while (x) \\", "            /y%%; \\", "        /done"), "keyword-mid-statement");
+  });
 });
 
 describe("formatText: options", () => {

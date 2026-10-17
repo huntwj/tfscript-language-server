@@ -216,10 +216,15 @@ const NESTED_COMMANDS = /^(?:def|edit|bind|hook|trig|trigc|trigp|trigpc|alias|ga
  * Whether a statement has a block keyword in the middle of its text (`/echo a /else /echo b`),
  * which tf reads as text: right, perhaps, but too easy to misread once laid out, so such entries
  * are left as written. Not in a command whose text holds commands (`/eval /if ...`, `/def x = /if
- * ...`), where the keyword starts a statement of the inner level.
+ * ...`), where the keyword starts a statement of the inner level, unless that statement runs over
+ * several lines: its author has indented the inner blocks (stdlib.tf's `/for`), which one hanging
+ * level would flatten. `breaks` are where `text`'s lines begin.
  */
-function keywordMidStatement(text: string, layout: Layout): boolean {
-  return layout.units.some((u) => !u.block && !NESTED_COMMANDS.test(u.word) && MID_KEYWORD_RE.test(text.slice(u.start, u.end)));
+function keywordMidStatement(text: string, layout: Layout, breaks: number[]): boolean {
+  return layout.units.some((u) => {
+    if (u.block || !MID_KEYWORD_RE.test(text.slice(u.start, u.end))) return false;
+    return !NESTED_COMMANDS.test(u.word) || breaks.some((b) => u.start < b && b < u.end);
+  });
 }
 
 /** Where the statements of `layout` (offsets shifted by `base`) start, after any blanks. */
@@ -373,17 +378,23 @@ export function layoutEntry(entry: LogicalEntry, original: string[], indent: str
   if (!parsedCleanly(top)) return "structure";
   const inner = body >= 0 ? parseLayout(j.slice(body), "body") : undefined;
   if (inner && !parsedCleanly(inner)) return "structure";
-  if (inner ? keywordMidStatement(j.slice(body), inner) : keywordMidStatement(j, top)) return "keyword-mid-statement";
-  // A plain top-level command (`/set x=\`, `/for i 0 2 \`) keeps the author's indentation: nested
-  // /for lines read better as written than at one level. Only a top-level block is re-indented.
-  if (!inner && top.blocks.length === 0) return original;
-
   const authorBreaks: number[] = [];
   let offset = 0;
   for (const part of entry.parts.slice(0, -1)) {
     offset += part.text.length;
     authorBreaks.push(offset);
   }
+  const midKeyword = inner
+    ? keywordMidStatement(
+        j.slice(body),
+        inner,
+        authorBreaks.map((b) => b - body),
+      )
+    : keywordMidStatement(j, top, authorBreaks);
+  if (midKeyword) return "keyword-mid-statement";
+  // A plain top-level command (`/set x=\`, `/for i 0 2 \`) keeps the author's indentation: nested
+  // /for lines read better as written than at one level. Only a top-level block is re-indented.
+  if (!inner && top.blocks.length === 0) return original;
   const plan: Plan = (inner && split ? splitPlan(entry, body, inner, authorBreaks, original.length > 1) : undefined) ?? {
     cuts: new Set(authorBreaks),
     removed: new Set(),

@@ -51,3 +51,12 @@ from a plain clone of this repo. If you have a case you believe is real tf behav
   maintainer's own workspace layout (a sibling private notes checkout, Docker, `uv`) — you
   don't need either of them to contribute; they're documented for transparency about how
   rules get verified, not as a contributor requirement.
+
+## Releasing
+
+Every published part carries one version: the three packages, the VS Code extension, the Claude
+Code plugin and its marketplace entry, `tfscript --version`, and the lockfiles. Set it with
+`npm run version:set -- <version>`, which also turns the changelog's "Unreleased" section into
+that version's, then run `npm run bundle:claude-code`, commit, and publish a GitHub release tagged
+`v<version>`. `npm run version:check` lists every place; a test fails when they disagree, and the
+release workflow refuses a tag that isn't `v` and the version.

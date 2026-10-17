@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EXIT_OK, EXIT_PROBLEMS, EXIT_USAGE, main } from "../src/main";
-import { USAGE } from "../src/usage";
+import { USAGE, VERSION } from "../src/usage";
 import { testHost, WS } from "./fixtures";
 
 function run(argv: string[]): { code: number; out: string; err: string } {
@@ -56,6 +56,7 @@ describe("main", () => {
 
   it("prints the usage and the version", () => {
     expect(run(["--help"])).toEqual({ code: EXIT_OK, out: USAGE, err: "" });
-    expect(run(["--version"])).toEqual({ code: EXIT_OK, out: "0.2.0\n", err: "" });
+    // usage.test.ts checks VERSION is package.json's.
+    expect(run(["--version"])).toEqual({ code: EXIT_OK, out: `${VERSION}\n`, err: "" });
   });
 });

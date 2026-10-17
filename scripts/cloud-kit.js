@@ -16,6 +16,7 @@
  * the plugin only the plugin's hook speaks. Every other setting in settings.json is kept. Run
  * `npm run build` first: the skill comes from core's dist.
  */
+const { spawnSync } = require("node:child_process");
 const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
 
@@ -23,6 +24,23 @@ const REPO = path.resolve(__dirname, "..");
 const BUNDLE = path.join(REPO, "editors", "claude-code", "bundle");
 const { renderSkill } = require("../packages/core/dist/rules/render");
 const VERSION = JSON.parse(readFileSync(path.join(REPO, "packages", "cli", "package.json"), "utf8")).version;
+
+/**
+ * The commit of this repo the kit is built from, so a repo's copy says where it came from: jj's
+ * (this repo's own VCS), else git's, with a note when the working copy has changes of its own.
+ */
+function sourceCommit() {
+  const run = (cmd, args) => {
+    const r = spawnSync(cmd, args, { cwd: REPO, encoding: "utf8" });
+    return r.status === 0 ? r.stdout.trim() : undefined;
+  };
+  const jj = run("jj", ["log", "--no-graph", "--ignore-working-copy", "-r", "@", "-T", 'if(empty, parents.map(|c| c.commit_id().short(12)).join(","), commit_id.short(12) ++ "+")']);
+  if (jj) return jj.endsWith("+") ? `${jj.slice(0, -1)} (with changes not yet committed)` : jj;
+  const git = run("git", ["rev-parse", "--short=12", "HEAD"]);
+  if (git) return run("git", ["status", "--porcelain"]) ? `${git} (with changes not yet committed)` : git;
+  return "an unknown commit";
+}
+const SOURCE = sourceCommit();
 
 const HOOK_PATH = ".claude/tfscript/tfscript-hook.js";
 const HOOK = {
@@ -33,7 +51,8 @@ const HOOK = {
 const README = `# tfscript for cloud sessions
 
 Claude Code's cloud sessions (claude.ai/code, the app) load no plugins, so this repo carries its own
-copy of the tfscript plugin's checker and skill (tfscript ${VERSION}):
+copy of the tfscript plugin's checker and skill: tfscript ${VERSION}, built from
+https://github.com/huntwj/tfscript-language-server at ${SOURCE}.
 
 - \`tfscript.js\`, \`tfscript-hook.js\`: the checker and its PostToolUse hook, from the tfscript-language-server
   repo's \`editors/claude-code/bundle/\`. \`.claude/settings.json\` runs the hook with \`--cloud-only\`, so it
@@ -73,9 +92,14 @@ if (!target || !existsSync(target)) {
 }
 const repo = path.resolve(target);
 const want = { ...kitFiles(), ".claude/settings.json": withHook(repo) };
+// The commit the README names changes with every commit here, the kit itself only with what it
+// holds: --check doesn't count the commit alone as out of date.
+const sameKit = (a, b) => a.replace(/^https:\/\/\S+ at .*$/m, "") === b.replace(/^https:\/\/\S+ at .*$/m, "");
 const stale = Object.entries(want).filter(([rel, text]) => {
   const file = path.join(repo, rel);
-  return !existsSync(file) || readFileSync(file, "utf8") !== text;
+  if (!existsSync(file)) return true;
+  const have = readFileSync(file, "utf8");
+  return check && rel.endsWith("README.md") ? !sameKit(have, text) : have !== text;
 });
 if (check) {
   for (const [rel] of stale) console.log(`out of date: ${rel}`);

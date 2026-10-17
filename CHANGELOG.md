@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- An eval suite for the Claude Code plugin (`editors/claude-code/evals`, run with
+  `claude plugin eval`): ten tf-writing tasks, each on a rule real tf proved, with regex graders
+  checked by a test and an LLM judge, and `scripts/score-evals-live.js`, which scores a run in
+  real tf. The first runs and what they showed are in the plugin's README.
+
 - The VS Code extension runs the same single-file server bundle as the Claude Code plugin, with
   no `node_modules` of its own for it: the `.vsix` is down from 697 files and 1.19 MB to 361 and
   776 KB. Its smoke test runs that server from outside the repo.

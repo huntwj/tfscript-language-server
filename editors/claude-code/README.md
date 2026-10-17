@@ -142,3 +142,35 @@ build (`npm run bundle:claude-code:check`). The hook's source is in `packages/cl
 
 To try a change without installing it, load the plugin for one session:
 `claude --plugin-dir editors/claude-code`.
+
+## Evals
+
+`evals/` holds ten tf-writing tasks for `claude plugin eval`, each built on a rule real tf proved:
+a top-level `/if` over several lines, a `/load` from a variable, an `/if`/`/else` in a macro, a
+trigger's condition, a literal `%-` and a literal `%;`, a multi-line `/def`, a top-level echo of a
+variable, a macro that makes a trigger, and nested substitution defaults (the last four tagged
+`hard`). Each has a regex grader for its trap, checked against a script tf ran right and one it
+didn't (`packages/cli/test/pluginEvals.test.ts`), and an LLM judge. The judge (Haiku by default)
+is often wrong about tf, so the score that counts comes from real tf:
+
+```sh
+claude plugin eval editors/claude-code --runs 3 -j 4 --allow-tools Write Edit --trust-plugin \
+  --no-publish --max-cost-usd 8 --threshold 0 --json result.json
+node scripts/score-evals-live.js result.json   # loads each written file in tf (Docker, ~/ai/mud)
+```
+
+The first runs (2026-10-17, Claude Code 2.1.302, the default model, 3 runs a case; $9.45 in
+all), scored in real tf:
+
+| Cases | Without the plugin | With it | Skill only | Hook only |
+|---|---|---|---|---|
+| The six first cases | 18/18 | 18/18 | | |
+| `top-level-echo-var` | 2/6 | 3/3 | 3/3 | 6/6 |
+| The other three `hard` cases | 9/9 | 9/9 | 9/9 | 9/9 |
+
+So far the plugin's gain is on what a model gets wrong unhelped: without it, a top-level
+`/echo greeting is %{greeting}` (printed as written, since nothing is substituted there) or an
+`/if` with no `/endif`. With either part, every run was right; three runs a case can't tell the
+skill and the hook apart, and the eval's traces don't show whether the hook fired. The judge
+failed `nested-default` answers that tf ran correctly, and passed a `top-level-echo-var` one that
+tf printed wrong.

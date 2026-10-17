@@ -15438,7 +15438,7 @@ function breakPoints(j, from, to, head, removed) {
     for (; ; ) {
       let w = o;
       while (isTfSpace(j[w])) w += 1;
-      if (j[w] !== "-") break;
+      if (j[w] !== "-" || !/[A-Za-z]/.test(j[w + 1] ?? "")) break;
       o = w;
       while (o < to && !isTfSpace(j[o])) o += 1;
     }
@@ -15480,7 +15480,7 @@ function piece(j, plan4, from, to) {
   if (to > from && plan4.spaced.has(to)) out += " ";
   return out;
 }
-function wrapLines(j, plan4, maxWidth, head, widthOf, hangOf) {
+function wrapLines(j, plan4, maxWidth, head, widthOf) {
   const starts = [...plan4.cuts].filter((c) => c > 0 && c < j.length).sort((a, b) => a - b);
   const bounds = [0, ...starts, j.length];
   for (let k = 0; k + 1 < bounds.length; k += 1) {
@@ -15495,10 +15495,10 @@ function wrapLines(j, plan4, maxWidth, head, widthOf, hangOf) {
       const fitting = (points) => points.filter((p) => p > at2 && fits(at2, p, lead));
       const best = fitting(first).pop() ?? fitting(then).pop() ?? [...first, ...then].filter((p) => p > at2).sort((a, b) => a - b)[0];
       if (best === void 0) break;
-      const cut = best;
-      plan4.cuts.add(cut);
-      at2 = cut;
-      lead = hangOf(from);
+      if (!fits(best, to, widthOf(best)) && ![...first, ...then].some((p) => p > best)) break;
+      plan4.cuts.add(best);
+      at2 = best;
+      lead = widthOf(best);
     }
   }
 }
@@ -15594,7 +15594,11 @@ function layoutEntry(entry, original, indent, split, maxWidth = DEFAULT_FORMAT_O
   if (midKeyword) return "keyword-mid-statement";
   if (!inner2 && top.blocks.length === 0) return original;
   const firstIndent = (original[0] ?? "").slice(0, leadingWhitespaceLength(original[0] ?? ""));
-  const split1 = inner2 && split ? splitPlan(entry, body, inner2, firstIndent.length + j.length > maxWidth) : void 0;
+  let split1 = inner2 && split ? splitPlan(entry, body, inner2, false) : void 0;
+  if (split1 && split1.cuts.size === 0 && firstIndent.length + expectedText(j, split1).length > maxWidth) {
+    const moved = splitPlan(entry, body, inner2, true);
+    split1 = firstIndent.length + expectedText(j, moved).length > maxWidth ? moved : { ...moved, cuts: /* @__PURE__ */ new Set() };
+  }
   const wrap = split1 !== void 0;
   const plan4 = split1 ?? {
     cuts: new Set(authorBreaks),
@@ -15618,8 +15622,7 @@ function layoutEntry(entry, original, indent, split, maxWidth = DEFAULT_FORMAT_O
       plan4,
       maxWidth,
       first,
-      (o) => o === 0 ? firstIndent.length : levelAt(o) * width,
-      (o) => (o < body ? 2 : statementLevel(o) + 2) * width
+      (o) => o === 0 ? firstIndent.length : levelAt(o) * width
     );
   }
   const { contents, starts } = cutLines(j, plan4);

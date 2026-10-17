@@ -43,9 +43,10 @@ source). Node and npm are only needed to *build* this extension from source.
   `/while` block's contents two spaces further in. Only whitespace tf ignores changes, so the
   file loads and runs the same. A command it can't prove the same once laid out (one with a
   comment or blank line among its lines, a tab after a line's indentation, a `%\`, a keyword in
-  the middle of a statement, or an error diagnostic) is left exactly as written, and so is a
-  file with CRLF line endings, where tf doesn't join a line ending in `\`. The style has no
-  settings, and the editor's tab size doesn't change it. To format on save:
+  the middle of a statement, or an error diagnostic) is left exactly as written. A file with
+  CRLF line endings isn't formatted at all, as tf doesn't join a line ending in `\` before a
+  `\r`: Format Document leaves it as it is (switch it to LF in the status bar first). The style
+  has no settings, and the editor's tab size doesn't change it. To format on save:
   `"[tf]": { "editor.formatOnSave": true }` in your settings.
 - A status bar item on tf files showing the load context the file is seen in and the chain of
   `/load`s that reaches it; click it (or run **tfscript: Choose Load Context**) to switch

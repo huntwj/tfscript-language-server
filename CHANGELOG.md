@@ -12,9 +12,10 @@
   `.terraform` folder, `.terraform.lock.hcl`, `*.tfvars`, `*.tf.json` or `*.tfstate` beside it, a
   top-level Terraform block in it, or a first line that opens an HCL block). A message names a
   setting as its `tfscript.json` key. It checks from the folder of the nearest `tfscript.json` (no
-  higher than the project folder), else the project folder; a file outside the project is checked
-  from its own folder, or alone if that folder is too big to search. When the full check takes
-  more than 10 seconds, it checks the file alone, quickly and without `undefined-macro`, and says so.
+  higher than the project folder), else the project folder. A file outside the project is checked
+  from the folder of the nearest `tfscript.json` above it, else from its own folder, or alone if that
+  folder is too big to search. When the full check takes more than 10 seconds, it checks again from
+  the same root and `tfscript.json` without `undefined-macro`, which is quick, and says so.
   The plugin also registers the language server for `.tf` files, with its diagnostics off, for
   navigation and hover, and carries the tf-scripting skill. Everything runs locally from single-file
   bundles in the plugin (`npm run bundle:claude-code`; CI checks they match the sources).

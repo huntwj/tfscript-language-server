@@ -81,6 +81,7 @@ export type Refusal =
   | "error"
   | "structure"
   | "keyword-mid-statement"
+  | "replacement-character"
   | "unverified";
 
 export interface EntryResult {
@@ -321,6 +322,8 @@ export function layoutEntry(entry: LogicalEntry, original: string[], indent: str
   if (original.some((l, i) => i > 0 && isBlankLine(l))) return "blank-line";
   if (original.some((l) => l.includes("%\\"))) return "percent-backslash";
   if (original.some((l) => /\\[ \t\f\v]+$/.test(l))) return "space-after-backslash";
+  // U+FFFD is what a byte that wasn't UTF-8 became on the way in; writing it back would lose it.
+  if (original.some((l) => l.includes("\uFFFD"))) return "replacement-character";
 
   const j = entry.text;
   const macro = entry.isDefBody || entry.isOtherMacroBody;

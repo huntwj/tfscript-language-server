@@ -187,6 +187,10 @@ describe("formatText: what it leaves exactly as written", () => {
     unchanged("/def go = /a%; /b%;\\\n", "incomplete");
   });
 
+  it("an entry holding U+FFFD, which a byte that wasn't UTF-8 became when the file was read", () => {
+    unchanged("/def go = /echo caf\uFFFD%; /echo b\n", "replacement-character");
+  });
+
   it("a file with CRLF line endings, where \\ continues nothing", () => {
     expect(format("/def go = /a%; /b\r\n")).toBe("/def go = /a%; /b\r\n");
     expect(formatDocument("/def go = /a%; /b\r\n").crlf).toBe(true);

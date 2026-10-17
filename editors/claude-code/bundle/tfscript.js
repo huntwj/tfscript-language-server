@@ -8801,6 +8801,7 @@ function layoutEntry(entry, original, indent, split) {
   if (original.some((l, i) => i > 0 && isBlankLine(l))) return "blank-line";
   if (original.some((l) => l.includes("%\\"))) return "percent-backslash";
   if (original.some((l) => /\\[ \t\f\v]+$/.test(l))) return "space-after-backslash";
+  if (original.some((l) => l.includes("�"))) return "replacement-character";
   const j = entry.text;
   const macro = entry.isDefBody || entry.isOtherMacroBody;
   const body = macro ? macroBodyStart(j) : -1;

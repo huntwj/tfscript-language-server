@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { DEFAULT_TF_BUILD, TF_BUILDS, type TfBuild } from "../tfBuild";
 
 /**
  * The `tfscript.*` settings, as an editor sends them (VS Code: folder-scoped, so each folder
@@ -34,6 +35,8 @@ export interface RawSettings {
    * are as tf sees them, so a path goes through `pathMappings`.
    */
   variables?: Record<string, string>;
+  /** Which tf the scripts run in: "upstream" (the default) or "fork" (see tfBuild.ts). */
+  tfBuild?: string;
   diagnostics?: {
     /** `/load`/`/require` paths tf wouldn't find. Default on. */
     unresolvedLoads?: boolean;
@@ -69,6 +72,8 @@ export interface ResolvedSettings {
   pathMappings: PathMapping[];
   /** Variables with a value as tf starts (valid names, string values only). */
   variables: Record<string, string>;
+  /** Which tf the scripts run in; a name that isn't one is the default. */
+  tfBuild: TfBuild;
 }
 
 export interface PathMapping {
@@ -173,5 +178,6 @@ export function resolveSettings(raw: RawSettings, folder: string, environment: E
     variables: Object.fromEntries(
       Object.entries(raw.variables ?? {}).filter(([name, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && typeof value === "string"),
     ),
+    tfBuild: TF_BUILDS.find((b) => b === raw.tfBuild) ?? DEFAULT_TF_BUILD,
   };
 }

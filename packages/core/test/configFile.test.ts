@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { TF_BUILDS } from "../src/tfBuild";
 import { CLAUDE_CODE_SHAPES, CONFIG_KEYS, DIAGNOSTIC_SHAPES, findConfig, MAX_TIMEOUT_SECONDS, overlaySettings, parseConfig, readConfig, SETTING_SHAPES } from "../src/workspace/configFile";
 
 const ROOT = path.resolve("/fake");
@@ -90,7 +91,7 @@ describe("parseConfig", () => {
 
   it("names a key that isn't a setting, and one written with the editor's tfscript. prefix", () => {
     expect(parse({ entryfiles: [] }).problems).toEqual([
-      'tfscript.json has "entryfiles", which isn\'t a setting: remove it, or use one of entryFiles, contexts, activeContext, libraryPath, tfPath, workingDirectory, homeDirectory, pathMappings, variables, diagnostics, claudeCode.',
+      'tfscript.json has "entryfiles", which isn\'t a setting: remove it, or use one of entryFiles, contexts, activeContext, libraryPath, tfPath, workingDirectory, homeDirectory, pathMappings, variables, tfBuild, diagnostics, claudeCode.',
     ]);
     expect(parse({ "tfscript.diagnostics.undefinedMacros": false }).problems).toEqual([
       'tfscript.json has "tfscript.diagnostics.undefinedMacros": write the key without the tfscript. prefix, as "diagnostics".',
@@ -181,6 +182,7 @@ describe("the JSON schema (schemas/tfscript.schema.json)", () => {
       items: { type: "object", additionalProperties: false, required: ["tf", "local"], properties: { tf: { type: "string", pattern: "^/" }, local: { type: "string" } } },
     },
     variables: { type: "object", propertyNames: { pattern: "^[A-Za-z_][A-Za-z0-9_]*$" }, additionalProperties: { type: "string" } },
+    tfBuild: { type: "string", enum: [...TF_BUILDS] },
   };
   const section = (shapes: Record<string, string>) => ({
     type: "object",

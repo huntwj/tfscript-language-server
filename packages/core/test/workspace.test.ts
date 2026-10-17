@@ -52,6 +52,7 @@ describe("resolveSettings", () => {
       home: p("home"),
       pathMappings: [],
       variables: {},
+      tfBuild: "upstream",
     });
   });
 

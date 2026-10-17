@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { TF_BUILDS } from "../tfBuild";
 import type { RawSettings } from "./settings";
 
 /**
@@ -39,7 +40,7 @@ export interface ConfigLoad {
 
 export type Shape = "string" | "path" | "paths" | "boolean" | "names";
 
-export type SettingShape = Shape | "contexts" | "pathMappings" | "variables" | "diagnostics";
+export type SettingShape = Shape | "contexts" | "pathMappings" | "variables" | "tfBuild" | "diagnostics";
 
 /** Each setting tfscript.json takes, by its key, and the shape of its value (the schema test compares these). */
 export const SETTING_SHAPES: Readonly<Record<string, SettingShape>> = {
@@ -52,6 +53,7 @@ export const SETTING_SHAPES: Readonly<Record<string, SettingShape>> = {
   homeDirectory: "path",
   pathMappings: "pathMappings",
   variables: "variables",
+  tfBuild: "tfBuild",
   diagnostics: "diagnostics",
 };
 
@@ -195,6 +197,11 @@ export function parseConfig(text: string, file: string, label: string = file): C
           if (bad !== undefined) problems.push(`${label} sets the variable "${bad}", which isn't a tf variable name: use letters, digits and _, not starting with a digit.`);
           else settings.variables = value as Record<string, string>;
         }
+        break;
+      case "tfBuild":
+        if (typeof value !== "string" || !(TF_BUILDS as readonly string[]).includes(value)) {
+          wrong(key, value, TF_BUILDS.map((b) => `"${b}"`).join(" or "), `"${key}": "fork"`);
+        } else settings.tfBuild = value;
         break;
       case "diagnostics": {
         if (!isObject(value)) {

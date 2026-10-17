@@ -1412,9 +1412,10 @@ var Parser = class _Parser {
    * underflow or dirty" and "invalid frame". Both proven in tf dev, 2026-10-14.
    *
    * Where the rejected /break is in a `$(...)` that is an expression operand (`$[ $(/break) ]`, an
-   * `/if` or `/while` condition), at any depth, tf dev prints the same error but still runs the
-   * macro, with that `$(...)` giving nothing; elsewhere (a command, `/test` text) the macro doesn't
-   * run. Proven in tf dev, 2026-10-14.
+   * `/if` or `/while` condition), at any depth, tf dev used to print the same error and still run
+   * the macro (2026-10-14); since its fix for errors in an expression operand, it rejects the
+   * macro there too and stops compiling, so nothing after it is reported. Proven in tf dev,
+   * 2026-10-17.
    */
   breakOutOfCmdsub(start, end, levels) {
     if (this.cmdsub === 0) return;
@@ -1424,19 +1425,16 @@ var Parser = class _Parser {
     const rule = `A ${code("/break")} inside ${code("$(...)")} can only end ${code("/while")} loops that are inside the same ${code("$(...)")}: tf can't jump out of a command substitution part way through.`;
     if (outside) {
       const cmdsubStart = this.cmdsubStarts[outside.cmdsub].at;
-      const runs = this.cmdsubStarts.some((c) => c.inExpression);
       const detail = {
-        message: runs ? "This /break would jump out of the $(...) around it, so tf reports an error and leaves it out: end the loop outside the $(...)." : "This /break would jump out of the $(...) around it, so tf rejects the macro: end the loop outside the $(...).",
+        message: "This /break would jump out of the $(...) around it, so tf rejects the macro: end the loop outside the $(...).",
         label: "jumps out of the $(...)",
-        explanation: `${rule} This one would end a loop opened outside it, so tf reports "expected a /break that stays inside this $(...)" when it compiles the macro. ` + (runs ? `Here the ${code("$(...)")} is inside an expression, so tf still runs the macro, with that ${code("$(...)")} giving nothing and the loop never ended by it.` : "The macro then does nothing.") + ` Move the ${code("/break")} out of the ${code("$(...)")}, into the loop's own body. (TinyFugue releases before this check compile it, and running it leaves tf's internal state broken.)`,
+        explanation: `${rule} This one would end a loop opened outside it, so tf reports "expected a /break that stays inside this $(...)" when it compiles the macro. The macro then does nothing. Move the ${code("/break")} out of the ${code("$(...)")}, into the loop's own body. (TinyFugue releases before this check compile it, and running it leaves tf's internal state broken.)`,
         related: [
           { start: cmdsubStart, end: cmdsubStart + 2, message: "the $(...) it would jump out of" },
           { start: outside.start, end: outside.end, message: "the loop it would end" }
         ]
       };
-      if (!runs) this.fail("block", start, end, detail);
-      this.issues.push({ kind: "block", start, end: Math.max(end, start + 1), ...detail });
-      return;
+      this.fail("block", start, end, detail);
     }
     if (levels > loops.length) {
       const cmdsubStart = this.cmdsubStarts[this.cmdsubStarts.length - 1].at;
@@ -1697,10 +1695,9 @@ var Parser = class _Parser {
     }
   }
   /**
-   * `$$...`, `$[...]`, `$(...)` or `${name}`/`$name`, with `this.i` just after the `$` at `dollar`;
-   * `inExpression` when it is an operand of an expression.
+   * `$$...`, `$[...]`, `$(...)` or `${name}`/`$name`, with `this.i` just after the `$` at `dollar`.
    */
-  dollarsub(dollar, inExpression = false) {
+  dollarsub(dollar) {
     const s = this.s;
     if (s[this.i] === "$") {
       while (s[this.i] === "$") this.i += 1;
@@ -1714,7 +1711,7 @@ var Parser = class _Parser {
       this.i += 1;
       const start = this.i;
       this.cmdsub += 1;
-      this.cmdsubStarts.push({ at: dollar, inExpression });
+      this.cmdsubStarts.push({ at: dollar });
       const outer = this.block;
       this.cmdsubBlocks.push(outer);
       this.block = "";
@@ -1869,7 +1866,7 @@ var Parser = class _Parser {
       if (ch === "$") {
         const dollar = this.i;
         this.i += 1;
-        this.dollarsub(dollar, true);
+        this.dollarsub(dollar);
         if (s[dollar + 1] === "[") this.dollarOperand(dollar, from, close, keyword, parens.length > 0);
         continue;
       }
@@ -7435,14 +7432,28 @@ var WorkspaceIndex = class {
   }
   /** Files read from disk, until a watched file changes (filesChanged()) or, unwatched, until their modification time does. */
   disk = /* @__PURE__ */ new Map();
-  /** A file's text as tf reads it with `/load` (see asLoaded()): the editor's if it is open, else what is on disk. */
-  read = (file) => {
-    const text = this.readAsIs(file);
-    return text === void 0 ? void 0 : asLoaded(text, this.tfBuildFor(file));
-  };
   /**
-   * Which tf reads `file`: the tfBuild of the workspace folder it is in, or of the first folder
-   * for a file in none (tf's library, say), as one tf runs them all.
+   * A file's text as `build` reads it with `/load` (see asLoaded()): the editor's if it is open,
+   * else what is on disk. One tf runs a whole load path, so what a folder's graph and its other
+   * files read is read as that folder's tf does, wherever the file is.
+   */
+  readerFor(build) {
+    let reader = this.readers.get(build);
+    if (!reader) {
+      reader = (file) => {
+        const text = this.readAsIs(file);
+        return text === void 0 ? void 0 : asLoaded(text, build);
+      };
+      this.readers.set(build, reader);
+    }
+    return reader;
+  }
+  readers = /* @__PURE__ */ new Map();
+  /** A file's text as the tf that would open it on its own reads it (tfBuildFor()). */
+  read = (file) => this.readerFor(this.tfBuildFor(file))(file);
+  /**
+   * Which tf reads `file` on its own (an open document, say): the tfBuild of the workspace folder
+   * it is in, or of the first folder for a file in none (tf's library, say).
    */
   tfBuildFor(file) {
     const inside = this.folders.some((f) => isInside(file, f));
@@ -7516,7 +7527,7 @@ var WorkspaceIndex = class {
       for (const file of this.fs.walkTfFiles(folder)) {
         if (seen.has(fileKey(file))) continue;
         seen.add(fileKey(file));
-        const text = this.read(file);
+        const text = this.readerFor(this.settingsFor(folder).tfBuild)(file);
         if (text === void 0) continue;
         for (const symbol of getDocumentSymbols(text)) {
           if (matches(symbol.name)) results.push({ file: path6.resolve(file), folder, symbol });
@@ -7553,7 +7564,7 @@ var WorkspaceIndex = class {
       home: settings.home,
       pathMappings: settings.pathMappings,
       variables: settings.variables,
-      readFile: this.read
+      readFile: this.readerFor(settings.tfBuild)
     });
     const built = { settings, graph };
     this.graphs.set(key2, built);
@@ -7563,9 +7574,9 @@ var WorkspaceIndex = class {
    * tf's library files: listed once (until a watched file changes), read like any other file, so
    * an open library file's unsaved text counts and a changed one is read again.
    */
-  library(dir) {
+  library(dir, build) {
     return this.libraryListing(dir).files.flatMap((file) => {
-      const text = this.read(file);
+      const text = this.readerFor(build)(file);
       return text === void 0 ? [] : [{ path: file, text, defs: this.librarySymbols(file, text) }];
     });
   }
@@ -7786,10 +7797,10 @@ var WorkspaceIndex = class {
         elsewhere.push({ file: path6.resolve(f), label: this.label(f, folder, lib), library, defs: this.macroNamesOf(f, text) });
       };
       for (const f of files) {
-        const text = this.read(f);
+        const text = this.readerFor(settings.tfBuild)(f);
         if (text !== void 0) add(f, text, Boolean(lib && isInside(f, lib)));
       }
-      if (lib) for (const f of this.library(lib)) add(f.path, f.text, true);
+      if (lib) for (const f of this.library(lib, settings.tfBuild)) add(f.path, f.text, true);
       const unfollowed = unfollowedOnPath(graph, (f) => this.label(f, folder, lib));
       shared = { walked, listed, elsewhere, unfollowed, files, truncated };
       this.macroContexts.set(graph, shared);
@@ -7816,7 +7827,7 @@ var WorkspaceIndex = class {
   offPathUnfollowed(file, files, folder, settings) {
     const env = this.envFor(settings);
     const loadsOf = (f) => {
-      const text = this.read(f);
+      const text = this.readerFor(settings.tfBuild)(f);
       const loads = text === void 0 ? [] : this.analysis(f, text).loads;
       return {
         written: loads.flatMap((l) => l.literal === void 0 ? [] : [l.literal]),
@@ -7881,7 +7892,7 @@ var WorkspaceIndex = class {
       workingDir: settings.workingDir,
       pathMappings: settings.pathMappings,
       local: { home: true, tfPath: true, libraryDir: true },
-      readFile: this.read
+      readFile: this.readerFor(settings.tfBuild)
     };
   }
   /** How tf finds a file at some point on the load path, with the search variables it had then. */
@@ -7893,7 +7904,7 @@ var WorkspaceIndex = class {
       workingDir: settings.workingDir,
       pathMappings: settings.pathMappings,
       local: at2.local,
-      readFile: this.read
+      readFile: this.readerFor(settings.tfBuild)
     };
   }
   /**
@@ -7985,7 +7996,7 @@ var WorkspaceIndex = class {
     });
     if (lib) {
       const reached = new Set(graph.files.filter((f) => onPath || f.stdlib).map((f) => fileKey(f.path)));
-      for (const f of this.library(lib)) {
+      for (const f of this.library(lib, settings.tfBuild)) {
         if (reached.has(fileKey(f.path)) || fileKey(f.path) === self) continue;
         const lines = splitRawLines(f.text);
         for (const symbol of f.defs) {
@@ -8011,17 +8022,17 @@ var WorkspaceIndex = class {
   callerFiles(file, uriOf) {
     const { folder, graph } = this.contextFor(file);
     const out = /* @__PURE__ */ new Map();
-    const add = (p, text) => {
+    const add = (p, text, read = this.read) => {
       const key2 = fileKey(p);
       if (out.has(key2)) return;
-      const t = text ?? this.read(p);
+      const t = text ?? read(p);
       if (t !== void 0) out.set(key2, { uri: uriOf(path6.resolve(p)), text: t });
     };
     add(file);
     for (const f of graph.files) add(f.path, f.text);
     for (const f of this.isWorkspaceFolder(folder) ? [folder] : this.folders) {
       for (const loaded of this.graphFor(f).graph.files) add(loaded.path, loaded.text);
-      for (const walked of this.walk(f).files) add(walked);
+      for (const walked of this.walk(f).files) add(walked, void 0, this.readerFor(this.settingsFor(f).tfBuild));
     }
     return [...out.values()];
   }

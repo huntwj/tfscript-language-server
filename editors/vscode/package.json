@@ -2,7 +2,7 @@
   "name": "tfscript-vscode",
   "displayName": "tfscript",
   "description": "Language support for tfscript, TinyFugue's macro language: diagnostics and command-name completion, plus syntax highlighting for .tf files.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "publisher": "huntwj",

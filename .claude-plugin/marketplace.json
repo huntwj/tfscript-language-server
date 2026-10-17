@@ -10,7 +10,7 @@
       "name": "tfscript",
       "source": "./editors/claude-code",
       "description": "TinyFugue scripts (tfscript) in Claude Code: diagnostics after each edit of a tf script, navigation and hover, and the tf-scripting skill.",
-      "version": "0.2.0"
+      "version": "0.3.0"
     }
   ]
 }

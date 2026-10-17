@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getDiagnostics, quietInTf } from "../src/diagnostics";
+import { asLoaded } from "../src/tfBuild";
 
 /**
  * Runs the diagnostics engine over every case in ~/ai/mud/tests/tfscript/cases/ — the
@@ -48,7 +49,8 @@ describeOrSkip("ground truth (~/ai/mud/tests/tfscript/cases)", () => {
 
       const expected = match![1];
       // A note or warning on something tf runs without complaint (quietInTf) doesn't make a clean case a problem.
-      const got = getDiagnostics(text).some((d) => !quietInTf(d)) ? "problem" : "clean";
+      // The cases are proven in the tf built from ~/ai/mud/tinyfugue, the fork, so the file is read as it reads it.
+      const got = getDiagnostics(asLoaded(text, "fork")).some((d) => !quietInTf(d)) ? "problem" : "clean";
       expect(got).toBe(expected);
     });
   }

@@ -38,7 +38,7 @@ describe("extract to a new macro", () => {
   it("moves statements of a one-line body into a /def above it", () => {
     const text = "/def -i greet = /echo hi%; /echo there%; /echo bye\n";
     expect(extract(text, "/echo hi%; /echo there")).toBe(
-      ["/def -i greet_extracted = \\", "    /echo hi%;\\", "    /echo there", "", "/def -i greet = /greet_extracted %*%; /echo bye", ""].join("\n"),
+      ["/def -i greet_extracted = \\", "  /echo hi%;\\", "  /echo there", "", "/def -i greet = /greet_extracted %*%; /echo bye", ""].join("\n"),
     );
   });
 
@@ -60,8 +60,8 @@ describe("extract to a new macro", () => {
     expect(extract(text, "/echo a%;\\\n        /echo b")).toBe(
       [
         "/def -i t_extracted = \\",
-        "    /echo a%;\\",
-        "    /echo b",
+        "  /echo a%;\\",
+        "  /echo b",
         "",
         "/def -i t = \\",
         "    /if (x) \\",
@@ -76,7 +76,7 @@ describe("extract to a new macro", () => {
   it("moves a whole block", () => {
     const text = "/def t = /echo a%; /if (x) /echo b%; /endif%; /echo c\n";
     expect(extract(text, "/if (x) /echo b%; /endif")).toBe(
-      ["/def t_extracted = \\", "    /if (x) \\", "        /echo b%;\\", "    /endif", "", "/def t = /echo a%; /t_extracted %*%; /echo c", ""].join("\n"),
+      ["/def t_extracted = \\", "  /if (x) \\", "    /echo b%;\\", "  /endif", "", "/def t = /echo a%; /t_extracted %*%; /echo c", ""].join("\n"),
     );
   });
 

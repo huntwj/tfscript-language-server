@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectIndent, getRefactorActions, sameProgram } from "../src/bodyLayout";
+import { getRefactorActions, sameProgram } from "../src/bodyLayout";
 import { getDiagnostics } from "../src/diagnostics";
 import { rejoin } from "../src/formatting";
 
@@ -27,15 +27,15 @@ describe("split", () => {
     expect(action?.edits[0]?.newText).toBe(
       [
         "/def -i a = \\",
-        "    /let x=1%;\\",
-        "    /if (x) \\",
-        "        /echo yes%;\\",
-        "    /elseif (2) \\",
-        "        /echo two%;\\",
-        "    /else \\",
-        "        /echo no%;\\",
-        "    /endif%;\\",
-        "    /echo done",
+        "  /let x=1%;\\",
+        "  /if (x) \\",
+        "    /echo yes%;\\",
+        "  /elseif (2) \\",
+        "    /echo two%;\\",
+        "  /else \\",
+        "    /echo no%;\\",
+        "  /endif%;\\",
+        "  /echo done",
       ].join("\n"),
     );
     expect(action?.edits[0]?.range).toEqual({ start: { line: 0, character: 0 }, end: { line: 0, character: text.length - 1 } });
@@ -43,21 +43,20 @@ describe("split", () => {
 
   it("keeps a condition list on the /if line, and %| and $(...) inside their statement", () => {
     expect(apply("/def -i c = /if /test 1%; /then /echo yes%; /endif\n")).toEqual([
-      "Split /c's body onto separate lines\n/def -i c = \\\n    /if /test 1%; /then \\\n        /echo yes%;\\\n    /endif",
+      "Split /c's body onto separate lines\n/def -i c = \\\n  /if /test 1%; /then \\\n    /echo yes%;\\\n  /endif",
     ]);
     expect(apply("/def -i p = /echo a %| /echo b%; /echo $(/echo x%; /echo y)\n")).toEqual([
-      "Split /p's body onto separate lines\n/def -i p = \\\n    /echo a %| /echo b%;\\\n    /echo $(/echo x%; /echo y)",
+      "Split /p's body onto separate lines\n/def -i p = \\\n  /echo a %| /echo b%;\\\n  /echo $(/echo x%; /echo y)",
     ]);
   });
 
   it("works for the other macro definers, and takes a tab before a /def's = with the head's blanks", () => {
-    expect(apply("/trig zz = /echo a%; /echo b\n")[0]).toBe("Split this trigger's body onto separate lines\n/trig zz = \\\n    /echo a%;\\\n    /echo b");
-    expect(apply("/def -i t\t= /echo a%; /echo b\n")[0]).toBe("Split /t's body onto separate lines\n/def -i t = \\\n    /echo a%;\\\n    /echo b");
+    expect(apply("/trig zz = /echo a%; /echo b\n")[0]).toBe("Split this trigger's body onto separate lines\n/trig zz = \\\n  /echo a%;\\\n  /echo b");
+    expect(apply("/def -i t\t= /echo a%; /echo b\n")[0]).toBe("Split /t's body onto separate lines\n/def -i t = \\\n  /echo a%;\\\n  /echo b");
   });
 
-  it("uses the file's own indentation unit", () => {
-    const text = "/def -i a = \\\n  /echo one\n/def -i b = /echo a%; /echo b\n";
-    expect(detectIndent(text)).toBe("  ");
+  it("indents as the formatter does, whatever the file's own indentation", () => {
+    const text = "/def -i a = \\\n    /echo one\n/def -i b = /echo a%; /echo b\n";
     expect(apply(text, at(2))[0]).toBe("Split /b's body onto separate lines\n/def -i b = \\\n  /echo a%;\\\n  /echo b");
   });
 
@@ -81,13 +80,13 @@ describe("split", () => {
   for (const eol of ["", "\n"]) {
     it(`keeps a body's final %; on its last line, at the end of the file${eol ? " with a final newline" : ""}`, () => {
       const text = `/def -i z6 = /echo a%; /echo b%;${eol}`;
-      expect(edited(text)).toBe(`/def -i z6 = \\\n    /echo a%;\\\n    /echo b%;${eol}`);
+      expect(edited(text)).toBe(`/def -i z6 = \\\n  /echo a%;\\\n  /echo b%;${eol}`);
       expect(getDiagnostics(edited(text))).toEqual([]);
     });
   }
 
   it("keeps a body's final %; on its last line before the next command", () => {
-    expect(edited("/def -i z = /echo a%; /echo b%;\n/echo next\n")).toBe("/def -i z = \\\n    /echo a%;\\\n    /echo b%;\n/echo next\n");
+    expect(edited("/def -i z = /echo a%; /echo b%;\n/echo next\n")).toBe("/def -i z = \\\n  /echo a%;\\\n  /echo b%;\n/echo next\n");
   });
 });
 

@@ -8670,6 +8670,9 @@ var path9 = __toESM(require("node:path"));
 
 // packages/core/src/formatting.ts
 var DEFAULT_FORMAT_OPTIONS = { indentWidth: 2, splitStatements: true };
+function formatIndent(options = {}) {
+  return " ".repeat(options.indentWidth ?? DEFAULT_FORMAT_OPTIONS.indentWidth);
+}
 function topLevelSeparators(s) {
   const out = [];
   let quote = "";
@@ -8894,7 +8897,7 @@ function errorLines(text) {
 function formatDocument(text, options = {}, range) {
   const opts = { ...DEFAULT_FORMAT_OPTIONS, ...options };
   if (text.includes("\r")) return { edits: [], entries: [], crlf: true };
-  const indent = " ".repeat(opts.indentWidth);
+  const indent = formatIndent(opts);
   const lines = splitRawLines(text);
   const errors = errorLines(text);
   const edits = [];

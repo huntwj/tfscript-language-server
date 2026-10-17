@@ -74,7 +74,7 @@ describe("inline a macro", () => {
         "    /echo x%; \\",
         "    /echo a%; \\",
         "    /if (1) \\",
-        "        /echo b%; \\",
+        "      /echo b%; \\",
         "    /endif%; \\",
         "    /echo y",
         "",

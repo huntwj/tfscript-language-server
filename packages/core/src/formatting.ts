@@ -68,6 +68,11 @@ export interface FormatOptions {
 /** Wil's style: two spaces, one statement per line. */
 export const DEFAULT_FORMAT_OPTIONS: Readonly<FormatOptions> = { indentWidth: 2, splitStatements: true };
 
+/** One level of indentation: what formatting and the Split, Extract and Inline refactorings indent by. */
+export function formatIndent(options: Partial<FormatOptions> = {}): string {
+  return " ".repeat(options.indentWidth ?? DEFAULT_FORMAT_OPTIONS.indentWidth);
+}
+
 export interface FormatEdit {
   range: Range;
   newText: string;
@@ -448,7 +453,7 @@ function errorLines(text: string): Set<number> {
 export function formatDocument(text: string, options: Partial<FormatOptions> = {}, range?: Range): FormatResult {
   const opts = { ...DEFAULT_FORMAT_OPTIONS, ...options };
   if (text.includes("\r")) return { edits: [], entries: [], crlf: true };
-  const indent = " ".repeat(opts.indentWidth);
+  const indent = formatIndent(opts);
   const lines = splitRawLines(text);
   const errors = errorLines(text);
   const edits: FormatEdit[] = [];

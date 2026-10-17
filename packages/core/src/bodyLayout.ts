@@ -1,6 +1,6 @@
 import type { Range, TfTextEdit } from "./diagnostics";
-import { hasInnerTab, normalise, programText, rejoin, splitEntry, topLevelSeparators } from "./formatting";
-import { isCommentLine, leadingWhitespaceLength, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
+import { formatIndent, hasInnerTab, normalise, programText, rejoin, splitEntry, topLevelSeparators } from "./formatting";
+import { leadingWhitespaceLength, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { checkStructure, macroBodyStart, parseStatements } from "./structure";
 import { getDocumentSymbols, type TfSymbol, type TfSymbolKind } from "./symbols";
 
@@ -9,8 +9,9 @@ import { getDocumentSymbols, type TfSymbol, type TfSymbolKind } from "./symbols"
  * without changing what tf runs.
  *
  * Split is the formatter's layout for one entry (formatting.ts): each `%;` statement on its own
- * line ending `%;\`, the body starting on the line after the head, each block's children indented.
- * Join is the reverse: the text tf itself reads from the lines (load_file() strips each line's
+ * line ending `%;\`, the body starting on the line after the head, each block's children indented,
+ * in the formatter's indentation (formatIndent()), so Format Document leaves the result as it is.
+ * Join is the reverse: the text tf itself reads from the lines (do_file_load() strips each line's
  * leading blanks and drops the `\`), with one blank after each `%;`.
  *
  * Both rest on two facts proven against real tf: a continued entry is the concatenation of its
@@ -32,25 +33,6 @@ import { getDocumentSymbols, type TfSymbol, type TfSymbolKind } from "./symbols"
 export interface TfRefactorAction {
   title: string;
   edits: TfTextEdit[];
-}
-
-const DEFAULT_INDENT = "    ";
-
-/** The file's indentation unit: the smallest indentation of a continuation line, or four spaces. */
-export function detectIndent(text: string): string {
-  let best: string | undefined;
-  const lines = splitRawLines(text);
-  for (const entry of splitLogicalEntries(text)) {
-    if (entry.parts.length < 2) continue;
-    for (const part of entry.parts.slice(1)) {
-      const line = lines[part.line] ?? "";
-      const lead = line.slice(0, leadingWhitespaceLength(line)).replace(/\r/g, "");
-      if (lead === "" || isCommentLine(line)) continue;
-      if (lead.startsWith("\t")) return "\t";
-      if (best === undefined || lead.length < best.length) best = lead;
-    }
-  }
-  return best ?? DEFAULT_INDENT;
 }
 
 /** One line holding the entry's text, with one blank after each `%;` in the body. */
@@ -113,7 +95,7 @@ function owner(symbol: TfSymbol | undefined): string {
 }
 
 /** Split or join actions for the macro-defining entries the range touches. */
-export function getRefactorActions(text: string, range: Range, indent = detectIndent(text)): TfRefactorAction[] {
+export function getRefactorActions(text: string, range: Range, indent = formatIndent()): TfRefactorAction[] {
   const lines = splitRawLines(text);
   const actions: TfRefactorAction[] = [];
   const symbols = new Map(getDocumentSymbols(text).map((s) => [s.range.start.line, s]));

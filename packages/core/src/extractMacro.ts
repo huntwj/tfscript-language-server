@@ -1,6 +1,6 @@
 import { ALL_COMMANDS } from "./data/commands";
 import type { Position, Range, TfTextEdit } from "./diagnostics";
-import { splitEntry } from "./formatting";
+import { formatIndent, splitEntry } from "./formatting";
 import { isBlankLine, isCommentLine, isTfSpace, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { macroBodyStart, parseUnits, type Unit } from "./structure";
 import { defIsInvisible, getDocumentSymbols, type TfSymbol } from "./symbols";
@@ -356,7 +356,7 @@ function plan(
   const line = `/def ${invisible ? "-i " : ""}${name} = ${moved}`;
   const lineEntry = splitLogicalEntries(line)[0];
   if (!lineEntry || lineEntry.parts.length !== 1 || lineEntry.text !== line) return undefined;
-  const split = splitEntry(lineEntry, [line], options.indent ?? "    ", { headTabs: true });
+  const split = splitEntry(lineEntry, [line], options.indent ?? formatIndent(), { headTabs: true });
   // splitEntry() only lays it out when that joins back to the same program.
   const defLines = split && split.length > 1 ? split : [line];
   const call = `/${name} %*`;

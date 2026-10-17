@@ -15248,6 +15248,9 @@ function keywordBefore(s, p) {
 
 // packages/core/src/formatting.ts
 var DEFAULT_FORMAT_OPTIONS = { indentWidth: 2, splitStatements: true };
+function formatIndent(options = {}) {
+  return " ".repeat(options.indentWidth ?? DEFAULT_FORMAT_OPTIONS.indentWidth);
+}
 function topLevelSeparators(s) {
   const out = [];
   let quote = "";
@@ -15478,7 +15481,7 @@ function errorLines(text) {
 function formatDocument(text, options = {}, range) {
   const opts = { ...DEFAULT_FORMAT_OPTIONS, ...options };
   if (text.includes("\r")) return { edits: [], entries: [], crlf: true };
-  const indent = " ".repeat(opts.indentWidth);
+  const indent = formatIndent(opts);
   const lines = splitRawLines(text);
   const errors = errorLines(text);
   const edits = [];
@@ -15511,22 +15514,6 @@ function formatText(text, options = {}, range) {
 }
 
 // packages/core/src/bodyLayout.ts
-var DEFAULT_INDENT = "    ";
-function detectIndent(text) {
-  let best;
-  const lines = splitRawLines(text);
-  for (const entry of splitLogicalEntries(text)) {
-    if (entry.parts.length < 2) continue;
-    for (const part of entry.parts.slice(1)) {
-      const line = lines[part.line] ?? "";
-      const lead = line.slice(0, leadingWhitespaceLength(line)).replace(/\r/g, "");
-      if (lead === "" || isCommentLine(line)) continue;
-      if (lead.startsWith("	")) return "	";
-      if (best === void 0 || lead.length < best.length) best = lead;
-    }
-  }
-  return best ?? DEFAULT_INDENT;
-}
 function joinedLine(entry, firstLine) {
   const body = macroBodyStart(entry.text);
   if (body < 0) return void 0;
@@ -15570,7 +15557,7 @@ function owner(symbol) {
   if (!symbol) return "the";
   return symbol.kind === "def" || symbol.kind === "alias" ? `/${symbol.name}'s` : UNNAMED[symbol.kind];
 }
-function getRefactorActions(text, range, indent = detectIndent(text)) {
+function getRefactorActions(text, range, indent = formatIndent()) {
   const lines = splitRawLines(text);
   const actions = [];
   const symbols = new Map(getDocumentSymbols(text).map((s) => [s.range.start.line, s]));
@@ -16413,7 +16400,7 @@ function plan(text, lines, entry, entryIndex, range, symbol, options) {
   const line = `/def ${invisible ? "-i " : ""}${name} = ${moved}`;
   const lineEntry = splitLogicalEntries(line)[0];
   if (!lineEntry || lineEntry.parts.length !== 1 || lineEntry.text !== line) return void 0;
-  const split = splitEntry(lineEntry, [line], options.indent ?? "    ", { headTabs: true });
+  const split = splitEntry(lineEntry, [line], options.indent ?? formatIndent(), { headTabs: true });
   const defLines = split && split.length > 1 ? split : [line];
   const call = `/${name} %*`;
   if (!entry.parts.some((p) => p.line === lastPos.line) || entry.parts.filter((p) => p.line >= startPos.line && p.line <= lastPos.line).length !== lastPos.line - startPos.line + 1) {
@@ -17864,7 +17851,7 @@ function plan3(text, entries, site, callee, options, checkDiagnostics = true) {
   if (entry.endLine > entry.startLine && /^\s*$/.test(lead)) {
     const line = `/def __inline = ${body}`;
     const lineEntry = splitLogicalEntries(line)[0];
-    const indent = options.indent ?? "    ";
+    const indent = options.indent ?? formatIndent();
     const laid = lineEntry && lineEntry.text === line ? splitEntry(lineEntry, [line], indent, { headTabs: true }) : void 0;
     if (laid && laid.length > 2) {
       const ending = /%;( *)\\\s*$/;

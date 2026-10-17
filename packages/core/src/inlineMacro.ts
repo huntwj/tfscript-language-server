@@ -14,7 +14,7 @@ import {
   readsMacroName,
   trimEnd,
 } from "./extractMacro";
-import { splitEntry } from "./formatting";
+import { formatIndent, splitEntry } from "./formatting";
 import { isBlankLine, isTfSpace, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { macroBodyStart, parseStatements, parseUnits, type Unit } from "./structure";
 import { getDocumentSymbols, type TfSymbol } from "./symbols";
@@ -291,7 +291,7 @@ function plan(text: string, entries: LogicalEntry[], site: Site, callee: Callee,
   if (entry.endLine > entry.startLine && /^\s*$/.test(lead)) {
     const line = `/def __inline = ${body}`;
     const lineEntry = splitLogicalEntries(line)[0];
-    const indent = options.indent ?? "    ";
+    const indent = options.indent ?? formatIndent();
     const laid = lineEntry && lineEntry.text === line ? splitEntry(lineEntry, [line], indent, { headTabs: true }) : undefined;
     if (laid && laid.length > 2) {
       // Statements end the way the caller's own lines do (`%; \` or `%;\`); the last laid-out

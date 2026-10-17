@@ -30,6 +30,13 @@ describe("the Claude Code plugin's manifests", () => {
     expect(entry?.version).toBe(versions[0]);
   });
 
+  it("has that version everywhere npm run version:set writes it, the lockfiles and core's dependents included", () => {
+    const check = spawnSync(process.execPath, [path.join(REPO, "scripts", "set-version.js"), "--check"], { encoding: "utf8" });
+    expect(check.stderr).toBe("");
+    expect(check.status).toBe(0);
+    expect(check.stdout.trim().split("\n").length).toBeGreaterThanOrEqual(17);
+  });
+
   it("is listed in the marketplace under its own name, at its folder", () => {
     expect(entry).toBeDefined();
     expect(entry.source).toBe("./editors/claude-code");

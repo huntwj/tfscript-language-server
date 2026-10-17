@@ -134,6 +134,14 @@ describe("findConfig", () => {
     expect(findConfig(p("x"), exists)).toBe(p("tfscript.json"));
     expect(findConfig(p("x"), () => false)).toBeUndefined();
   });
+
+  it("goes no higher than the folder it is told to stop at", () => {
+    const files = new Set([p("tfscript.json")]);
+    const exists = (f: string) => files.has(f);
+    expect(findConfig(p("proj", "a"), exists, p("proj"))).toBeUndefined();
+    expect(findConfig(p("proj", "a"), exists)).toBe(p("tfscript.json"));
+    expect(findConfig(p(), exists, p())).toBe(p("tfscript.json"));
+  });
 });
 
 describe("overlaySettings", () => {

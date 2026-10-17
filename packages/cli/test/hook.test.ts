@@ -1,34 +1,72 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { timeBudget } from "../../core/test/timeBudget";
 import type { JsonDiagnostic, JsonReport } from "../src/format";
 import { kindOf, runHook, type CliRun, type HookDeps } from "../src/hook/hook";
-import { runNode } from "../src/hook/main";
+import { isSmallFolder, runNode } from "../src/hook/main";
 import { shapeReport } from "../src/hook/report";
-import { hookRoot } from "../src/hook/root";
+import { hookRoot, type RootHost } from "../src/hook/root";
 
 const ROOT = path.resolve("/fake");
 const p = (...parts: string[]) => path.join(ROOT, ...parts);
 
 describe("the hook's root", () => {
-  const files = new Set([p("mud", "tfscript.json")]);
-  const exists = (f: string) => files.has(f);
+  const files = new Set([p("mud", "tfscript.json"), p("tfscript.json")]);
+  /** A machine where `links` are junctions (link -> target) and `big` folders are too big to search. */
+  const host = (links: Record<string, string> = {}, big: string[] = []): RootHost => ({
+    isFile: (f) => files.has(f),
+    realpath: (f) => {
+      for (const [link, target] of Object.entries(links)) if (f === link || f.startsWith(link + path.sep)) return target + f.slice(link.length);
+      return f;
+    },
+    isSmallFolder: (d) => !big.includes(d),
+  });
 
-  it("is the folder of the nearest tfscript.json above the file", () => {
-    expect(hookRoot(p("mud", "wot", "a.tf"), p(), exists)).toEqual({ root: p("mud"), config: p("mud", "tfscript.json") });
-    expect(hookRoot(p("mud", "a.tf"), undefined, exists)).toEqual({ root: p("mud"), config: p("mud", "tfscript.json") });
+  it("is the folder of the nearest tfscript.json above the file, up to the project folder", () => {
+    expect(hookRoot(p("mud", "wot", "a.tf"), p(), host())).toEqual({ root: p("mud"), config: p("mud", "tfscript.json") });
+    expect(hookRoot(p("mud", "wot", "a.tf"), p("mud", "wot"), host())).toEqual({ root: p("mud", "wot") });
+    expect(hookRoot(p("mud", "a.tf"), undefined, host())).toEqual({ root: p("mud"), config: p("mud", "tfscript.json") });
   });
 
   it("is the project folder, failing that, when the file is in it", () => {
-    expect(hookRoot(p("proj", "scripts", "a.tf"), p("proj"), exists)).toEqual({ root: p("proj") });
+    expect(hookRoot(p("proj", "scripts", "a.tf"), p("proj"), host())).toEqual({ root: p("proj") });
   });
 
-  it("is the file's own folder otherwise", () => {
-    expect(hookRoot(p("elsewhere", "a.tf"), p("proj"), exists)).toEqual({ root: p("elsewhere") });
-    expect(hookRoot(p("elsewhere", "a.tf"), undefined, exists)).toEqual({ root: p("elsewhere") });
-    expect(hookRoot(p("proj-two", "a.tf"), p("proj"), exists)).toEqual({ root: p("proj-two") });
+  it("counts a file reached through a junction into the project as in it", () => {
+    const links = { [p("link")]: p("proj") };
+    expect(hookRoot(p("link", "scripts", "a.tf"), p("proj"), host(links))).toEqual({ root: p("proj") });
+    // And a project folder that is itself a link.
+    expect(hookRoot(p("proj", "a.tf"), p("link"), host(links))).toEqual({ root: p("link") });
+  });
+
+  it("is, outside the project, the nearest tfscript.json's folder, else the file's own folder if small", () => {
+    expect(hookRoot(p("elsewhere", "a.tf"), p("proj"), host())).toEqual({ root: p(), config: p("tfscript.json") });
+    files.delete(p("tfscript.json"));
+    expect(hookRoot(p("elsewhere", "a.tf"), p("proj"), host())).toEqual({ root: p("elsewhere") });
+    expect(hookRoot(p("elsewhere", "a.tf"), undefined, host())).toEqual({ root: p("elsewhere") });
+    expect(hookRoot(p("proj-two", "a.tf"), p("proj"), host())).toEqual({ root: p("proj-two") });
+    files.add(p("tfscript.json"));
+  });
+
+  it("checks the file alone when its folder is too big to search", () => {
+    files.delete(p("tfscript.json"));
+    expect(hookRoot(p("home", "a.tf"), p("proj"), host({}, [p("home")]))).toEqual({ root: p("home"), fileOnly: true });
+    files.add(p("tfscript.json"));
+  });
+});
+
+describe("isSmallFolder", () => {
+  it("says no to a drive's root, the home folder and a folder with too many entries", () => {
+    const dir = mkdtempSync(path.join(TMP, "small-"));
+    for (let i = 0; i < 5; i++) writeFileSync(path.join(dir, `f${i}.tf`), "");
+    mkdirSync(path.join(dir, "sub"));
+    writeFileSync(path.join(dir, "sub", "x.tf"), "");
+    expect(isSmallFolder(dir, 10, p("home"))).toBe(true);
+    expect(isSmallFolder(dir, 6, p("home"))).toBe(false);
+    expect(isSmallFolder(dir, 10, dir)).toBe(false);
+    expect(isSmallFolder(path.parse(dir).root, 10, p("home"))).toBe(false);
   });
 });
 
@@ -127,6 +165,8 @@ function deps(files: Record<string, string>, cli: (args: string[], cwd: string, 
     readFile: (f) => files[f],
     listDir: (d) => Object.keys(files).filter((f) => path.dirname(f) === d).map((f) => path.basename(f)),
     isFile: (f) => f in files,
+    realpath: (f) => f,
+    isSmallFolder: () => true,
     calls,
   };
 }
@@ -176,6 +216,17 @@ describe("runHook", () => {
       "- a.tf:3:1: information information-code: A information on line 3: fix it.",
       `- 1 more is not listed; to see them all, run node ${p("plugin", "bundle", "tfscript.js")} check --root ${p("proj", "mud")} ${p("proj", "mud", "wot", "a.tf")}.`,
     ]);
+  });
+
+  it("checks a file outside the project alone, with undefined-macro off, when its folder is too big", () => {
+    const d = { ...deps({ [p("home", "a.tf")]: "" }, () => ran(report([]))), isSmallFolder: () => false };
+    const calls: string[][] = [];
+    d.runCli = (args) => {
+      calls.push(args);
+      return ran(report([]));
+    };
+    expect(runHook(input(p("home", "a.tf")), d)).toEqual({ stdout: "" });
+    expect(calls).toEqual([["check", "--format", "json", "--no-undefined-macros", "--root", p("home"), p("home", "a.tf")]]);
   });
 
   it("checks nothing under a tfscript.json that turns it off", () => {

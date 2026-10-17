@@ -226,12 +226,17 @@ export function readConfig(file: string, read: (file: string) => string | undefi
   return parseConfig(text, file, label);
 }
 
-/** The nearest tfscript.json in `dir` or a folder above it, or undefined if there is none. */
-export function findConfig(dir: string, exists: (file: string) => boolean): string | undefined {
+/**
+ * The nearest tfscript.json in `dir` or a folder above it, or undefined if there is none. With
+ * `stopAt` (a folder holding `dir`, such as the project's), the search goes no higher than it.
+ */
+export function findConfig(dir: string, exists: (file: string) => boolean, stopAt?: string): string | undefined {
   let current = path.resolve(dir);
+  const stop = stopAt === undefined ? undefined : path.resolve(stopAt);
   for (;;) {
     const candidate = path.join(current, CONFIG_FILE);
     if (exists(candidate)) return candidate;
+    if (stop !== undefined && path.relative(stop, current) === "") return undefined;
     const parent = path.dirname(current);
     if (parent === current) return undefined;
     current = parent;

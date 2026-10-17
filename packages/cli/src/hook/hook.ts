@@ -2,7 +2,7 @@ import * as path from "node:path";
 import { CONFIG_FILE, readConfig, type ClaudeCodeSettings } from "@tfscript/core/workspace/configFile";
 import type { JsonReport } from "../format";
 import { DEFAULT_WARNING_LIMIT, shapeReport } from "./report";
-import { hookRoot, isInside } from "./root";
+import { hookRoot, isInside, type RootHost } from "./root";
 import { terraformSign } from "./terraform";
 
 /**
@@ -27,7 +27,7 @@ export interface CliRun {
   error?: string;
 }
 
-export interface HookDeps {
+export interface HookDeps extends RootHost {
   /** CLAUDE_PROJECT_DIR, the project folder Claude Code started in. */
   projectDir?: string;
   /** The bundled tfscript check, run with node. */
@@ -36,7 +36,6 @@ export interface HookDeps {
   runCli(args: string[], cwd: string, timeoutMs: number): CliRun;
   readFile(file: string): string | undefined;
   listDir(dir: string): string[] | undefined;
-  isFile(file: string): boolean;
 }
 
 /** What the hook writes to stdout (nothing, when stdout is empty). */
@@ -103,7 +102,7 @@ export function runHook(input: string, deps: HookDeps): HookResult {
 
   if (terraformSign(file, deps) !== undefined) return QUIET;
 
-  const { root, config } = hookRoot(file, deps.projectDir, deps.isFile);
+  const { root, config, fileOnly } = hookRoot(file, deps.projectDir, deps);
   let claudeCode: ClaudeCodeSettings = {};
   if (config !== undefined) {
     const configLabel = labelOf(config, deps.projectDir);
@@ -117,7 +116,8 @@ export function runHook(input: string, deps: HookDeps): HookResult {
   const seconds = claudeCode.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
 
   const cwd = deps.projectDir !== undefined && isInside(file, path.resolve(deps.projectDir)) ? path.resolve(deps.projectDir) : root;
-  const args = ["check", "--format", "json", "--root", root, file];
+  // A file checked alone (its folder too big to search) has undefined-macro off: it would search the whole folder.
+  const args = ["check", "--format", "json", ...(fileOnly ? ["--no-undefined-macros"] : []), "--root", root, file];
   const run = deps.runCli(args, cwd, seconds * 1000);
   const fullCommand = `node ${quote(deps.cliPath)} check --root ${quote(root)} ${quote(file)}`;
 

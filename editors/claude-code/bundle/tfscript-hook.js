@@ -24,11 +24,19 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // packages/cli/src/hook/bin.ts
-var path5 = __toESM(require("node:path"));
+var path6 = __toESM(require("node:path"));
 
 // packages/cli/src/hook/main.ts
 var import_node_child_process = require("node:child_process");
 var import_node_fs = require("node:fs");
+var import_node_os = require("node:os");
+var path5 = __toESM(require("node:path"));
+
+// packages/core/src/workspace/nodeFileSystem.ts
+var SKIP_DIRS = /* @__PURE__ */ new Set([".git", ".jj", "node_modules"]);
+function isSkippedDir(name) {
+  return SKIP_DIRS.has(process.platform === "win32" ? name.toLowerCase() : name);
+}
 
 // packages/cli/src/hook/hook.ts
 var path4 = __toESM(require("node:path"));
@@ -156,8 +164,8 @@ function parseConfig(text, file, label = file) {
             problems.push(`${label} has "${extra[0]}", which isn't part of a mapping: remove it; a mapping has only "tf" and "local".`);
             break;
           }
-          const relative3 = mappings.find((m) => !m.tf.startsWith("/"));
-          if (relative3) problems.push(`${label} maps "${relative3.tf}" in "pathMappings", which isn't absolute: start tf's side with /, as in "tf": "/wotmud".`);
+          const relative5 = mappings.find((m) => !m.tf.startsWith("/"));
+          if (relative5) problems.push(`${label} maps "${relative5.tf}" in "pathMappings", which isn't absolute: start tf's side with /, as in "tf": "/wotmud".`);
           else settings.pathMappings = mappings.map((m) => ({ tf: m.tf, local: rebase(m.local, folder) }));
         }
         break;
@@ -200,11 +208,13 @@ function readConfig(file, read, label = file) {
   if (text === void 0) return { problems: [`${label} can't be read: check that it exists and is a file you may read.`] };
   return parseConfig(text, file, label);
 }
-function findConfig(dir, exists) {
+function findConfig(dir, exists, stopAt) {
   let current = path.resolve(dir);
+  const stop = stopAt === void 0 ? void 0 : path.resolve(stopAt);
   for (; ; ) {
     const candidate = path.join(current, CONFIG_FILE);
     if (exists(candidate)) return candidate;
+    if (stop !== void 0 && path.relative(stop, current) === "") return void 0;
     const parent = path.dirname(current);
     if (parent === current) return void 0;
     current = parent;
@@ -276,14 +286,21 @@ function isInside(file, dir) {
   const rel = path2.relative(dir, file);
   return rel === "" || rel !== ".." && !rel.startsWith(`..${path2.sep}`) && !rel.startsWith("../") && !path2.isAbsolute(rel);
 }
-function hookRoot(file, projectDir, exists) {
+function contains(dir, file, realpath) {
+  return isInside(file, dir) || isInside(realpath(file), realpath(dir));
+}
+function hookRoot(file, projectDir, host) {
   const absolute = path2.resolve(file);
-  const config = findConfig(path2.dirname(absolute), exists);
-  if (config !== void 0) return { root: path2.dirname(config), config };
-  if (projectDir !== void 0 && projectDir.trim() !== "" && isInside(absolute, path2.resolve(projectDir))) {
-    return { root: path2.resolve(projectDir) };
+  const dir = path2.dirname(absolute);
+  const project = projectDir !== void 0 && projectDir.trim() !== "" ? path2.resolve(projectDir) : void 0;
+  if (project !== void 0 && contains(project, absolute, host.realpath)) {
+    const [from, stop] = isInside(absolute, project) ? [dir, project] : [path2.dirname(host.realpath(absolute)), host.realpath(project)];
+    const config2 = findConfig(from, host.isFile, stop);
+    return config2 !== void 0 ? { root: path2.dirname(config2), config: config2 } : { root: project };
   }
-  return { root: path2.dirname(absolute) };
+  const config = findConfig(dir, host.isFile);
+  if (config !== void 0) return { root: path2.dirname(config), config };
+  return host.isSmallFolder(dir) ? { root: dir } : { root: dir, fileOnly: true };
 }
 
 // packages/cli/src/hook/terraform.ts
@@ -373,7 +390,7 @@ function runHook(input, deps) {
     return loaded.config ? QUIET : context(`tfscript can't use ${label}: ${loaded.problems.join(" ")}`);
   }
   if (terraformSign(file, deps) !== void 0) return QUIET;
-  const { root, config } = hookRoot(file, deps.projectDir, deps.isFile);
+  const { root, config, fileOnly } = hookRoot(file, deps.projectDir, deps);
   let claudeCode = {};
   if (config !== void 0) {
     const configLabel = labelOf(config, deps.projectDir);
@@ -386,7 +403,7 @@ function runHook(input, deps) {
   }
   const seconds = claudeCode.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
   const cwd = deps.projectDir !== void 0 && isInside(file, path4.resolve(deps.projectDir)) ? path4.resolve(deps.projectDir) : root;
-  const args = ["check", "--format", "json", "--root", root, file];
+  const args = ["check", "--format", "json", ...fileOnly ? ["--no-undefined-macros"] : [], "--root", root, file];
   const run = deps.runCli(args, cwd, seconds * 1e3);
   const fullCommand = `node ${quote(deps.cliPath)} check --root ${quote(root)} ${quote(file)}`;
   if (run.timedOut) {
@@ -429,6 +446,24 @@ function runNode(cli, args, cwd, timeoutMs) {
     ...result.error !== void 0 && code !== "ETIMEDOUT" ? { error: result.error.message } : {}
   };
 }
+var SMALL_FOLDER_ENTRIES = 5e3;
+function isSmallFolder(dir, limit = SMALL_FOLDER_ENTRIES, home = (0, import_node_os.homedir)()) {
+  const resolved = path5.resolve(dir);
+  if (path5.parse(resolved).root === resolved || path5.relative(home, resolved) === "") return false;
+  let seen = 0;
+  const visit = (d) => {
+    let entries;
+    try {
+      entries = (0, import_node_fs.readdirSync)(d, { withFileTypes: true });
+    } catch {
+      return true;
+    }
+    seen += entries.length;
+    if (seen > limit) return false;
+    return entries.every((e) => !e.isDirectory() || isSkippedDir(e.name) || visit(path5.join(d, e.name)));
+  };
+  return visit(resolved);
+}
 function nodeDeps(cliPath, env = process.env) {
   return {
     ...env.CLAUDE_PROJECT_DIR ? { projectDir: env.CLAUDE_PROJECT_DIR } : {},
@@ -448,6 +483,14 @@ function nodeDeps(cliPath, env = process.env) {
         return void 0;
       }
     },
+    realpath: (p) => {
+      try {
+        return import_node_fs.realpathSync.native(p);
+      } catch {
+        return p;
+      }
+    },
+    isSmallFolder: (d) => isSmallFolder(d),
     isFile: (f) => {
       try {
         return (0, import_node_fs.statSync)(f).isFile();
@@ -474,4 +517,4 @@ function hookMain(cliPath) {
 }
 
 // packages/cli/src/hook/bin.ts
-hookMain(path5.join(__dirname, "tfscript.js"));
+hookMain(path6.join(__dirname, "tfscript.js"));

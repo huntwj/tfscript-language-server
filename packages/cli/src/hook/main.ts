@@ -1,5 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import * as path from "node:path";
+import { isSkippedDir } from "@tfscript/core/workspace/nodeFileSystem";
 import { runHook, type CliRun, type HookDeps } from "./hook";
 
 /** Runs node `cli` with `args`, killing it after `timeoutMs`. */
@@ -13,6 +16,31 @@ export function runNode(cli: string, args: string[], cwd: string, timeoutMs: num
     timedOut: code === "ETIMEDOUT",
     ...(result.error !== undefined && code !== "ETIMEDOUT" ? { error: result.error.message } : {}),
   };
+}
+
+/** How many entries a folder may hold, all the way down, and still be searched for tf scripts in a moment. */
+export const SMALL_FOLDER_ENTRIES = 5000;
+
+/**
+ * Whether `dir` can be searched quickly: not a drive's root or the home folder, and holding no
+ * more than `limit` entries all the way down (skipping .git, .jj and node_modules, as the search does).
+ */
+export function isSmallFolder(dir: string, limit = SMALL_FOLDER_ENTRIES, home = homedir()): boolean {
+  const resolved = path.resolve(dir);
+  if (path.parse(resolved).root === resolved || path.relative(home, resolved) === "") return false;
+  let seen = 0;
+  const visit = (d: string): boolean => {
+    let entries;
+    try {
+      entries = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return true;
+    }
+    seen += entries.length;
+    if (seen > limit) return false;
+    return entries.every((e) => !e.isDirectory() || isSkippedDir(e.name) || visit(path.join(d, e.name)));
+  };
+  return visit(resolved);
 }
 
 /** The hook's dependencies on this machine: the CLI beside the hook (tfscript.js, in the plugin's bundle). */
@@ -35,6 +63,14 @@ export function nodeDeps(cliPath: string, env: NodeJS.ProcessEnv = process.env):
         return undefined;
       }
     },
+    realpath: (p) => {
+      try {
+        return realpathSync.native(p);
+      } catch {
+        return p;
+      }
+    },
+    isSmallFolder: (d) => isSmallFolder(d),
     isFile: (f) => {
       try {
         return statSync(f).isFile();

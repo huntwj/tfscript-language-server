@@ -290,8 +290,8 @@ function parseConfig(text, file, label = file) {
             problems.push(`${label} has "${extra[0]}", which isn't part of a mapping: remove it; a mapping has only "tf" and "local".`);
             break;
           }
-          const relative5 = mappings.find((m) => !m.tf.startsWith("/"));
-          if (relative5) problems.push(`${label} maps "${relative5.tf}" in "pathMappings", which isn't absolute: start tf's side with /, as in "tf": "/wotmud".`);
+          const relative6 = mappings.find((m) => !m.tf.startsWith("/"));
+          if (relative6) problems.push(`${label} maps "${relative6.tf}" in "pathMappings", which isn't absolute: start tf's side with /, as in "tf": "/wotmud".`);
           else settings.pathMappings = mappings.map((m) => ({ tf: m.tf, local: rebase(m.local, folder) }));
         }
         break;

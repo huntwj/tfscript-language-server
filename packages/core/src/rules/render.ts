@@ -102,10 +102,13 @@ export function renderNotesRules(): string {
 /**
  * The tf-scripting skill: the "when code runs" preamble, a section per rule, then how to check a
  * script. `notes` is the copy for the notes repo, whose cases and tf-script-check it names;
- * `plugin` is the Claude Code plugin's, for anyone, which names the checker the plugin bundles.
+ * `plugin` is the Claude Code plugin's, for anyone, which names the checker the plugin bundles;
+ * `cloud` is the copy a repo commits for cloud sessions, where plugins don't load
+ * (scripts/cloud-kit.js), which names the repo's own copy of the checker.
  */
-export function renderSkill(audience: "notes" | "plugin" = "notes"): string {
+export function renderSkill(audience: "notes" | "plugin" | "cloud" = "notes"): string {
   const notes = audience === "notes";
+  const cli = audience === "cloud" ? "node .claude/tfscript/tfscript.js" : "node <plugin folder>/bundle/tfscript.js";
   const out: string[] = [
     "---",
     "name: tf-scripting",
@@ -124,7 +127,7 @@ export function renderSkill(audience: "notes" | "plugin" = "notes"): string {
         "`~/ai/mud`), except what a rule lists as not run. Check every .tf edit against them. The tfscript language " +
         "server reports the codes named under each rule."
       : "Do not trust memory or the manual for tf macro syntax. Each rule below was proven by running a script against the " +
-        "real tf, except what a rule lists as not run. Check every .tf edit against them. The tfscript plugin checks each " +
+        `real tf, except what a rule lists as not run. Check every .tf edit against them. ${audience === "cloud" ? "tfscript" : "The tfscript plugin"} checks each ` +
         `.tf file you write or edit and reports problems by the codes named under each rule, explained in full at ${RULES_DOC_URL}.`,
     "",
     "## When code runs",
@@ -144,12 +147,16 @@ export function renderSkill(audience: "notes" | "plugin" = "notes"): string {
     out.push(
       "## Checking a script (do this instead of guessing)",
       "",
-      "The plugin's hook checks every `.tf` file, `tfrc` and `.tfrc` you write or edit, and blocks an edit that leaves an " +
-        "error. To check files yourself, run the checker the plugin bundles, from the plugin's folder (two folders above " +
-        "this skill's):",
+      audience === "cloud"
+        ? "In a cloud session, this repo's hook (`.claude/settings.json`) checks every `.tf` file, `tfrc` and `.tfrc` you " +
+          "write or edit, and blocks an edit that leaves an error; on a machine with the tfscript plugin, the plugin's hook " +
+          "does. To check files yourself, run the repo's copy of the checker, from the repo's root:"
+        : "The plugin's hook checks every `.tf` file, `tfrc` and `.tfrc` you write or edit, and blocks an edit that leaves an " +
+          "error. To check files yourself, run the checker the plugin bundles, from the plugin's folder (two folders above " +
+          "this skill's):",
       "",
-      "    node <plugin folder>/bundle/tfscript.js check --root <project folder> FILE_OR_FOLDER...",
-      "    node <plugin folder>/bundle/tfscript.js --help    # every option",
+      `    ${cli} check --root ${audience === "cloud" ? "." : "<project folder>"} FILE_OR_FOLDER...`,
+      `    ${cli} --help    # every option`,
       "",
       "Where tf finds what a file loads (its library folder, `TFPATH`, the tfrc it starts from) goes in a " +
         "`tfscript.json` in the project folder, keyed by the setting names `--help` shows in brackets. A clean check is " +

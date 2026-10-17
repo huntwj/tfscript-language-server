@@ -5,6 +5,7 @@ import { BUILTIN_COMMANDS } from "../src/data/builtinCommands.generated";
 import { KEYWORD_COMMANDS } from "../src/data/keywordCommands.generated";
 import { STDLIB_COMMANDS } from "../src/data/stdlibCommands.generated";
 import { LIBRARY_FILES } from "../src/data/libraryFiles.generated";
+import { LIBRARY_FILES_WITH_LOADED } from "../src/data/libraryLoaded.generated";
 import { ALL_COMMANDS } from "../src/data/commands";
 import { COMMAND_DESCRIPTIONS } from "../src/data/commandDescriptions";
 import { COMMAND_USAGES } from "../src/data/commandUsages.generated";
@@ -52,6 +53,12 @@ describeOrSkip("command tables (vs. the sibling tinyfugue checkout)", () => {
     const text = readFileSync(join(TINYFUGUE_DIR, "unix", "unix.mak"), "utf8");
     expect([...LIBRARY_FILES]).toEqual(extractor.extractLibraryFiles(text));
     expect(LIBRARY_FILES).toContain("alias.tf");
+  });
+
+  it("matches lib/tf's library files that run /loaded", () => {
+    expect([...LIBRARY_FILES_WITH_LOADED]).toEqual(extractor.extractLibraryLoaded(join(TINYFUGUE_DIR, "lib", "tf"), [...LIBRARY_FILES]));
+    expect(LIBRARY_FILES_WITH_LOADED).toContain("alias.tf");
+    expect(LIBRARY_FILES_WITH_LOADED).not.toContain("stdlib.tf");
   });
 
   it("matches htmldoc/commands/*.html's usage synopses", () => {

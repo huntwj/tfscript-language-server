@@ -21,6 +21,7 @@ A top-level command of a file runs, and is checked, as the file loads.
 - [R7. Expressions](#r7-expressions): [`expression-syntax`](#expression-syntax), [`substitution-in-expression`](#substitution-in-expression)
 - [R8. Macro names](#r8-macro-names): [`invalid-macro-name`](#invalid-macro-name)
 - [R9. Load paths](#r9-load-paths): [`unresolved-load`](#unresolved-load), [`undefined-macro`](#undefined-macro)
+- [L1. Shapes that may be deliberate](#l1-shapes-that-may-be-deliberate): [`empty-macro-body`](#empty-macro-body), [`text-sent-from-body`](#text-sent-from-body), [`load-of-library-file`](#load-of-library-file)
 
 ## R1. Lines
 
@@ -332,8 +333,43 @@ A `/load` or `/require`, in a file on the load path, whose file tf wouldn't find
 
 (information, or a warning where no file this check can see defines it) A call of a macro that no file on this file's load path defines; where another file defines it, the fix adds the `/require`. Turned off by `tfscript.diagnostics.undefinedMacros`.
 
-## Planned: shapes that may be deliberate
+## L1. Shapes that may be deliberate
 
-Some shapes tf runs without a word may be deliberate, so nothing flags them now. The plan, not built yet, is a lint-level warning for each, which a `; tflint:ignore-nextline` comment on the line before turns off.
+tf runs these without a word, and each may be what its author meant, so they are lint: warnings that don't count as problems tf has, and that a comment turns off. A comment line holding `tflint:ignore-nextline` (`; tflint:ignore-nextline`) turns off every lint warning on the line after it; with codes after it (`; tflint:ignore-nextline text-sent-from-body`), only those.
 
-The candidates so far are an empty `/def x =` body, and bare text in a body, which tf sends to the world. For the second the warning would suggest `/send -h text`, which says that on purpose and does the same: bare text runs the SEND hook (`expand.c:620`), and `/send` runs it only with `-h` (`socket.c:2953`).
+A plain `/def` with an empty body (`/def x =`) sends a blank line to the world when it runs, through the `SEND` hook. A trigger, hook or key binding with an empty body sends nothing when it fires.
+
+Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as `/send -h text` sends it; `/send` without `-h` skips the hook.
+
+`/require file` loads a file as `/load file` does, options and all, but not again once the file has run `/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again.
+
+**Fix:**
+
+- Send text on purpose with `/send -h text`.
+- Load a library file with `/require`: `/require alias.tf`.
+- Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before.
+
+**Proof:**
+
+- Cases: `lint-empty-body`, `lint-empty-trigger-body`, `lint-send-h`.
+- tf source: `expand.c:620` (text in a body runs the `SEND` hook, then is sent); `socket.c:2991` (handle_send_function() runs the `SEND` hook only for `-h`).
+- Not run: That `/send` passes `-h` on to `send()` is read from stdlib.tf's `/send` (lib/tf/stdlib.tf:103-115).
+- Not run: That `/require` is `/let _required=1%; /load %{-L} %{L}`, and that `/loaded` ends the second load of a file, is read from lib/tf/stdlib.tf:36-47; which library files run `/loaded` is read from lib/tf (scripts/extract-command-tables.js).
+
+### empty-macro-body
+
+**Warning.** This macro's body is empty, so running it sends a blank line to the world. Give it a body, or put `; tflint:ignore-nextline` on the line before if that is what you want.
+
+A plain `/def` (no `-t`, `-h`, `-b` or `-B`) with nothing after its `=`, which sends an empty line when it runs; a trigger, hook or key binding with an empty body sends nothing, so it isn't flagged.
+
+### text-sent-from-body
+
+**Warning.** This text in a macro body is sent to the world. Write it as `/send -h text` to say so (it does the same, the `SEND` hook included), or put `; tflint:ignore-nextline` on the line before.
+
+A statement of a macro body that isn't a command, which tf sends to the world; the fix puts `/send -h ` before it, but not where the text starts with `-` or a substitution, which `/send` could read as an option.
+
+### load-of-library-file
+
+**Warning.** This `/load`s one of tf's library files, which `/require` loads only if it isn't loaded yet. Write `/require`, or put `; tflint:ignore-nextline` on the line before if loading it again is the point.
+
+A top-level `/load` of a library file that runs `/loaded`, named on its own (found through `TFPATH` or `TFLIBDIR`); the fix writes `/require`. A file without `/loaded`, which `/require` would load again anyway, isn't flagged.

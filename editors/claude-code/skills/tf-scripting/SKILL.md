@@ -153,11 +153,24 @@ Fix:
 
 Codes: `unresolved-load`, `undefined-macro`.
 
-## Shapes that may be deliberate (planned)
+## L1. Shapes that may be deliberate
 
-Some shapes tf runs without a word may be deliberate, so nothing flags them now. The plan, not built yet, is a lint-level warning for each, which a `; tflint:ignore-nextline` comment on the line before turns off.
+- tf runs these without a word, and each may be what its author meant, so they are lint: warnings that don't count as problems tf has, and that a comment turns off. A comment line holding `tflint:ignore-nextline` (`; tflint:ignore-nextline`) turns off every lint warning on the line after it; with codes after it (`; tflint:ignore-nextline text-sent-from-body`), only those.
+- A plain `/def` with an empty body (`/def x =`) sends a blank line to the world when it runs, through the `SEND` hook. A trigger, hook or key binding with an empty body sends nothing when it fires.
+- Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as `/send -h text` sends it; `/send` without `-h` skips the hook.
+- `/require file` loads a file as `/load file` does, options and all, but not again once the file has run `/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again.
 
-The candidates so far are an empty `/def x =` body, and bare text in a body, which tf sends to the world. For the second the warning would suggest `/send -h text`, which says that on purpose and does the same: bare text runs the SEND hook (`expand.c:620`), and `/send` runs it only with `-h` (`socket.c:2953`).
+Fix:
+
+- Send text on purpose with `/send -h text`.
+- Load a library file with `/require`: `/require alias.tf`.
+- Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before.
+
+Codes: `empty-macro-body`, `text-sent-from-body`, `load-of-library-file`.
+
+Not run: That `/send` passes `-h` on to `send()` is read from stdlib.tf's `/send` (lib/tf/stdlib.tf:103-115).
+
+Not run: That `/require` is `/let _required=1%; /load %{-L} %{L}`, and that `/loaded` ends the second load of a file, is read from lib/tf/stdlib.tf:36-47; which library files run `/loaded` is read from lib/tf (scripts/extract-command-tables.js).
 
 ## Checking a script (do this instead of guessing)
 

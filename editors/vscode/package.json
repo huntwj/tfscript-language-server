@@ -14,7 +14,10 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Programming Languages", "Linters"],
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": true,
@@ -22,7 +25,9 @@
     },
     "virtualWorkspaces": false
   },
-  "activationEvents": ["onLanguage:tf"],
+  "activationEvents": [
+    "onLanguage:tf"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -35,8 +40,13 @@
     "languages": [
       {
         "id": "tf",
-        "aliases": ["tfscript", "TinyFugue Script"],
-        "extensions": [".tf"],
+        "aliases": [
+          "tfscript",
+          "TinyFugue Script"
+        ],
+        "extensions": [
+          ".tf"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -52,14 +62,21 @@
       "properties": {
         "tfscript.entryFiles": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "scope": "resource",
           "markdownDescription": "Files tf loads after `stdlib.tf`, in order — normally your tfrc. The server follows their `/load` and `/require` lines to learn which macros each file can see. Relative paths are relative to the workspace folder; `~` is your home directory. When empty: a `.tfrc`, `tfrc` or `tfrc.tf` at the folder root, else `~/.tfrc`, else `~/tfrc`."
         },
         "tfscript.contexts": {
           "type": "object",
-          "additionalProperties": { "type": "array", "items": { "type": "string" } },
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "default": {},
           "scope": "resource",
           "markdownDescription": "Named ways tf might be started, each a list of entry files like `#tfscript.entryFiles#`: for example `{ \"wotmud\": [\"wot.tfrc\"], \"diku\": [\"diku.tfrc\"] }`. A file loaded by several is seen through `#tfscript.activeContext#`; one the active context doesn't load is seen through the first context that does. Empty: one context, `default`, from `#tfscript.entryFiles#`."
@@ -78,7 +95,9 @@
         },
         "tfscript.tfPath": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "scope": "resource",
           "markdownDescription": "`TFPATH` as tf starts with it: directories searched for relative `/load` paths. As in tf, a non-empty `TFPATH` replaces the library directory as the fallback, so include it here if your scripts `/require` library files. When empty: the `TFPATH` environment variable."
@@ -109,7 +128,9 @@
         },
         "tfscript.diagnostics.ignoreMacros": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "scope": "resource",
           "markdownDescription": "Macro names the undefined-macro check leaves alone, ignoring case; `*` matches any run of characters (`wot_*`)."
@@ -125,10 +146,19 @@
           "items": {
             "type": "object",
             "properties": {
-              "tf": { "type": "string", "markdownDescription": "An absolute path as tf sees it, such as `/wotmud`." },
-              "local": { "type": "string", "markdownDescription": "The folder here that it is, absolute or relative to the workspace folder." }
+              "tf": {
+                "type": "string",
+                "markdownDescription": "An absolute path as tf sees it, such as `/wotmud`."
+              },
+              "local": {
+                "type": "string",
+                "markdownDescription": "The folder here that it is, absolute or relative to the workspace folder."
+              }
             },
-            "required": ["tf", "local"]
+            "required": [
+              "tf",
+              "local"
+            ]
           },
           "default": [],
           "scope": "resource",
@@ -136,14 +166,19 @@
         },
         "tfscript.variables": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "default": {},
           "scope": "resource",
           "markdownDescription": "Variables with a value when tf starts, as if `/set` after `stdlib.tf`: set in the environment, by a tfrc outside the workspace, or by a default this check can't work out, such as `/if (x =~ \"\") /set x=...%; /endif`. For example `{ \"wotmud_repo_dir\": \"/wotmud\" }`. Values are as tf sees them, so paths go through `#tfscript.pathMappings#`. A value here stands through a `/set` of it inside an `/if` or `/while`; a `/set` that always runs replaces it."
         },
         "tfscript.tfBuild": {
           "type": "string",
-          "enum": ["upstream", "fork"],
+          "enum": [
+            "upstream",
+            "fork"
+          ],
           "enumDescriptions": [
             "TinyFugue 5.0 beta 8, as released.",
             "A tf that loads a file saved with CRLF line endings like an LF one, and fixes three bugs in macro bodies: a ?: that crashed tf, a comma in $[...] that lost text, and /else running after a true /if and a true /elseif."
@@ -156,15 +191,13 @@
     }
   },
   "scripts": {
-    "build": "npm --prefix ../.. run build && tsc -p . && node scripts/copy-server.js",
+    "build": "npm --prefix ../.. run build && npm --prefix ../.. run bundle:claude-code && tsc -p . && node scripts/copy-server.js",
     "watch": "tsc -p . --watch",
     "test": "node test/smoke.js",
     "package": "npm run build && npm test && vsce package -o tfscript-vscode.vsix"
   },
   "dependencies": {
-    "vscode-languageclient": "^10.1.2",
-    "vscode-languageserver": "^9.0.1",
-    "vscode-languageserver-textdocument": "^1.0.12"
+    "vscode-languageclient": "^10.1.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",

@@ -77,7 +77,7 @@ import {
 import { encodeSemanticTokens, getSemanticTokens, TOKEN_MODIFIERS, TOKEN_TYPES } from "@tfscript/core/semanticTokens";
 import { getSignatureHelp } from "@tfscript/core/signatureHelp";
 import { formatText } from "@tfscript/core/formatting";
-import { asLoaded, DEFAULT_TF_BUILD } from "@tfscript/core/tfBuild";
+import { asLoaded, DEFAULT_TF_BUILD, type TfBuild } from "@tfscript/core/tfBuild";
 import type { RawSettings } from "@tfscript/core/workspace/settings";
 import { fileKey } from "@tfscript/core/workspace/loadGraph";
 import { WorkspaceIndex, type ContextInfo } from "@tfscript/core/workspace/workspaceIndex";
@@ -136,6 +136,12 @@ function toUri(file: string): string {
 function loadedText(document: TextDocument): string {
   const file = toPath(document.uri);
   return asLoaded(document.getText(), file === undefined ? DEFAULT_TF_BUILD : index.tfBuildFor(file));
+}
+
+/** Which tf runs a document (its folder's tfscript.tfBuild). */
+function buildOf(document: TextDocument): TfBuild {
+  const file = toPath(document.uri);
+  return file === undefined ? DEFAULT_TF_BUILD : index.tfBuildFor(file);
 }
 
 function contextFor(document: TextDocument): NavContext | undefined {
@@ -325,7 +331,7 @@ const published = new Map<string, { version: number; diagnostics: TfDiagnostic[]
 
 function diagnosticsFor(document: TextDocument): TfDiagnostic[] {
   const last = published.get(document.uri);
-  return last && last.version === document.version ? last.diagnostics : getDiagnostics(loadedText(document));
+  return last && last.version === document.version ? last.diagnostics : getDiagnostics(loadedText(document), { tfBuild: buildOf(document) });
 }
 
 connection.onCompletion((params: CompletionParams): CompletionItem[] => {

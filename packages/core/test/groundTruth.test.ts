@@ -50,7 +50,7 @@ describeOrSkip("ground truth (~/ai/mud/tests/tfscript/cases)", () => {
       const expected = match![1];
       // A note or warning on something tf runs without complaint (quietInTf) doesn't make a clean case a problem.
       // The cases are proven in the tf built from ~/ai/mud/tinyfugue, the fork, so the file is read as it reads it.
-      const got = getDiagnostics(asLoaded(text, "fork")).some((d) => !quietInTf(d)) ? "problem" : "clean";
+      const got = getDiagnostics(asLoaded(text, "fork"), { tfBuild: "fork" }).some((d) => !quietInTf(d)) ? "problem" : "clean";
       expect(got).toBe(expected);
     });
   }

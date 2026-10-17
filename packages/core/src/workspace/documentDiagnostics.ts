@@ -7,5 +7,6 @@ import type { WorkspaceIndex } from "./workspaceIndex";
  * server publishes and the command line reports.
  */
 export function documentDiagnostics(text: string, file: string | undefined, index: WorkspaceIndex): TfDiagnostic[] {
-  return [...getDiagnostics(text), ...(file ? index.loadPathDiagnostics(file, text) : [])];
+  const tfBuild = file ? index.tfBuildFor(file) : undefined;
+  return [...getDiagnostics(text, tfBuild ? { tfBuild } : {}), ...(file ? index.loadPathDiagnostics(file, text) : [])];
 }

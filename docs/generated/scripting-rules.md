@@ -215,7 +215,7 @@ tf runs these without a word, and each may be what its author meant, so they are
 
 A plain `/def` with an empty body (`/def x =`) sends a blank line to the world when it runs, through the `SEND` hook. A trigger, hook or key binding with an empty body sends nothing when it fires.
 
-Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as `/send -h text` sends it; `/send` without `-h` skips the hook.
+Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as `/send -h text` sends it.
 
 `/require file` loads a file as `/load file` does, options and all, but not again once the file has run `/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again.
 
@@ -230,5 +230,5 @@ Codes and proof:
 - Language-server codes: [`empty-macro-body`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#empty-macro-body), [`text-sent-from-body`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#text-sent-from-body), [`load-of-library-file`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#load-of-library-file).
 - Cases: `lint-empty-body`, `lint-empty-trigger-body`, `lint-send-h`.
 - tf source: `expand.c:620` (text in a body runs the `SEND` hook, then is sent); `socket.c:2991` (handle_send_function() runs the `SEND` hook only for `-h`).
-- Not run: That `/send` passes `-h` on to `send()` is read from stdlib.tf's `/send` (lib/tf/stdlib.tf:103-115).
+- Not run: That `/send` passes `-h` on to `send()` is read from stdlib.tf's `/send` (lib/tf/stdlib.tf:103-115), and that `send()` runs the `SEND` hook only for `-h`, so `/send` without it skips the hook, from socket.c:2991.
 - Not run: That `/require` is `/let _required=1%; /load %{-L} %{L}`, and that `/loaded` ends the second load of a file, is read from lib/tf/stdlib.tf:36-47; which library files run `/loaded` is read from lib/tf (scripts/extract-command-tables.js).

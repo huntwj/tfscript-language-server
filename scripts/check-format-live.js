@@ -20,7 +20,8 @@
  *
  * Corpora: tf's library (tinyfugue/lib/tf), the WoTMUD scripts (../wotmud/tf) and the tf-* repos
  * in ../mud-ws/tf-fix, each skipped when missing. All are read only: they are copied first.
- * MUD_DIR names the ~/ai/mud checkout when this repo isn't inside it.
+ * MUD_DIR names the ~/ai/mud checkout when it is neither the folder this repo is in nor, for a
+ * workspace in ~/ai/mud-ws, the mud folder beside that.
  */
 const { spawn, spawnSync } = require("node:child_process");
 const { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
@@ -29,7 +30,19 @@ const os = require("node:os");
 const path = require("node:path");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
-const MUD_DIR = process.env.MUD_DIR ? path.resolve(process.env.MUD_DIR) : path.resolve(REPO_ROOT, "..");
+/**
+ * The ~/ai/mud checkout: MUD_DIR, else the folder this repo sits in, else, for a jj workspace in
+ * ~/ai/mud-ws, the `mud` folder beside that. Whichever holds docker/tf.py.
+ */
+function mudDir() {
+  if (process.env.MUD_DIR) return path.resolve(process.env.MUD_DIR);
+  const candidates = [path.resolve(REPO_ROOT, ".."), path.resolve(REPO_ROOT, "..", "..", "mud")];
+  const found = candidates.find((d) => existsSync(path.join(d, "docker", "tf.py")));
+  if (found) return found;
+  console.error(`check-format-live: can't find the ~/ai/mud checkout (docker/tf.py) in ${candidates.join(" or ")}: set MUD_DIR to it.`);
+  process.exit(2);
+}
+const MUD_DIR = mudDir();
 const { formatDocument, applyFormatEdits } = require("../packages/core/dist/formatting");
 
 const tfFix = path.resolve(MUD_DIR, "..", "mud-ws", "tf-fix");
@@ -205,6 +218,32 @@ async function checkFile(image, dirs, name, library) {
   return report;
 }
 
+/**
+ * The entries only re-indented (a comment or blank line among their lines), checked on their own:
+ * `dirs.reindented` holds the corpus with just those formatted, and every macro must list exactly
+ * as before, not merely equal but for blanks beside `%;`, and the load print the same messages but
+ * for the lines they name. With no file name, tf's startup from the library.
+ */
+async function checkReindented(image, dirs, name, library) {
+  const report = emptyReport();
+  const load = name ? [`/load /w/${name}`] : [];
+  const listing = [...load, "/@echo %% ORACLE-LIST", "/list -i", "/@echo %% ORACLE-END"];
+  const [a, b] = await Promise.all([runTf(image, dirs.before, listing, library), runTf(image, dirs.reindented, listing, library)]);
+  const la = between(a, "ORACLE-LIST", "ORACLE-END");
+  const lb = between(b, "ORACLE-LIST", "ORACLE-END");
+  for (let i = 0; i < Math.max(la.length, lb.length); i += 1) {
+    if (la[i] === lb[i]) report.identical += 1;
+    else report.mismatches.push({ before: la[i] ?? "", after: lb[i] ?? "" });
+  }
+  report.macros += Math.max(la.length, lb.length);
+  const moved = (l) => l.replace(/, lines? \d+(?:-\d+)?:/, ", line <n>:");
+  const start = name ? `Loading commands from /w/${name}` : "";
+  const loadA = between(a, start, "ORACLE-LIST").filter((l) => l.startsWith("%")).map(moved);
+  const loadB = between(b, start, "ORACLE-LIST").filter((l) => l.startsWith("%")).map(moved);
+  if (loadA.join("\n") !== loadB.join("\n")) report.mismatches.push({ before: loadA.join(" | "), after: loadB.join(" | ") });
+  return report;
+}
+
 /** The messages and macros of tf's startup, from the library in each copy. */
 async function checkStartup(image, dirs) {
   const report = emptyReport();
@@ -231,7 +270,7 @@ function tallyOf(result) {
 async function main() {
   const image = tfImage();
   const scratch = mkdtempSync(path.join(os.tmpdir(), "tfscript-format-live-"));
-  const totals = { files: 0, formatted: 0, crlf: 0, entries: 0, changed: 0, reindented: 0, refused: {}, macros: 0, identical: 0, normalised: 0, mismatches: 0, runs: 0, runMismatches: 0, movedMessages: 0 };
+  const totals = { files: 0, formatted: 0, crlf: 0, entries: 0, changed: 0, reindented: 0, reindentChecked: 0, refused: {}, macros: 0, identical: 0, normalised: 0, mismatches: 0, runs: 0, runMismatches: 0, movedMessages: 0 };
   const add = (r) => {
     totals.macros += r.macros;
     totals.identical += r.identical;
@@ -251,11 +290,13 @@ async function main() {
       console.log(`=== ${corpus.name}: skipped, ${corpus.dir} not found ===`);
       continue;
     }
-    const dirs = { before: path.join(scratch, corpus.name, "before"), after: path.join(scratch, corpus.name, "after") };
+    const dirs = { before: path.join(scratch, corpus.name, "before"), after: path.join(scratch, corpus.name, "after"), reindented: path.join(scratch, corpus.name, "reindented") };
     cpSync(corpus.dir, dirs.before, { recursive: true, filter: (src) => !/[\\/]\.(jj|git)$/.test(src) && !/[\\/]node_modules$/.test(src) });
     cpSync(dirs.before, dirs.after, { recursive: true });
+    cpSync(dirs.before, dirs.reindented, { recursive: true });
     const files = readdirSync(corpus.dir).filter((f) => f.endsWith(".tf")).sort();
     const changed = [];
+    const reindentedFiles = [];
     console.log(`=== ${corpus.name} (${files.length} files) ===`);
     for (const name of files) {
       const text = readFileSync(path.join(corpus.dir, name), "utf8");
@@ -276,11 +317,28 @@ async function main() {
       }
       writeFileSync(path.join(dirs.after, name), applyFormatEdits(text, result.edits));
       changed.push({ name, what });
+      const only = new Set(result.entries.filter((e) => e.changed && e.reindentOnly).map((e) => e.startLine));
+      const reindentEdits = result.edits.filter((e) => only.has(e.range.start.line));
+      if (reindentEdits.length > 0) {
+        writeFileSync(path.join(dirs.reindented, name), applyFormatEdits(text, reindentEdits));
+        reindentedFiles.push({ name, what: `${name}: ${reindentEdits.length} entries re-indented only, which must list identically` });
+      }
     }
     if (corpus.library) {
       const r = await checkStartup(image, dirs);
       add(r);
       show("tf's startup, from this library", r);
+      if (reindentedFiles.length > 0) {
+        const s = await checkReindented(image, dirs, undefined, true);
+        add(s);
+        show("tf's startup, from this library with only its re-indented entries changed", s);
+      }
+    }
+    for (const c of reindentedFiles) {
+      const r = await checkReindented(image, dirs, c.name, corpus.library);
+      totals.reindentChecked += 1;
+      add(r);
+      show(c.what, r);
     }
     // A few files at a time: each check is two or four tf runs.
     const queue = [...changed];

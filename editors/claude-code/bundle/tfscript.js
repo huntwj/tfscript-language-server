@@ -8828,13 +8828,44 @@ function tabMoves(original, entry, body) {
   const tab = firstLine.indexOf("	", lead);
   return tab >= 0 && (body < 0 || tab - lead >= body);
 }
+function hasCommentOrBlank(original) {
+  return original.some((l, i) => i > 0 && (isCommentLine(l) || isBlankLine(l)));
+}
+var CLOSER_RE2 = /^\/@?(?:endif|else|elseif|done|then|do)(?![\w@])/i;
+function reindentWithComments(entry, original, indent) {
+  const kinds = original.map((l, i) => i > 0 && isCommentLine(l) ? "comment" : i > 0 && isBlankLine(l) ? "blank" : "code");
+  const code2 = original.filter((_, i) => kinds[i] === "code");
+  const endsOnBlank = kinds[kinds.length - 1] === "blank";
+  if (kinds.slice(0, -1).includes("blank") || code2.length === 0) return "unverified";
+  const input = endsOnBlank ? [...code2.slice(0, -1), code2[code2.length - 1].replace(/\\$/, "")] : code2;
+  const alone = splitLogicalEntries(input.join("\n"))[0];
+  if (!alone || alone.text !== entry.text || alone.incomplete) return "unverified";
+  const laid = layoutEntry(alone, input, indent, false);
+  if (typeof laid === "string") return laid;
+  if (laid.join("\n") === input.join("\n")) return original;
+  if (laid.length !== input.length) return "unverified";
+  if (endsOnBlank) laid[laid.length - 1] += "\\";
+  const out = [];
+  let k = 0;
+  original.forEach((l, i) => {
+    if (kinds[i] === "code") out.push(laid[k++]);
+    else if (kinds[i] === "blank") out.push(l);
+    else {
+      const next = laid[k] ?? laid[k - 1] ?? "";
+      const lead = next.slice(0, leadingWhitespaceLength(next));
+      out.push(lead + (CLOSER_RE2.test(next.slice(lead.length)) ? indent : "") + l.slice(leadingWhitespaceLength(l)));
+    }
+  });
+  if (out.some((l, i) => kinds[i] === "comment" !== (i > 0 && isCommentLine(l)))) return "unverified";
+  if (rejoin(out) !== entry.text) return "unverified";
+  return out;
+}
 function layoutEntry(entry, original, indent, split) {
   if (entry.incomplete) return "incomplete";
-  if (original.some((l, i) => i > 0 && isCommentLine(l))) return "comment";
-  if (original.some((l, i) => i > 0 && isBlankLine(l))) return "blank-line";
   if (original.some((l) => l.includes("%\\"))) return "percent-backslash";
   if (original.some((l) => /\\[ \t\f\v]+$/.test(l))) return "space-after-backslash";
   if (original.some((l) => l.includes("�"))) return "replacement-character";
+  if (hasCommentOrBlank(original)) return reindentWithComments(entry, original, indent);
   const j = entry.text;
   const macro = entry.isDefBody || entry.isOtherMacroBody;
   const body = macro ? macroBodyStart(j) : -1;
@@ -8921,7 +8952,7 @@ function formatDocument(text, options = {}, range) {
       continue;
     }
     const changed = laid.join("\n") !== original.join("\n");
-    entries.push({ ...at2, changed });
+    entries.push({ ...at2, changed, ...hasCommentOrBlank(original) ? { reindentOnly: true } : {} });
     if (!changed) continue;
     const last = original[original.length - 1] ?? "";
     edits.push({

@@ -173,6 +173,37 @@ describe("formatText: top-level commands", () => {
   });
 });
 
+describe("formatText: an entry with a comment or blank line among its lines", () => {
+  const reindented = (text: string) => formatDocument(text).entries.filter((e) => e.reindentOnly).length;
+
+  it("is re-indented only: no text moves, and no statement is split", () => {
+    const text = lines("/def go = \\", "      /a%; /b%;\\", ";; note", "        /c");
+    expect(format(text)).toBe(lines("/def go = \\", "  /a%; /b%;\\", "  ;; note", "  /c"));
+    expect(reindented(text)).toBe(1);
+  });
+
+  it("keeps a comment straight after the head in the body", () => {
+    expect(format(lines("/def go = \\", ";   explained here", "    /a%;\\", "    /b"))).toBe(lines("/def go = \\", "  ;   explained here", "  /a%;\\", "  /b"));
+  });
+
+  it("keeps a comment before /endif inside its /else branch (map-helper.tf)", () => {
+    const text = lines("/def go = \\", "    /if (x) \\", ";        /echo Unknown%;\\", "        /test ++n%;\\", "    /else \\", ";        /echo Known.%;\\", "    /endif");
+    expect(format(text)).toBe(
+      lines("/def go = \\", "  /if (x) \\", "    ;        /echo Unknown%;\\", "    /test ++n%;\\", "  /else \\", "    ;        /echo Known.%;\\", "  /endif"),
+    );
+  });
+
+  it("keeps a blank line that ends the entry, and its line's final \\", () => {
+    const text = lines("/def a = \\", "    /let x=1%;\\", "    /result x%;\\", "", "/def b = /echo");
+    expect(format(text)).toBe(lines("/def a = \\", "  /let x=1%;\\", "  /result x%;\\", "", "/def b = /echo"));
+  });
+
+  it("joins back to the same text tf reads", () => {
+    const text = lines("/def go = \\", "\t/if (x) \\", "; one", "# two", "\t\t/a%; \\", "\t/endif");
+    expect(joined(format(text))).toEqual(joined(text));
+  });
+});
+
 describe("formatText: what it leaves exactly as written", () => {
   const unchanged = (text: string, reason: string) => {
     expect(format(text)).toBe(text);
@@ -187,10 +218,6 @@ describe("formatText: what it leaves exactly as written", () => {
     unchanged("/def go = /a%;%; /b\n", "structure");
   });
 
-  it("a comment or blank line among an entry's lines", () => {
-    unchanged(lines("/def go = \\", "/a%;\\", ";; note", "/b"), "comment");
-    unchanged(lines("/def a = \\", "/let x=1%;\\", "/result x%;\\", "", "/def b = /echo"), "blank-line");
-  });
 
   it("a %\\, or a \\ followed by blanks", () => {
     unchanged("/def go = /echo a%; /echo b%\\\n", "percent-backslash");

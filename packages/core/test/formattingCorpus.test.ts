@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getDiagnostics } from "../src/diagnostics";
-import { applyFormatEdits, formatText, normalise } from "../src/formatting";
+import { applyFormatEdits, formatText, programText } from "../src/formatting";
 import { splitLogicalEntries } from "../src/logicalEntries";
 import { macroBodyStart } from "../src/structure";
 import { timeBudget } from "./timeBudget";
@@ -20,14 +20,9 @@ const CORPORA: [string, string[]][] = [
   ["tf-* repos", existsSync(tfFix) ? readdirSync(tfFix).filter((d) => d.startsWith("tf-")).map((d) => join(tfFix, d)) : []],
 ];
 
-/** What an entry runs: its joined text, the blanks formatting may drop (beside a body's %;, after its =) dropped. */
+/** What an entry runs: its joined text, less the blanks formatting may drop (programText()). */
 function program(text: string): string[] {
-  return splitLogicalEntries(text).map((e) => {
-    const body = e.isDefBody || e.isOtherMacroBody ? macroBodyStart(e.text) : -1;
-    if (body < 0) return e.text;
-    const head = e.text.slice(0, body);
-    return normalise(head + e.text.slice(body).replace(/^[ \t]+/, ""), head.length);
-  });
+  return splitLogicalEntries(text).map((e) => programText(e.text, e.isDefBody || e.isOtherMacroBody ? macroBodyStart(e.text) : -1));
 }
 
 const diagnosticKeys = (text: string) => getDiagnostics(text).map((d) => `${d.severity} ${d.code}: ${d.message}`).sort();

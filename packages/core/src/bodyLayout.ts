@@ -1,5 +1,5 @@
 import type { Range, TfTextEdit } from "./diagnostics";
-import { hasInnerTab, normalise, rejoin, splitEntry, topLevelSeparators } from "./formatting";
+import { hasInnerTab, normalise, programText, rejoin, splitEntry, topLevelSeparators } from "./formatting";
 import { isCommentLine, leadingWhitespaceLength, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { checkStructure, macroBodyStart, parseStatements } from "./structure";
 import { getDocumentSymbols, type TfSymbol, type TfSymbolKind } from "./symbols";
@@ -74,8 +74,7 @@ export function sameProgram(a: string, b: string): boolean {
   const bodyA = macroBodyStart(a);
   const bodyB = macroBodyStart(b);
   if (bodyA < 0 || bodyB < 0) return false;
-  if (a.slice(0, bodyA) !== b.slice(0, bodyB)) return false;
-  if (normalise(a, bodyA) !== normalise(b, bodyB)) return false;
+  if (programText(a, bodyA) !== programText(b, bodyB)) return false;
   const statements = (t: string, body: number): string[] =>
     parseStatements(t.slice(body), "body").map((st) => `${st.level}:${st.conditional}:${t.slice(body + st.start, body + st.end).trim()}`);
   if (statements(a, bodyA).join("\n") !== statements(b, bodyB).join("\n")) return false;

@@ -37,9 +37,9 @@ import { macroBodyStart, parseLayout, type Layout, type StructureIssue } from ".
  *  - tf turns a tab into spaces out to the next tab stop of its physical line (tfio.c), so a tab
  *    after a line's indentation changes width when its line moves; such entries are left alone.
  *  - `/def name = body`: the blanks around `=` don't matter (macro.c skips them before the body
- *    and trims them after the name), so `/def x=/echo` may become `/def x= \` then `/echo` on the
- *    next line; `/list` printed the same definition for every spacing of the head, options
- *    (`-p10 -mglob -t"a = b"`) included.
+ *    and trims them after the name), so a split /def's head becomes `/def name = \` however it was
+ *    spaced (`/def x=/echo` included); `/list` printed the same definition for every spacing of
+ *    the head, options (`-p10 -mglob -t"a = b"`) included.
  *
  * What it guarantees: the definitions tf stores are the same, except that blanks next to the `%;`
  * separators above may be gone. Anything that reads a body as text, `/list`, `$(/list)`, `/edit`,
@@ -163,6 +163,18 @@ export function normalise(joined: string, body: number): string {
   return out + joined.slice(from);
 }
 
+/**
+ * What formatting must keep of a macro entry's joined text: normalise()'s, with the blanks either
+ * side of the head's `=` dropped too (macro.c trims them). Two entries with the same programText()
+ * define the same macro.
+ */
+export function programText(joined: string, body: number): string {
+  if (body < 0) return joined;
+  const head = joined.slice(0, body - 1).replace(/[ \t\f\v]+$/, "");
+  const rest = joined.slice(body).replace(/^[ \t\f\v]+/, "");
+  return normalise(`${head}=${rest}`, head.length + 1);
+}
+
 /** The joined text tf reads from `lines`, which hold one entry. */
 export function rejoin(lines: string[]): string {
   return splitLogicalEntries(lines.join("\n"))[0]?.text ?? "";
@@ -270,9 +282,17 @@ function splitPlan(entry: LogicalEntry, body: number, layout: Layout, authorBrea
   while (isTfSpace(j[first])) first += 1;
   if (first < j.length && (cuts.size > 0 || multiLine)) {
     cuts.add(first);
-    zones.push([body, first]);
-    // `/def x=/echo` gets the blank of `= \`: macro.c skips blanks before a body.
-    if (first === body && entry.isDefBody) spaced.add(first);
+    let name = body - 1;
+    if (entry.isDefBody) {
+      // A /def's head ends ` = \` however it was spaced: macro.c trims the blanks after the name
+      // and skips those before the body, and /list printed the same definition every way.
+      while (name > 0 && isTfSpace(j[name - 1])) name -= 1;
+      for (let k = name; k < body - 1; k += 1) removed.add(k);
+      for (let k = body; k < first; k += 1) removed.add(k);
+      spaced.add(body - 1);
+      spaced.add(first);
+    }
+    zones.push([name, first]);
   }
   for (const b of authorBreaks) if (!zones.some(([r, q]) => r <= b && b <= q)) cuts.add(b);
   return { cuts, removed, spaced };
@@ -380,10 +400,13 @@ export function layoutEntry(entry: LogicalEntry, original: string[], indent: str
   const joined = rejoin(lines);
   if (joined !== expectedText(j, plan)) return "unverified";
   if (inner) {
-    const again = parseLayout(joined.slice(body), "body");
+    // The head's blanks may have changed, so the body is found again.
+    const body2 = macroBodyStart(joined);
+    if (body2 < 0 || programText(joined.slice(0, body2), body2) !== programText(j.slice(0, body), body)) return "unverified";
+    const again = parseLayout(joined.slice(body2), "body");
     if (!parsedCleanly(again)) return "unverified";
     if (again.separators.length !== inner.separators.length || again.blocks.length !== inner.blocks.length) return "unverified";
-    if (statementTexts(joined.slice(body), again).join("\n") !== statementTexts(j.slice(body), inner).join("\n")) return "unverified";
+    if (statementTexts(joined.slice(body2), again).join("\n") !== statementTexts(j.slice(body), inner).join("\n")) return "unverified";
   }
   return lines;
 }

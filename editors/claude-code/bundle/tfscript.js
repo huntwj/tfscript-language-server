@@ -8700,6 +8700,26 @@ function topLevelSeparators(s) {
   return out;
 }
 var GLUES = /* @__PURE__ */ new Set(["%", "\\", "$", "/"]);
+function normalise(joined2, body) {
+  if (body < 0) return joined2;
+  const seps = topLevelSeparators(joined2).filter((s) => s >= body);
+  let out = "";
+  let from = 0;
+  for (const s of seps) {
+    const before = joined2.slice(from, s);
+    const trimmed = before.replace(/[ \t\f\v]+$/, "");
+    out += (trimmed.length < before.length && GLUES.has(trimmed[trimmed.length - 1] ?? "") ? before : trimmed) + "%;";
+    from = s + 2;
+    while (/[ \t\f\v]/.test(joined2[from] ?? "")) from += 1;
+  }
+  return out + joined2.slice(from);
+}
+function programText(joined2, body) {
+  if (body < 0) return joined2;
+  const head = joined2.slice(0, body - 1).replace(/[ \t\f\v]+$/, "");
+  const rest = joined2.slice(body).replace(/^[ \t\f\v]+/, "");
+  return normalise(`${head}=${rest}`, head.length + 1);
+}
 function rejoin(lines) {
   return splitLogicalEntries(lines.join("\n"))[0]?.text ?? "";
 }
@@ -8759,8 +8779,15 @@ function splitPlan(entry, body, layout, authorBreaks, multiLine) {
   while (isTfSpace(j[first])) first += 1;
   if (first < j.length && (cuts.size > 0 || multiLine)) {
     cuts.add(first);
-    zones.push([body, first]);
-    if (first === body && entry.isDefBody) spaced.add(first);
+    let name = body - 1;
+    if (entry.isDefBody) {
+      while (name > 0 && isTfSpace(j[name - 1])) name -= 1;
+      for (let k = name; k < body - 1; k += 1) removed.add(k);
+      for (let k = body; k < first; k += 1) removed.add(k);
+      spaced.add(body - 1);
+      spaced.add(first);
+    }
+    zones.push([name, first]);
   }
   for (const b of authorBreaks) if (!zones.some(([r, q]) => r <= b && b <= q)) cuts.add(b);
   return { cuts, removed, spaced };
@@ -8845,10 +8872,12 @@ function layoutEntry(entry, original, indent, split) {
   const joined2 = rejoin(lines);
   if (joined2 !== expectedText(j, plan)) return "unverified";
   if (inner2) {
-    const again = parseLayout(joined2.slice(body), "body");
+    const body2 = macroBodyStart(joined2);
+    if (body2 < 0 || programText(joined2.slice(0, body2), body2) !== programText(j.slice(0, body), body)) return "unverified";
+    const again = parseLayout(joined2.slice(body2), "body");
     if (!parsedCleanly(again)) return "unverified";
     if (again.separators.length !== inner2.separators.length || again.blocks.length !== inner2.blocks.length) return "unverified";
-    if (statementTexts(joined2.slice(body), again).join("\n") !== statementTexts(j.slice(body), inner2).join("\n")) return "unverified";
+    if (statementTexts(joined2.slice(body2), again).join("\n") !== statementTexts(j.slice(body), inner2).join("\n")) return "unverified";
   }
   return lines;
 }

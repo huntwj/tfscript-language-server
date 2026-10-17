@@ -50,9 +50,9 @@ describe("split", () => {
     ]);
   });
 
-  it("works for the other macro definers, and keeps a tab in the head", () => {
+  it("works for the other macro definers, and takes a tab before a /def's = with the head's blanks", () => {
     expect(apply("/trig zz = /echo a%; /echo b\n")[0]).toBe("Split this trigger's body onto separate lines\n/trig zz = \\\n    /echo a%;\\\n    /echo b");
-    expect(apply("/def -i t\t= /echo a%; /echo b\n")[0]).toBe("Split /t's body onto separate lines\n/def -i t\t= \\\n    /echo a%;\\\n    /echo b");
+    expect(apply("/def -i t\t= /echo a%; /echo b\n")[0]).toBe("Split /t's body onto separate lines\n/def -i t = \\\n    /echo a%;\\\n    /echo b");
   });
 
   it("uses the file's own indentation unit", () => {

@@ -91,8 +91,12 @@ describe("formatText: the style", () => {
     expect(format("/def go = /a%; /b%; \n")).toBe(lines("/def go = \\", "  /a%;\\", "  /b%;"));
   });
 
-  it("gives `/def x=body` the blank of `= \\`, and leaves the head's options as written", () => {
-    expect(format("/def x=/a%;/b\n")).toBe(lines("/def x= \\", "  /a%;\\", "  /b"));
+  it("ends a split /def's head ` = \\` however it was spaced, and leaves the head's options as written", () => {
+    expect(format("/def x=/a%;/b\n")).toBe(lines("/def x = \\", "  /a%;\\", "  /b"));
+    expect(format("/def   x   =   /a%;/b\n")).toBe(lines("/def   x = \\", "  /a%;\\", "  /b"));
+    expect(format("/def -i x\t=\\\n/a%;/b\n")).toBe(lines("/def -i x = \\", "  /a%;\\", "  /b"));
+    // A body left on its line keeps its head as it is.
+    expect(format("/def x=/a\n")).toBe("/def x=/a\n");
     expect(format('/def -p10 -mglob -t"a = b" -F h = /a%; /b\n')).toBe(lines('/def -p10 -mglob -t"a = b" -F h = \\', "  /a%;\\", "  /b"));
   });
 

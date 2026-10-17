@@ -15292,6 +15292,12 @@ function normalise(joined2, body) {
   }
   return out + joined2.slice(from);
 }
+function programText(joined2, body) {
+  if (body < 0) return joined2;
+  const head = joined2.slice(0, body - 1).replace(/[ \t\f\v]+$/, "");
+  const rest = joined2.slice(body).replace(/^[ \t\f\v]+/, "");
+  return normalise(`${head}=${rest}`, head.length + 1);
+}
 function rejoin(lines) {
   return splitLogicalEntries(lines.join("\n"))[0]?.text ?? "";
 }
@@ -15351,8 +15357,15 @@ function splitPlan(entry, body, layout, authorBreaks, multiLine) {
   while (isTfSpace(j[first])) first += 1;
   if (first < j.length && (cuts.size > 0 || multiLine)) {
     cuts.add(first);
-    zones.push([body, first]);
-    if (first === body && entry.isDefBody) spaced.add(first);
+    let name = body - 1;
+    if (entry.isDefBody) {
+      while (name > 0 && isTfSpace(j[name - 1])) name -= 1;
+      for (let k = name; k < body - 1; k += 1) removed.add(k);
+      for (let k = body; k < first; k += 1) removed.add(k);
+      spaced.add(body - 1);
+      spaced.add(first);
+    }
+    zones.push([name, first]);
   }
   for (const b of authorBreaks) if (!zones.some(([r, q]) => r <= b && b <= q)) cuts.add(b);
   return { cuts, removed, spaced };
@@ -15437,10 +15450,12 @@ function layoutEntry(entry, original, indent, split) {
   const joined2 = rejoin(lines);
   if (joined2 !== expectedText(j, plan4)) return "unverified";
   if (inner2) {
-    const again = parseLayout(joined2.slice(body), "body");
+    const body2 = macroBodyStart(joined2);
+    if (body2 < 0 || programText(joined2.slice(0, body2), body2) !== programText(j.slice(0, body), body)) return "unverified";
+    const again = parseLayout(joined2.slice(body2), "body");
     if (!parsedCleanly(again)) return "unverified";
     if (again.separators.length !== inner2.separators.length || again.blocks.length !== inner2.blocks.length) return "unverified";
-    if (statementTexts(joined2.slice(body), again).join("\n") !== statementTexts(j.slice(body), inner2).join("\n")) return "unverified";
+    if (statementTexts(joined2.slice(body2), again).join("\n") !== statementTexts(j.slice(body), inner2).join("\n")) return "unverified";
   }
   return lines;
 }
@@ -15528,8 +15543,7 @@ function sameProgram(a, b) {
   const bodyA = macroBodyStart(a);
   const bodyB = macroBodyStart(b);
   if (bodyA < 0 || bodyB < 0) return false;
-  if (a.slice(0, bodyA) !== b.slice(0, bodyB)) return false;
-  if (normalise(a, bodyA) !== normalise(b, bodyB)) return false;
+  if (programText(a, bodyA) !== programText(b, bodyB)) return false;
   const statements = (t, body) => parseStatements(t.slice(body), "body").map((st) => `${st.level}:${st.conditional}:${t.slice(body + st.start, body + st.end).trim()}`);
   if (statements(a, bodyA).join("\n") !== statements(b, bodyB).join("\n")) return false;
   const issues = (t, body) => checkStructure(t.slice(body), "body").map((i) => `${i.kind}:${i.message}`).join("\n");

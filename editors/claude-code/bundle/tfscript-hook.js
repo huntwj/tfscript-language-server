@@ -416,19 +416,22 @@ function runHook(input, deps) {
   const fullCommand = `node ${quote(deps.cliPath)} check ${flags.join(" ")} --root ${quote(root)} ${quote(file)}`;
   const options = { warningLimit: claudeCode.warningLimit ?? DEFAULT_WARNING_LIMIT, showInformation: claudeCode.showInformation ?? false };
   if (run.timedOut) {
-    const own = path4.dirname(file);
-    const quick = deps.runCli(["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", own, file], own, RETRY_SECONDS * 1e3);
+    const quickFlags = flags.includes("--no-undefined-macros") ? flags : [...flags, "--no-undefined-macros"];
+    const quick = deps.runCli(["check", "--format", "json", ...quickFlags, "--root", root, file], root, RETRY_SECONDS * 1e3);
     const quickReport = quick.timedOut || quick.failure !== void 0 ? void 0 : parseReport(quick.stdout);
-    if (quickReport === void 0 || quickReport.problems.length > 0 && quickReport.diagnostics.length === 0) {
+    if (quickReport === void 0) {
       return context(
         `tfscript didn't finish checking ${label} within ${seconds} seconds, so it is unchecked. Its root, ${slash(root)}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`
       );
     }
-    const note = `The full check of ${label} didn't finish within ${seconds} seconds (its root, ${slash(root)}, may hold too many files), so this is a quick check of the file alone, without undefined-macro. For the full check, put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`;
-    const shaped2 = shapeReport(quickReport, label, { ...options, budget: DEFAULT_BUDGET - note.length });
-    if (shaped2 === void 0) return context(note);
-    const text2 = `${shaped2.text}
+    const note = `The full check of ${label} didn't finish within ${seconds} seconds (its root, ${slash(root)}, may hold too many files to search for what defines each macro), so this is a quick check without undefined-macro. For the full check, narrow the root with a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`;
+    const problems = quickReport.problems.length > 0 ? `tfscript also couldn't check everything: ${quickReport.problems.join(" ")}` : void 0;
+    const tail = problems === void 0 ? note : `${problems}
 ${note}`;
+    const shaped2 = shapeReport(quickReport, label, { ...options, budget: DEFAULT_BUDGET - tail.length });
+    if (shaped2 === void 0) return context(tail);
+    const text2 = `${shaped2.text}
+${tail}`;
     return shaped2.errors > 0 ? block(text2) : context(text2);
   }
   if (run.failure !== void 0) {

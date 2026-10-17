@@ -4,7 +4,8 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { MAX_TIMEOUT_SECONDS } from "@tfscript/core/workspace/configFile";
-import { RETRY_SECONDS } from "../src/hook/hook";
+import { RETRY_SECONDS, runHook } from "../src/hook/hook";
+import { nodeDeps } from "../src/hook/main";
 import { FIXTURES } from "./fixtures";
 
 /**
@@ -138,6 +139,35 @@ describe("the bundled hook, run as Claude Code runs it", () => {
         additionalContext: `tfscript didn't check bad-config/script.tf, because it can't use ${config}: ${config} gives "entryFiles" as the text "tfrc", not a list of paths: write it as "entryFiles": ["tfrc"].`,
       },
     });
+  });
+});
+
+describe("the hook's quick check after a timeout, with the bundled command line", () => {
+  // settings/tfscript.json sets workingDirectory to scripts/sub, where scripts/tfrc's /load lib.tf
+  // is found. A quick check that lost the tfscript.json would warn that tf won't find lib.tf.
+  const file = path.join(PROJECT, "settings", "scripts", "tfrc");
+  const withTimeout = () => {
+    const deps = nodeDeps(path.join(BUNDLE, "tfscript.js"), { CLAUDE_PROJECT_DIR: PROJECT });
+    const real = deps.runCli;
+    let first = true;
+    deps.runCli = (args, cwd, timeoutMs) => {
+      if (first) {
+        first = false;
+        return { status: null, stdout: "", stderr: "", timedOut: true };
+      }
+      return real(args, cwd, timeoutMs);
+    };
+    return deps;
+  };
+
+  it("keeps the settings of the tfscript.json above the file", () => {
+    const quick = runHook(JSON.stringify({ tool_name: "Edit", tool_input: { file_path: file } }), withTimeout());
+    const text = JSON.parse(quick.stdout).hookSpecificOutput.additionalContext as string;
+    expect(text).toMatch(/^The full check of settings\/scripts\/tfrc didn't finish within 10 seconds/);
+    expect(text).not.toContain("unresolved-load");
+    // Without the tfscript.json the same file has the warning, so the test can tell.
+    const without = spawnSync(process.execPath, [path.join(BUNDLE, "tfscript.js"), "check", "--root", path.dirname(file), file], { encoding: "utf8", cwd: PROJECT });
+    expect(without.stdout).toContain("warning unresolved-load");
   });
 });
 

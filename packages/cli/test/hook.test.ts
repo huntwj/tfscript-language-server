@@ -265,26 +265,40 @@ describe("runHook", () => {
     expect(runHook(input(p("proj", "tfscript.json")), deps({ [p("proj", "tfscript.json")]: "{}" }, () => ran(report([]))))).toEqual({ stdout: "" });
   });
 
-  it("checks the file alone, quickly and without undefined-macro, when the full check times out", () => {
-    const files = { [p("proj", "a.tf")]: "" };
+  it("checks again quickly, from the same root and without undefined-macro, when the full check times out", () => {
     const timedOut: CliRun = { status: null, stdout: "", stderr: "", timedOut: true };
-    const note =
-      `The full check of a.tf didn't finish within 10 seconds (its root, ${slash(p("proj"))}, may hold too many files), so this is a quick check of the file alone, without undefined-macro. ` +
-      "For the full check, put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.";
+    const noteFor = (label: string, root: string) =>
+      `The full check of ${label} didn't finish within 10 seconds (its root, ${slash(root)}, may hold too many files to search for what defines each macro), so this is a quick check without undefined-macro. ` +
+      "For the full check, narrow the root with a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.";
 
+    // Under a tfscript.json: the retry keeps its folder as the root, so the CLI reads it again.
+    const files = { [p("proj", "mud", "tfscript.json")]: '{"variables":{"dir":"/wotmud"}}', [p("proj", "mud", "wot", "a.tf")]: "" };
     let n = 0;
     const d = deps(files, () => (n++ === 0 ? timedOut : ran(report([diagnostic("error", 1)]), 1)));
-    const out = parsed(runHook(input(p("proj", "a.tf")), d).stdout);
-    expect(d.calls.map((c) => [c.args, c.timeoutMs])).toEqual([
-      [["check", "--format", "json", "--setting-names", "config", "--root", p("proj"), p("proj", "a.tf")], 10000],
-      [["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", p("proj"), p("proj", "a.tf")], RETRY_SECONDS * 1000],
+    const out = parsed(runHook(input(p("proj", "mud", "wot", "a.tf")), d).stdout);
+    expect(d.calls.map((c) => [c.args, c.cwd, c.timeoutMs])).toEqual([
+      [["check", "--format", "json", "--setting-names", "config", "--root", p("proj", "mud"), p("proj", "mud", "wot", "a.tf")], p("proj", "mud"), 10000],
+      [["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", p("proj", "mud"), p("proj", "mud", "wot", "a.tf")], p("proj", "mud"), RETRY_SECONDS * 1000],
     ]);
     expect(out.decision).toBe("block");
-    expect(out.reason?.split("\n")).toEqual(["tfscript found 1 error in a.tf:", "- a.tf:1:1: error error-code: A error on line 1: fix it.", note]);
+    expect(out.reason?.split("\n")).toEqual([
+      "tfscript found 1 error in mud/wot/a.tf:",
+      "- mud/wot/a.tf:1:1: error error-code: A error on line 1: fix it.",
+      noteFor("mud/wot/a.tf", p("proj", "mud")),
+    ]);
 
+    const plain = { [p("proj", "a.tf")]: "" };
     n = 0;
-    const clean = parsed(runHook(input(p("proj", "a.tf")), deps(files, () => (n++ === 0 ? timedOut : ran(report([]))))).stdout);
-    expect(clean).toEqual({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: note } });
+    const clean = parsed(runHook(input(p("proj", "a.tf")), deps(plain, () => (n++ === 0 ? timedOut : ran(report([]))))).stdout);
+    expect(clean).toEqual({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: noteFor("a.tf", p("proj")) } });
+
+    // What the quick check couldn't check is passed on, not dropped.
+    n = 0;
+    const withProblem = parsed(runHook(input(p("proj", "a.tf")), deps(plain, () => (n++ === 0 ? timedOut : ran(report([], ["b.tf doesn't exist: check the path."]), 2)))).stdout);
+    expect(withProblem.hookSpecificOutput.additionalContext?.split("\n")).toEqual([
+      "tfscript also couldn't check everything: b.tf doesn't exist: check the path.",
+      noteFor("a.tf", p("proj")),
+    ]);
   });
 
   it("gives a short notice when the check times out, can't start or fails", () => {

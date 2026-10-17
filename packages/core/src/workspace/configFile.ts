@@ -17,7 +17,7 @@ export interface ClaudeCodeSettings {
   warningLimit?: number;
   /** Whether the hook lists information notes too. Default off. */
   showInformation?: boolean;
-  /** How long the hook waits for the full check before a quick one of the file alone, in seconds. Default 10, at most 20. */
+  /** How long the hook waits for the full check before a quick one without undefined-macro, in seconds. Default 10, at most 20. */
   timeoutSeconds?: number;
 }
 

@@ -1,0 +1,2 @@
+; lib.tf is found only from the workingDirectory the tfscript.json above sets.
+/load lib.tf

@@ -17,7 +17,7 @@ import { terraformSign } from "./terraform";
 export const DEFAULT_TIMEOUT_SECONDS = 10;
 
 /**
- * How long the quick check (the file alone, after the full one timed out) may take. With the
+ * How long the quick check (without undefined-macro, after the full one timed out) may take. With the
  * longest full check (MAX_TIMEOUT_SECONDS, 20) it stays inside the 30 seconds hooks.json gives the hook.
  */
 export const RETRY_SECONDS = 5;
@@ -155,23 +155,26 @@ export function runHook(input: string, deps: HookDeps): HookResult {
   const options = { warningLimit: claudeCode.warningLimit ?? DEFAULT_WARNING_LIMIT, showInformation: claudeCode.showInformation ?? false };
 
   if (run.timedOut) {
-    // Try once more, quickly: the file alone from its own folder, with undefined-macro off, so it
-    // needn't search any folder for what defines each macro.
-    const own = path.dirname(file);
-    const quick = deps.runCli(["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", own, file], own, RETRY_SECONDS * 1000);
+    // Try once more, quickly: the same root and the same tfscript.json (so its libraryPath,
+    // variables, pathMappings and the rest still hold), with undefined-macro off. Only that check
+    // searches the root (for what defines each macro), so without it the check is quick.
+    const quickFlags = flags.includes("--no-undefined-macros") ? flags : [...flags, "--no-undefined-macros"];
+    const quick = deps.runCli(["check", "--format", "json", ...quickFlags, "--root", root, file], root, RETRY_SECONDS * 1000);
     const quickReport = quick.timedOut || quick.failure !== undefined ? undefined : parseReport(quick.stdout);
-    if (quickReport === undefined || (quickReport.problems.length > 0 && quickReport.diagnostics.length === 0)) {
+    if (quickReport === undefined) {
       return context(
         `tfscript didn't finish checking ${label} within ${seconds} seconds, so it is unchecked. ` +
           `Its root, ${slash(root)}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`,
       );
     }
     const note =
-      `The full check of ${label} didn't finish within ${seconds} seconds (its root, ${slash(root)}, may hold too many files), so this is a quick check of the file alone, without undefined-macro. ` +
-      `For the full check, put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`;
-    const shaped = shapeReport(quickReport, label, { ...options, budget: DEFAULT_BUDGET - note.length });
-    if (shaped === undefined) return context(note);
-    const text = `${shaped.text}\n${note}`;
+      `The full check of ${label} didn't finish within ${seconds} seconds (its root, ${slash(root)}, may hold too many files to search for what defines each macro), so this is a quick check without undefined-macro. ` +
+      `For the full check, narrow the root with a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`;
+    const problems = quickReport.problems.length > 0 ? `tfscript also couldn't check everything: ${quickReport.problems.join(" ")}` : undefined;
+    const tail = problems === undefined ? note : `${problems}\n${note}`;
+    const shaped = shapeReport(quickReport, label, { ...options, budget: DEFAULT_BUDGET - tail.length });
+    if (shaped === undefined) return context(tail);
+    const text = `${shaped.text}\n${tail}`;
     return shaped.errors > 0 ? block(text) : context(text);
   }
   if (run.failure !== undefined) {

@@ -1,0 +1,4 @@
+{
+  "entryFiles": ["scripts/tfrc"],
+  "workingDirectory": "scripts/sub"
+}

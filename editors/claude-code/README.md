@@ -69,8 +69,9 @@ the root narrow. It is, in order:
 2. the project folder Claude Code started in, if the file is in it;
 3. the file's own folder.
 
-A check that takes longer than 10 seconds is stopped, and the file is checked again on its own, from
-its own folder with `undefined-macro` off, which takes a moment. Claude gets that check's
+A check that takes longer than 10 seconds is stopped, and the file is checked again from the same
+root with the same `tfscript.json`, but with `undefined-macro` off: only that check searches the
+root (for what defines each macro), so this one takes a moment. Claude gets that check's
 diagnostics and a note that the full check timed out. If that happens, put a `tfscript.json` in the
 folder that holds your scripts' tfrc, so the root is that folder rather than, say, your home
 directory. A file outside the project, with no `tfscript.json` above it, in a folder too big to
@@ -103,7 +104,7 @@ paths are relative to its own folder. The hook's own settings go under `claudeCo
 | `enabled` | Check the files under this tfscript.json after each edit | `true` |
 | `warningLimit` | How many warnings to list; the rest are counted. Errors are always listed | `20` |
 | `showInformation` | List information notes too | `false` |
-| `timeoutSeconds` | How long to wait for the full check before checking the file alone, quickly; up to 20 | `10` |
+| `timeoutSeconds` | How long to wait for the full check before a quick one without `undefined-macro`; up to 20 | `10` |
 
 The JSON schema, [schemas/tfscript.schema.json](../../schemas/tfscript.schema.json), lets an editor
 check and complete the file. A `tfscript.json` that isn't valid (bad JSON, a key that isn't a

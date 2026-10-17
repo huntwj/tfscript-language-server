@@ -1,20 +1,17 @@
 # tfscript VS Code extension
 
 A thin client: this extension has no logic of its own beyond starting
-[`vscode-languageclient`](https://www.npmjs.com/package/vscode-languageclient) pointed at a
-bundled copy of the `tfscript-language-server` package's own `dist/` (`packages/server` in this
-repo), with the `@tfscript/core` analysis it requires (`packages/core`) under
-`server/node_modules/` — see `src/extension.ts` and `scripts/copy-server.js`. That copy is a
-real, on-disk copy made at build time, not a relative path into the repo: once packaged, VS Code
-extracts this extension into its own extensions directory (e.g. `~/.vscode/extensions/...`),
-nowhere near the repo that built it, so a path like `../../packages/server/dist/server.js`
-(which *does* work when running this extension unpacked via F5) would resolve to nothing there.
-
-`vscode-languageserver` and `vscode-languageserver-textdocument` are listed as this package's
-own dependencies too, even though they look like they belong only to the server package — the
-copied `server/server.js` still needs to `require()` them at runtime, and Node resolves that
-by walking up from `server/`'s own location, which only finds them if they're installed in
-*this* package's `node_modules`, not the repo root's.
+[`vscode-languageclient`](https://www.npmjs.com/package/vscode-languageclient) pointed at its
+own copy of the language server, `server/server.js`: the single-file bundle the Claude Code
+plugin runs too (`editors/claude-code/bundle/tfscript-language-server.js`, built by the repo's
+`npm run bundle:claude-code`), with `@tfscript/core` and `vscode-languageserver` inside it, so it
+needs no `node_modules` of its own — see `src/extension.ts` and `scripts/copy-server.js`. That
+copy is a real, on-disk copy made at build time, not a relative path into the repo: once
+packaged, VS Code extracts this extension into its own extensions directory (e.g.
+`~/.vscode/extensions/...`), nowhere near the repo that built it, so a path like
+`../../packages/server/dist/server.js` (which *does* work when running this extension unpacked
+via F5) would resolve to nothing there. `npm test` runs that copy from a folder outside the repo,
+over LSP, so a missing dependency shows up there rather than once installed.
 
 Running the extension needs no separately-installed Node or npm: VS Code forks the bundled
 server using its own Node/Electron runtime (`vscode-languageclient`'s `TransportKind.stdio`

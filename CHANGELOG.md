@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- The VS Code extension runs the same single-file server bundle as the Claude Code plugin, with
+  no `node_modules` of its own for it: the `.vsix` is down from 697 files and 1.19 MB to 361 and
+  776 KB. Its smoke test runs that server from outside the repo.
+- `npm run version:set -- <version>` sets the one version every published part carries (the
+  packages, the extension, the plugin and its marketplace entry, `tfscript --version`, the
+  lockfiles), and `npm run version:check` lists them; a test fails when they disagree, and the
+  release workflow refuses a tag that isn't `v` and that version.
+
 - The Claude Code plugin's tf-scripting skill is written for anyone who installs it: it no longer
   names the notes repo's test cases or its `tf-script-check`, and says how to run the checker the
   plugin bundles and where `tfscript.json` goes. The notes repo's copy is as before.

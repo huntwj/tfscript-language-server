@@ -16,9 +16,9 @@ interface LspRange {
 let client: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  // `server/` is this extension's own copy of packages/server's dist/, with core nested under its
-  // node_modules, placed there at build time (scripts/copy-server.js) and packaged into the .vsix —
-  // NOT a relative path into the repo. A relative path like "../../packages/server/dist/server.js"
+  // `server/server.js` is this extension's own copy of the language server, the single-file bundle
+  // the Claude Code plugin runs too, placed there at build time (scripts/copy-server.js) and
+  // packaged into the .vsix — NOT a relative path into the repo. A relative path like "../../packages/server/dist/server.js"
   // only resolves while running this extension unpacked via F5 (where extensionPath is this
   // checkout's own editors/vscode folder); once packaged and installed, VS Code extracts the
   // extension into its own extensions directory, nowhere near the repo that built it, and

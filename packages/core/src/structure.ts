@@ -1278,9 +1278,10 @@ class Parser {
    * ends the command substitution. tf dev's `list()` (expand.c, the MAC-5 fix) rejects a /break
    * whose innermost `levels` loops include one opened outside the `$(...)` ("expected a /break
    * that stays inside this $(...)") and compiles nothing; upstream tf compiles it and corrupts its
-   * value stack when it runs. A /break with more levels than there are loops, all of them inside
-   * the `$(...)`, still compiles in tf dev, and running it stops the macro with "expression stack
-   * underflow or dirty" and "invalid frame". Both proven in tf dev, 2026-10-14.
+   * value stack when it runs. Since tf dev's OBS-85 fix (6d8d3175), a /break with more levels than
+   * there are loops inside the `$(...)` (none, or `/break 2` from its only loop) is rejected the
+   * same way; before, it compiled and stopped the macro with an internal error when it ran.
+   * Proven in tf dev, 2026-10-17 (the first on 2026-10-14).
    *
    * Where the rejected /break is in a `$(...)` that is an expression operand (`$[ $(/break) ]`, an
    * `/if` or `/while` condition), at any depth, tf dev used to print the same error and still run
@@ -1322,18 +1323,15 @@ class Parser {
           ? `To end the macro, put the ${code("/break")} outside the ${code("$(...)")}; to skip the rest of the ` +
             `${code("$(...)")}'s commands, wrap them in an ${code("/if")} instead.`
           : `Give the ${code("/break")} no more levels than there are loops inside the ${code("$(...)")}.`;
-      this.issues.push({
-        kind: "block",
-        start,
-        end: Math.max(end, start + 1),
-        message:
-          "This /break would jump out of the $(...) around it, and tf stops the macro with an internal error when it " +
-          "runs: only break out of loops inside the $(...).",
+      // tf stops compiling there.
+      this.fail("block", start, end, {
+        message: "This /break would jump out of the $(...) around it, so tf rejects the macro: only break out of loops inside the $(...).",
         label: "jumps out of the $(...)",
         explanation:
           `${rule} This one has ${loops.length === 0 ? "no loop" : "more levels than there are loops"} to end inside ` +
-          `it. tf compiles it, but running it stops the macro with "expression stack underflow or dirty" and ` +
-          `"invalid frame". ${advice}`,
+          `it, so tf reports "expected a /break that stays inside this $(...)" when it compiles the macro, and the ` +
+          `macro then does nothing. ${advice} (TinyFugue releases, and this fork before its fix, compile it, and ` +
+          `running it stops the macro with an internal error.)`,
         related: [{ start: cmdsubStart, end: cmdsubStart + 2, message: "the $(...) it would jump out of" }],
       });
     }

@@ -197,12 +197,11 @@ describe("checkStructure in a macro body", () => {
       "$(: the $(...) it would jump out of",
       "/while: the loop it would end",
     ]);
-    // A rejected /break stops compiling; one that only fails when it runs doesn't.
-    expect(issue("/echo $(/break)%; /if (1) /echo x")).toBe("block@/break block@/if");
+    // tf dev since OBS-85 (tf-script-check, 2026-10-17): rejected when compiled, so compiling stops there.
+    expect(issue("/echo $(/break)%; /if (1) /echo x")).toBe("block@/break");
     const [noLoop] = checkStructure("/echo [$(/break)]", "body");
     expect(noLoop?.message).toBe(
-      "This /break would jump out of the $(...) around it, and tf stops the macro with an internal error when it runs: " +
-        "only break out of loops inside the $(...).",
+      "This /break would jump out of the $(...) around it, so tf rejects the macro: only break out of loops inside the $(...).",
     );
     expect(noLoop?.explanation).toContain("To end the macro, put the `/break` outside the `$(...)`");
     expect(checkStructure("/echo [$(/while (1) /break 2%; /done)]", "body")[0]?.explanation).toContain("no more levels");

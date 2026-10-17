@@ -9254,6 +9254,10 @@ function defOptionsEnd(text, i) {
 function defHasInvalidOption(text, i) {
   return skipDefOptions(text, i).invalid === true;
 }
+function defFiresOnEvent(text, i) {
+  const o = skipDefOptions(text, i);
+  return o.trigger !== void 0 || o.hook !== void 0 || o.key !== void 0;
+}
 function defIsInvisible(text, i) {
   return skipDefOptions(text, i).invisible === true;
 }
@@ -12754,6 +12758,149 @@ var bodyContinuesWithoutBackslash = {
   check: check4
 };
 
+// packages/core/src/data/libraryLoaded.generated.ts
+var LIBRARY_FILES_WITH_LOADED = [
+  "activity_status.tf",
+  "activity_status2.tf",
+  "alias.tf",
+  "at.tf",
+  "complete.tf",
+  "filexfer.tf",
+  "grep.tf",
+  "kb-emacs.tf",
+  "kb-old.tf",
+  "kbbind.tf",
+  "kbfunc.tf",
+  "kbregion.tf",
+  "kbstack.tf",
+  "lisp.tf",
+  "local-eg.tf",
+  "map.tf",
+  "pcmd.tf",
+  "psh.tf",
+  "quoter.tf",
+  "relog.tf",
+  "rwho.tf",
+  "savehist.tf",
+  "spedwalk.tf",
+  "spell.tf",
+  "stack-q.tf",
+  "textencode.tf",
+  "textutil.tf",
+  "tfstatus.tf",
+  "tick.tf",
+  "tintin.tf",
+  "tools.tf",
+  "tr.tf",
+  "watch.tf",
+  "world-q.tf"
+];
+
+// packages/core/src/rules/lint.ts
+var IGNORE = `put ${"`; tflint:ignore-nextline`"} on the line before`;
+var refused = (entry, file) => invalidMacroName.check(entry, file).length > 0;
+function defStart(text) {
+  let start = 0;
+  while (isTfSpace(text[start])) start += 1;
+  const { prefix, word } = commandParts(text, start);
+  if (word !== "def" || !/^!*@?$/.test(prefix)) return -1;
+  const after = start + 1 + prefix.length + word.length;
+  return after < text.length && !isTfSpace(text[after]) ? -1 : after;
+}
+var emptyMacroBody = {
+  id: "empty-macro-body",
+  severity: "warning",
+  scope: "entry",
+  check(entry, file) {
+    if (!entry.isDefBody || refused(entry, file)) return [];
+    const text = entry.text;
+    const after = defStart(text);
+    if (after < 0 || defHasInvalidOption(text, after) || defFiresOnEvent(text, after)) return [];
+    const body = macroBodyStart(text);
+    if (body < 0 || text.slice(body).trim() !== "") return [];
+    let end = body;
+    while (end > 0 && isTfSpace(text[end - 1])) end -= 1;
+    return [
+      {
+        start: end - 1,
+        end,
+        message: `This macro's body is empty, so running it sends a blank line to the world: give it a body, or ${IGNORE.replace(/`/g, "")} if that is what you want.`,
+        label: "empty body",
+        explanation: `tf defines a macro with nothing after its ${code("=")} without a word, and running it sends an empty line to the world (through the ${code("SEND")} hook, as text in a body is sent). A trigger, hook or key binding with an empty body sends nothing when it fires, so those aren't flagged. If the blank line is the point, ${IGNORE}.`
+      }
+    ];
+  }
+};
+var SAFE_SEND_START = /^[^-%$\\{]/;
+var textSentFromBody = {
+  id: "text-sent-from-body",
+  severity: "warning",
+  scope: "entry",
+  check(entry, file) {
+    if (!(entry.isDefBody || entry.isOtherMacroBody) || refused(entry, file)) return [];
+    const text = entry.text;
+    const body = macroBodyStart(text);
+    if (body < 0) return [];
+    const b = text.slice(body);
+    const layout = parseLayout(b, "body");
+    if (layout.stopped) return [];
+    const out = [];
+    for (const u of layout.units) {
+      if (u.block || u.word !== "" || layout.lists[u.list]?.kind !== "body") continue;
+      let s = u.start;
+      let e = u.end;
+      while (s < e && isTfSpace(b[s])) s += 1;
+      while (e > s && isTfSpace(b[e - 1])) e -= 1;
+      if (s >= e) continue;
+      const said = b.slice(s, e);
+      const safe = SAFE_SEND_START.test(said);
+      out.push({
+        start: body + s,
+        end: body + e,
+        message: `This text is sent to the world: write it as /send -h ${said.length > 30 ? `${said.slice(0, 27)}...` : said} to say so, or ${IGNORE.replace(/`/g, "")}.`,
+        label: "sent to the world",
+        explanation: `Text in a macro body that isn't a command is sent to the world when the macro runs, through the ${code("SEND")} hook. ${code("/send -h")} does exactly that, and says it on purpose. ` + (safe ? "" : `The fix isn't offered here: text starting with ${code("-")} or a substitution could be read as an option of ${code("/send")}. `) + `If sending it bare is the point, ${IGNORE}.`,
+        ...safe ? { fix: { title: "Write it as /send -h", edits: [{ start: body + s, end: body + s, newText: "/send -h " }] } } : {}
+      });
+    }
+    return out;
+  }
+};
+var loadOfLibraryFile = {
+  id: "load-of-library-file",
+  severity: "warning",
+  scope: "entry",
+  check(entry) {
+    const text = entry.text;
+    let start = 0;
+    while (isTfSpace(text[start])) start += 1;
+    const m = /^\/load((?:[ \t]+-\S+)*)[ \t]+(\S+)[ \t]*$/.exec(text.slice(start));
+    if (!m) return [];
+    const file = m[2];
+    if (!LIBRARY_FILES_WITH_LOADED.includes(file)) return [];
+    const at2 = start + 1;
+    return [
+      {
+        start,
+        end: start + 5,
+        message: `${file} is one of tf's library files, so /require loads it only if it isn't loaded yet: write /require, or ${IGNORE.replace(/`/g, "")} if loading it again is the point.`,
+        label: "a library file",
+        explanation: `${code(file)} is installed with tf and runs ${code("/loaded")}, so ${code("/require")} loads it just as ${code("/load")} does (options and all) the first time, and skips it once it is loaded. ${code("/load")} reads it again each time, redefining its macros. If that is the point, ${IGNORE}.`,
+        fix: { title: "Write /require", edits: [{ start: at2, end: at2 + 4, newText: "require" }] }
+      }
+    ];
+  }
+};
+var LINT_RULES = [emptyMacroBody, textSentFromBody, loadOfLibraryFile];
+var IGNORE_RE = /^[ \t]*[;#].*?\btflint:ignore-nextline\b(.*)$/;
+var CODE_WORD = /^[a-z]+(?:-[a-z]+)+$/;
+function ignoredByComment(lines, line, code3) {
+  const m = IGNORE_RE.exec(lines[line - 1] ?? "");
+  if (!m) return false;
+  const codes = (m[1] ?? "").split(/[\s,]+/).filter((w) => CODE_WORD.test(w));
+  return codes.length === 0 || codes.includes(code3);
+}
+
 // packages/core/src/rules/index.ts
 var RULES = [
   missingContinuation,
@@ -12771,7 +12918,8 @@ var RULES = [
   emptyStatement,
   nestingTooDeep,
   incompleteContinuation,
-  bodyContinuesWithoutBackslash
+  bodyContinuesWithoutBackslash,
+  ...LINT_RULES
 ];
 
 // packages/core/src/rules/notACommand.ts
@@ -12832,6 +12980,7 @@ function asLoaded(text, build) {
 }
 
 // packages/core/src/diagnostics.ts
+var LINT_CODES = new Set(LINT_RULES.map((r) => r.id));
 function positionOf(entry, offset) {
   const at2 = entry.offsetMap[offset];
   if (at2) return { line: at2.line, character: at2.character };
@@ -12930,8 +13079,9 @@ function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD } =
   if (abort) diagnostics.push(lineDiagnostic(abort, "not-a-command", "error"));
   diagnostics = consolidateContinuations(text, entries, diagnostics);
   unjoinGluedKeywords(text, entries, diagnostics);
-  if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false }));
-  return diagnostics;
+  if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false, tfBuild }));
+  const rawLines = splitRawLines(text);
+  return diagnostics.filter((d) => !(LINT_CODES.has(d.code) && ignoredByComment(rawLines, d.range.start.line, d.code)));
 }
 function unjoinGluedKeywords(text, entries, diagnostics) {
   let lines;
@@ -19944,6 +20094,50 @@ var RULE_SECTIONS = [
     fix: [
       "Put library directories on `TFPATH`, and write paths relative to tf's current directory, not the script's.",
       "Build a path from a variable with `/eval`: `/eval /load %{dir}/x.tf`."
+    ]
+  },
+  {
+    id: "L1",
+    title: "Shapes that may be deliberate",
+    statement: [
+      "tf runs these without a word, and each may be what its author meant, so they are lint: warnings that don't count as problems tf has, and that a comment turns off. A comment line holding `tflint:ignore-nextline` (`; tflint:ignore-nextline`) turns off every lint warning on the line after it; with codes after it (`; tflint:ignore-nextline text-sent-from-body`), only those.",
+      "A plain `/def` with an empty body (`/def x =`) sends a blank line to the world when it runs, through the `SEND` hook. A trigger, hook or key binding with an empty body sends nothing when it fires.",
+      "Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as `/send -h text` sends it; `/send` without `-h` skips the hook.",
+      "`/require file` loads a file as `/load file` does, options and all, but not again once the file has run `/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again."
+    ],
+    source: [
+      { at: "expand.c:620", what: "text in a body runs the `SEND` hook, then is sent" },
+      { at: "socket.c:2991", what: "handle_send_function() runs the `SEND` hook only for `-h`" }
+    ],
+    cases: ["lint-empty-body", "lint-empty-trigger-body", "lint-send-h"],
+    sourceOnly: [
+      "That `/send` passes `-h` on to `send()` is read from stdlib.tf's `/send` (lib/tf/stdlib.tf:103-115).",
+      "That `/require` is `/let _required=1%; /load %{-L} %{L}`, and that `/loaded` ends the second load of a file, is read from lib/tf/stdlib.tf:36-47; which library files run `/loaded` is read from lib/tf (scripts/extract-command-tables.js)."
+    ],
+    codes: [
+      {
+        code: "empty-macro-body",
+        severity: "warning",
+        summary: "This macro's body is empty, so running it sends a blank line to the world. Give it a body, or put `; tflint:ignore-nextline` on the line before if that is what you want.",
+        detail: "a plain `/def` (no `-t`, `-h`, `-b` or `-B`) with nothing after its `=`, which sends an empty line when it runs; a trigger, hook or key binding with an empty body sends nothing, so it isn't flagged"
+      },
+      {
+        code: "text-sent-from-body",
+        severity: "warning",
+        summary: "This text in a macro body is sent to the world. Write it as `/send -h text` to say so (it does the same, the `SEND` hook included), or put `; tflint:ignore-nextline` on the line before.",
+        detail: "a statement of a macro body that isn't a command, which tf sends to the world; the fix puts `/send -h ` before it, but not where the text starts with `-` or a substitution, which `/send` could read as an option"
+      },
+      {
+        code: "load-of-library-file",
+        severity: "warning",
+        summary: "This `/load`s one of tf's library files, which `/require` loads only if it isn't loaded yet. Write `/require`, or put `; tflint:ignore-nextline` on the line before if loading it again is the point.",
+        detail: "a top-level `/load` of a library file that runs `/loaded`, named on its own (found through `TFPATH` or `TFLIBDIR`); the fix writes `/require`. A file without `/loaded`, which `/require` would load again anyway, isn't flagged"
+      }
+    ],
+    fix: [
+      "Send text on purpose with `/send -h text`.",
+      "Load a library file with `/require`: `/require alias.tf`.",
+      "Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before."
     ]
   }
 ];

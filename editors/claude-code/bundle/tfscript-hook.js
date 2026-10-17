@@ -572,4 +572,5 @@ function hookMain(cliPath) {
 }
 
 // packages/cli/src/hook/bin.ts
+if (process.argv.includes("--cloud-only") && process.env.CLAUDE_CODE_REMOTE !== "true") process.exit(0);
 hookMain(path6.join(__dirname, "tfscript.js"));

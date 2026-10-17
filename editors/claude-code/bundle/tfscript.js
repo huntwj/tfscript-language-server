@@ -4231,6 +4231,7 @@ var LIBRARY_FILES = [
   "kbfunc.tf",
   "kbregion.tf",
   "kbstack.tf",
+  "kv-textlog.tf",
   "kv.tf",
   "lisp.tf",
   "local-eg.tf",

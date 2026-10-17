@@ -8,9 +8,10 @@ export interface ReportOptions {
   /** Whether information notes are listed (and counted). */
   showInformation: boolean;
   /**
-   * The most characters the text may have. Claude Code moves a hook's text longer than 10,000
-   * characters into a file Claude isn't asked to read, so the list stops short of that, and says
-   * how many it left out.
+   * The most characters the text may have. Claude Code's documented cap is 10,000 characters for
+   * a hook's additionalContext (and its plain stdout): a longer one is moved into a file Claude
+   * isn't asked to read. The docs don't give a cap for a block's reason, so the same budget is
+   * kept there too, to be safe. The list stops short of it and says how many it left out.
    */
   budget?: number;
   /** The command that lists everything, named where some are left out. */

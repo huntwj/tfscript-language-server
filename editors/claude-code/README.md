@@ -23,7 +23,13 @@ On Claude Code 2.1.275 or later, one line does both:
 /plugin install tfscript --marketplace huntwj/tfscript-language-server
 ```
 
-From your shell, the same is `claude plugin marketplace add huntwj/tfscript-language-server`, then
+In a session, `/plugin install` doesn't install straight away: it opens the plugin in the `/plugin`
+panel, where you review it and choose the scope to install it in (for you, for the project, or
+for the project on this machine only).
+
+From your shell, `claude plugin install tfscript --marketplace huntwj/tfscript-language-server`
+(Claude Code 2.1.292 or later) adds the marketplace and installs the plugin in one step. On
+older versions, run `claude plugin marketplace add huntwj/tfscript-language-server`, then
 `claude plugin install tfscript@tfscript-language-server`. Run `/reload-plugins`, or start a new
 session, to load it.
 
@@ -34,13 +40,18 @@ session, to load it.
   can then fix it. Errors are put to Claude as a problem with the edit; warnings come as a note
   beside the edit's result. Every error is listed, and the first 20 warnings with a count of the
   rest; information notes are left out unless asked for. Each line has the place, the code, the
-  message and the titles of the quick fixes an editor would offer. The hook never changes a file:
+  message and the titles of the quick fixes an editor would offer. Where a message names a
+  setting, it names the `tfscript.json` key (`set workingDirectory in tfscript.json`). The hook never changes a file:
   Claude makes any fix itself. A clean file gets no message at all.
 - **Leaves Terraform alone.** `.tf` is Terraform's extension too. A `.tf` file is skipped, silently,
   when its folder has a `.terraform` folder, a `.terraform.lock.hcl`, a `*.tfvars` (or
-  `.tfvars.json`) or a `*.tf.json` file, or when the file has a Terraform block: a line starting
-  `resource "`, `data "`, `module "`, `variable "`, `output "`, `provider "`, `terraform {` or
-  `locals {`.
+  `.tfvars.json`), a `*.tf.json`, or a `*.tfstate` (or `.tfstate.backup`) file; when the file has
+  a Terraform block: a line starting `resource`, `data`, `module`, `variable`, `output`,
+  `provider`, `check` or `ephemeral` with labels (quoted or bare), or `terraform {`, `locals {`,
+  `moved {`, `import {` or `removed {`; or when its first line that isn't blank or a comment opens
+  an HCL block (`name [labels] {`). A byte order mark is ignored. In a tf script, any such line
+  would be a `not-a-command` error, as tf stops loading a file at a line that doesn't start
+  with `/`.
 - **Checks a tfscript.json Claude edits**, and says what is wrong with it, if anything.
 - **Navigation and hover.** The bundled language server is registered for `.tf` files, so Claude
   can go to a macro's definition, find its references and read its hover through the LSP tool.

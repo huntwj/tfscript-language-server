@@ -160,5 +160,9 @@ describe("tfscript.json", () => {
       files: [],
       problems: ["The settings file nowhere.json doesn't exist: check the path given to --config."],
     });
+    expect(check({ paths: ["."], config: ".", settings: {}, cwd: dir }, testHost())).toEqual({
+      files: [],
+      problems: ["The settings file . is a folder: give --config the tfscript.json file."],
+    });
   });
 });

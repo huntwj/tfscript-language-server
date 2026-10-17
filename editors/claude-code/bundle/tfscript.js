@@ -8054,7 +8054,11 @@ function check5(request, host = nodeHost()) {
   let settings = request.settings;
   if (given !== void 0 || host.kind(configFile) === "file") {
     const label = path7.relative(request.cwd, configFile) || configFile;
-    if (given !== void 0 && host.kind(given) !== "file") {
+    const givenKind = given === void 0 ? "file" : host.kind(given);
+    if (givenKind === "dir") {
+      return { files: [], problems: [`The settings file ${request.config} is a folder: give --config the tfscript.json file.`] };
+    }
+    if (givenKind !== "file") {
       return { files: [], problems: [`The settings file ${request.config} doesn't exist: check the path given to --config.`] };
     }
     const loaded = readConfig(configFile, (f) => host.fs.readFile(f), label);

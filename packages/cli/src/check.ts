@@ -150,7 +150,11 @@ export function check(request: CheckRequest, host: CheckHost = nodeHost()): Chec
   let settings = request.settings;
   if (given !== undefined || host.kind(configFile) === "file") {
     const label = path.relative(request.cwd, configFile) || configFile;
-    if (given !== undefined && host.kind(given) !== "file") {
+    const givenKind = given === undefined ? "file" : host.kind(given);
+    if (givenKind === "dir") {
+      return { files: [], problems: [`The settings file ${request.config} is a folder: give --config the tfscript.json file.`] };
+    }
+    if (givenKind !== "file") {
       return { files: [], problems: [`The settings file ${request.config} doesn't exist: check the path given to --config.`] };
     }
     const loaded = readConfig(configFile, (f) => host.fs.readFile(f), label);

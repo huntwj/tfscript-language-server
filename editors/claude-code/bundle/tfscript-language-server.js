@@ -17313,6 +17313,7 @@ var LIBRARY_FILES = [
   "tintin.tf",
   "tools.tf",
   "tr.tf",
+  "vbind.tf",
   "watch.tf",
   "world-q.tf"
 ];

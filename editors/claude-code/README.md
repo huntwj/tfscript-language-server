@@ -124,6 +124,23 @@ The language server doesn't read `tfscript.json` yet, so navigation sees the def
 - The hook runs after Edit and Write (and MultiEdit, in versions of Claude Code that have it). It
   doesn't run for files changed some other way, such as by a shell command.
 
+## Cloud sessions
+
+Claude Code's cloud sessions (claude.ai/code, and sessions started from the app) load no plugins,
+even ones a repo's `.claude/settings.json` turns on, but they do read the repo's own `.claude/`
+folder. So a repo that wants tfscript there commits a copy, written by
+`npm run cloud-kit -- <repo>` (after `npm run build`):
+
+- `.claude/tfscript/tfscript.js` and `tfscript-hook.js`, this plugin's bundled checker and hook;
+- `.claude/skills/tf-scripting/SKILL.md`, the skill, naming that checker;
+- a PostToolUse hook in `.claude/settings.json` (other settings are kept) that runs the copy with
+  `--cloud-only`: it does nothing unless `CLAUDE_CODE_REMOTE` is `true`, so on a machine with the
+  plugin installed only the plugin's hook checks a file.
+
+`npm run cloud-kit -- --check <repo>` says whether a repo's copy is current; run the first form
+again after a release. Locally the skill is then listed twice, as `tf-scripting` (the repo's) and
+`tfscript:tf-scripting` (the plugin's), with the same text.
+
 ## The files
 
 ```

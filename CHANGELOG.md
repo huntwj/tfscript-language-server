@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A cloud kit for Claude Code's cloud sessions, which load no plugins: `npm run cloud-kit -- <repo>`
+  writes the plugin's checker, hook and skill into a repo's `.claude/`, with a PostToolUse hook that
+  runs only in a cloud session (the hook's new `--cloud-only`), and `--check` says whether a repo's
+  copy is current. tf's library list has `kv-textlog.tf`.
+
 - An eval suite for the Claude Code plugin (`editors/claude-code/evals`, run with
   `claude plugin eval`): ten tf-writing tasks, each on a rule real tf proved, with regex graders
   checked by a test and an LLM judge, and `scripts/score-evals-live.js`, which scores a run in

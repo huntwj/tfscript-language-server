@@ -370,7 +370,8 @@ describe("rule fixes", () => {
     const lines = Array.from({ length: 3000 }, (_, i) => ["/while (1)", "  /if (x) /echo /done", "  /echo /endif"][i % 3] as string);
     const start = Date.now();
     getCodeActions(`${lines.join("\n")}\n`, WHOLE_FILE);
-    expect(Date.now() - start).toBeLessThan(timeBudget(1000));
+    // About 500 ms alone; a full parallel run on a busy machine has taken just over 1000.
+    expect(Date.now() - start).toBeLessThan(timeBudget(2000));
   });
 
   it("still joins a macro body's line with a %; of its own, which keeps its meaning in the body", () => {

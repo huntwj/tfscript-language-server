@@ -4067,12 +4067,18 @@ var textSentFromBody = {
     const text = entry.text;
     const body = macroBodyStart(text);
     if (body < 0) return [];
+    const name = entry.isDefBody ? definedMacro(entry) : void 0;
+    if (name && (file.valueMacros.has(name.toLowerCase()) || /[A-Z]/.test(name) && name === name.toUpperCase())) return [];
     const b = text.slice(body);
     const layout = parseLayout(b, "body");
     if (layout.stopped) return [];
     const out = [];
     for (const u of layout.units) {
       if (u.block || u.word !== "" || layout.lists[u.list]?.kind !== "body") continue;
+      const seps = layout.separators.filter((sep2) => sep2.list === u.list);
+      const before = seps.filter((sep2) => sep2.at < u.start).pop();
+      const after = seps.find((sep2) => sep2.at >= u.start);
+      if (before?.char === "|" || after && after.at <= u.end && after.char === "|") continue;
       let s = u.start;
       let e = u.end;
       while (s < e && isTfSpace(b[s])) s += 1;
@@ -4083,7 +4089,7 @@ var textSentFromBody = {
       out.push({
         start: body + s,
         end: body + e,
-        message: `This text is sent to the world: write it as /send -h ${said.length > 30 ? `${said.slice(0, 27)}...` : said} to say so, or ${IGNORE.replace(/`/g, "")}.`,
+        message: `This text is sent to the world: put /send -h in front of it to say so, or ${IGNORE.replace(/`/g, "")}.`,
         label: "sent to the world",
         explanation: `Text in a macro body that isn't a command is sent to the world when the macro runs, through the ${code("SEND")} hook. ${code("/send -h")} does exactly that, and says it on purpose. ` + (safe ? "" : `The fix isn't offered here: text starting with ${code("-")} or a substitution could be read as an option of ${code("/send")}. `) + `If sending it bare is the point, ${IGNORE}.`,
         ...safe ? { fix: { title: "Write it as /send -h", edits: [{ start: body + s, end: body + s, newText: "/send -h " }] } } : {}
@@ -4266,7 +4272,8 @@ function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD } =
     const name = definedMacro(entry);
     if (name) macros.add(name.toLowerCase());
   }
-  const facts = { macros, tfBuild };
+  const valueMacros = new Set([...text.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((m) => m[1].toLowerCase()));
+  const facts = { macros, tfBuild, valueMacros };
   for (const rule of RULES) {
     let failed = false;
     const guarded = (run) => {
@@ -8794,13 +8801,13 @@ var RULE_SECTIONS = [
       {
         code: "text-sent-from-body",
         severity: "warning",
-        summary: "This text in a macro body is sent to the world. Write it as `/send -h text` to say so (it does the same, the `SEND` hook included), or put `; tflint:ignore-nextline` on the line before.",
-        detail: "a statement of a macro body that isn't a command, which tf sends to the world; the fix puts `/send -h ` before it, but not where the text starts with `-` or a substitution, which `/send` could read as an option"
+        summary: "This text in a macro body is sent to the world. Put `/send -h` in front of it to say so (it does the same, the `SEND` hook included), or put `; tflint:ignore-nextline` on the line before.",
+        detail: "a statement of a macro body that isn't a command, which tf sends to the world; the fix puts `/send -h ` before it, but not where the text starts with `-` or a substitution, which `/send` could read as an option. Not flagged: a macro that holds a value (read as `${name}`, or named in capitals, as tfrc's `LOGFILE`), and text either side of a `%|`, which tf refuses to pipe, sending nothing"
       },
       {
         code: "load-of-library-file",
         severity: "warning",
-        summary: "This `/load`s one of tf's library files, which `/require` loads only if it isn't loaded yet. Write `/require`, or put `; tflint:ignore-nextline` on the line before if loading it again is the point.",
+        summary: "The file this `/load`s is one of tf's library files, so `/require` loads it only if it isn't loaded yet. Write `/require`, or put `; tflint:ignore-nextline` on the line before if loading it again is the point.",
         detail: "a top-level `/load` of a library file that runs `/loaded`, named on its own (found through `TFPATH` or `TFLIBDIR`); the fix writes `/require`. A file without `/loaded`, which `/require` would load again anyway, isn't flagged"
       }
     ],

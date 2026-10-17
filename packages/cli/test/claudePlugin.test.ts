@@ -102,6 +102,14 @@ describe("the bundled hook, run as Claude Code runs it", () => {
     }
   });
 
+  it("names a setting as its tfscript.json key, not as a command-line option", () => {
+    const { status, stdout, stderr } = hook(path.join(PROJECT, "loads", "tfrc"));
+    expect({ status, stderr }).toEqual({ status: 0, stderr: "" });
+    const text = JSON.parse(stdout).hookSpecificOutput.additionalContext as string;
+    expect(text).toContain(`warning unresolved-load: tf won't find "missing.tf": fix the path, or set workingDirectory in tfscript.json to the folder tf runs in.`);
+    expect(text).not.toContain("--");
+  });
+
   it("says what is wrong with a bad tfscript.json, and how to fix it", () => {
     const { status, stdout, stderr } = hook(path.join(PROJECT, "bad-config", "script.tf"));
     expect({ status, stderr }).toEqual({ status: 0, stderr: "" });

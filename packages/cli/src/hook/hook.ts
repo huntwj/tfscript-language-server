@@ -123,7 +123,8 @@ export function runHook(input: string, deps: HookDeps): HookResult {
 
   const cwd = deps.projectDir !== undefined && isInside(file, path.resolve(deps.projectDir)) ? path.resolve(deps.projectDir) : root;
   // A file checked alone (its folder too big to search) has undefined-macro off: it would search the whole folder.
-  const args = ["check", "--format", "json", ...(fileOnly ? ["--no-undefined-macros"] : []), "--root", root, file];
+  // Messages name a setting as its tfscript.json key, which is how the hook is set up.
+  const args = ["check", "--format", "json", "--setting-names", "config", ...(fileOnly ? ["--no-undefined-macros"] : []), "--root", root, file];
   const run = deps.runCli(args, cwd, seconds * 1000);
   const fullCommand = `node ${quote(deps.cliPath)} check --root ${quote(root)} ${quote(file)}`;
 
@@ -133,7 +134,7 @@ export function runHook(input: string, deps: HookDeps): HookResult {
     // Try once more, quickly: the file alone from its own folder, with undefined-macro off, so it
     // needn't search any folder for what defines each macro.
     const own = path.dirname(file);
-    const quick = deps.runCli(["check", "--format", "json", "--no-undefined-macros", "--root", own, file], cwd, RETRY_SECONDS * 1000);
+    const quick = deps.runCli(["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", own, file], cwd, RETRY_SECONDS * 1000);
     const quickReport = quick.timedOut || quick.error !== undefined ? undefined : parseReport(quick.stdout);
     if (quickReport === undefined || (quickReport.problems.length > 0 && quickReport.diagnostics.length === 0)) {
       return context(

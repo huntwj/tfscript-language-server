@@ -8,6 +8,8 @@ export type Command =
       kind: "check";
       paths: string[];
       format: "human" | "json";
+      /** How messages name a setting: as its option (the default), or as its tfscript.json key. */
+      settingNames: "option" | "config";
       /** Exit 1 when there are more warnings than this. */
       maxWarnings?: number;
       /** The workspace folder, as an editor would have it open; relative to the current folder. */
@@ -28,6 +30,7 @@ export const OPTIONS: Readonly<Record<string, Kind>> = {
   help: "flag",
   version: "flag",
   format: "value",
+  "setting-names": "value",
   "max-warnings": "value",
   root: "value",
   config: "value",
@@ -161,6 +164,11 @@ export function parseArgs(argv: readonly string[]): Command {
   const format = p.values.get("format")?.[0] ?? "human";
   if (format !== "human" && format !== "json") throw new UsageError(`--format ${format} isn't a format: use --format human or --format json.`);
 
+  const settingNames = p.values.get("setting-names")?.[0] ?? "option";
+  if (settingNames !== "option" && settingNames !== "config") {
+    throw new UsageError(`--setting-names ${settingNames} isn't a way to name settings: use --setting-names option or --setting-names config.`);
+  }
+
   const max = p.values.get("max-warnings")?.[0];
   let maxWarnings: number | undefined;
   if (max !== undefined) {
@@ -174,6 +182,7 @@ export function parseArgs(argv: readonly string[]): Command {
     kind: "check",
     paths,
     format,
+    settingNames,
     ...(maxWarnings === undefined ? {} : { maxWarnings }),
     ...(root === undefined ? {} : { root }),
     ...(config === undefined ? {} : { config }),

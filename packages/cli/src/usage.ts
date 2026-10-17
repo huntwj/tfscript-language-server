@@ -15,6 +15,9 @@ Output:
                                 path:line:col: severity code: message. json: one report,
                                 described in the README.
   --max-warnings <n>            exit 1 when there are more than n warnings
+  --setting-names <option|config>
+                                how a message names a setting: as its option (the default),
+                                or as its tfscript.json key (for the Claude Code hook)
 
 Where tf runs (each is named after the tfscript.* setting in brackets):
   --root <folder>               the workspace folder (default: the folder of --config, else

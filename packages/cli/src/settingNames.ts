@@ -61,3 +61,33 @@ export function forCommandLine(text: string): string {
     .map((part, i) => (i % 2 === 1 ? part : translate(part)))
     .join("");
 }
+
+/** The tfscript.json file the keys are in, as messages name it. */
+const CONFIG_NAME = "tfscript.json";
+
+function translateForConfigFile(prose: string): string {
+  return prose.replace(IN_PROSE, (whole, before: string | undefined, key: string, to: string | undefined) => {
+    // Every setting with an option is a tfscript.json key too; any other is left as core wrote it.
+    if (OPTION_FOR_SETTING[key] === undefined) return whole;
+    const lead = before === "set " ? "set " : before === "in " ? "under " : "";
+    return `${lead}${key} in ${CONFIG_NAME}${to ?? ""}`;
+  });
+}
+
+/**
+ * `text` with each setting it names put as its tfscript.json key, for the Claude Code hook, which
+ * is set up by a tfscript.json rather than options: "set tfscript.x to y" as "set x in
+ * tfscript.json to y", "in tfscript.x" as "under x in tfscript.json", and any other mention as
+ * "x in tfscript.json". tf's own text is left alone, as forCommandLine() leaves it.
+ */
+export function forConfigFile(text: string): string {
+  return text
+    .split(/("[^"]*")/)
+    .map((part, i) => (i % 2 === 1 ? part : translateForConfigFile(part)))
+    .join("");
+}
+
+/** How a message names a setting: as the command line's option, or as the tfscript.json key. */
+export type SettingNames = "option" | "config";
+
+export const NAMERS: Readonly<Record<SettingNames, (text: string) => string>> = { option: forCommandLine, config: forConfigFile };

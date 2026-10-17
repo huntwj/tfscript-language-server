@@ -404,13 +404,13 @@ function runHook(input, deps) {
   }
   const seconds = claudeCode.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
   const cwd = deps.projectDir !== void 0 && isInside(file, path4.resolve(deps.projectDir)) ? path4.resolve(deps.projectDir) : root;
-  const args = ["check", "--format", "json", ...fileOnly ? ["--no-undefined-macros"] : [], "--root", root, file];
+  const args = ["check", "--format", "json", "--setting-names", "config", ...fileOnly ? ["--no-undefined-macros"] : [], "--root", root, file];
   const run = deps.runCli(args, cwd, seconds * 1e3);
   const fullCommand = `node ${quote(deps.cliPath)} check --root ${quote(root)} ${quote(file)}`;
   const options = { warningLimit: claudeCode.warningLimit ?? DEFAULT_WARNING_LIMIT, showInformation: claudeCode.showInformation ?? false };
   if (run.timedOut) {
     const own = path4.dirname(file);
-    const quick = deps.runCli(["check", "--format", "json", "--no-undefined-macros", "--root", own, file], cwd, RETRY_SECONDS * 1e3);
+    const quick = deps.runCli(["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", own, file], cwd, RETRY_SECONDS * 1e3);
     const quickReport = quick.timedOut || quick.error !== void 0 ? void 0 : parseReport(quick.stdout);
     if (quickReport === void 0 || quickReport.problems.length > 0 && quickReport.diagnostics.length === 0) {
       return context(

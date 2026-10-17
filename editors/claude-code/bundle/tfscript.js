@@ -31,6 +31,7 @@ var OPTIONS = {
   help: "flag",
   version: "flag",
   format: "value",
+  "setting-names": "value",
   "max-warnings": "value",
   root: "value",
   config: "value",
@@ -144,6 +145,10 @@ function parseArgs(argv) {
   if (paths.length === 0) throw new UsageError("Nothing to check: name the .tf files or folders, as in tfscript check tfrc scripts/.");
   const format = p.values.get("format")?.[0] ?? "human";
   if (format !== "human" && format !== "json") throw new UsageError(`--format ${format} isn't a format: use --format human or --format json.`);
+  const settingNames = p.values.get("setting-names")?.[0] ?? "option";
+  if (settingNames !== "option" && settingNames !== "config") {
+    throw new UsageError(`--setting-names ${settingNames} isn't a way to name settings: use --setting-names option or --setting-names config.`);
+  }
   const max = p.values.get("max-warnings")?.[0];
   let maxWarnings;
   if (max !== void 0) {
@@ -156,6 +161,7 @@ function parseArgs(argv) {
     kind: "check",
     paths,
     format,
+    settingNames,
     ...maxWarnings === void 0 ? {} : { maxWarnings },
     ...root === void 0 ? {} : { root },
     ...config === void 0 ? {} : { config },
@@ -8557,6 +8563,18 @@ function translate(prose) {
 function forCommandLine(text) {
   return text.split(/("[^"]*")/).map((part, i) => i % 2 === 1 ? part : translate(part)).join("");
 }
+var CONFIG_NAME = "tfscript.json";
+function translateForConfigFile(prose) {
+  return prose.replace(IN_PROSE, (whole, before, key2, to) => {
+    if (OPTION_FOR_SETTING[key2] === void 0) return whole;
+    const lead = before === "set " ? "set " : before === "in " ? "under " : "";
+    return `${lead}${key2} in ${CONFIG_NAME}${to ?? ""}`;
+  });
+}
+function forConfigFile(text) {
+  return text.split(/("[^"]*")/).map((part, i) => i % 2 === 1 ? part : translateForConfigFile(part)).join("");
+}
+var NAMERS = { option: forCommandLine, config: forConfigFile };
 
 // packages/cli/src/format.ts
 var JSON_VERSION = 1;
@@ -8582,15 +8600,15 @@ function summarize(files) {
   const count = (s) => all.filter((d) => d.severity === s).length;
   return { files: files.length, errors: count("error"), warnings: count("warning"), information: count("information") };
 }
-function formatHuman(files, cwd) {
+function formatHuman(files, cwd, names = forCommandLine) {
   return inOrder(files, cwd).flatMap(
     (f) => f.diagnostics.map(
-      (d) => `${displayPath(f.file, cwd)}:${d.range.start.line + 1}:${d.range.start.character + 1}: ${d.severity} ${d.code}: ${forCommandLine(d.message)}
+      (d) => `${displayPath(f.file, cwd)}:${d.range.start.line + 1}:${d.range.start.character + 1}: ${d.severity} ${d.code}: ${names(d.message)}
 `
     )
   ).join("");
 }
-function toJsonReport(unordered, cwd, problems = []) {
+function toJsonReport(unordered, cwd, problems = [], names = forCommandLine) {
   const files = inOrder(unordered, cwd);
   const diagnostics = files.flatMap((f) => {
     const starts = lineStarts(f.text);
@@ -8603,10 +8621,10 @@ function toJsonReport(unordered, cwd, problems = []) {
         range: range(d.range),
         severity: d.severity,
         code: d.code,
-        message: forCommandLine(d.message),
+        message: names(d.message),
         codeDescription: findCode(d.code) ? { href: codeHref(d.code) } : null,
         fixes: [d.fix, d.alternative].flatMap((fix) => fix ? [fix.title] : []),
-        related: (d.related ?? []).map((r) => ({ range: range(r.range), message: forCommandLine(r.message) }))
+        related: (d.related ?? []).map((r) => ({ range: range(r.range), message: names(r.message) }))
       })
     );
   });
@@ -8635,6 +8653,9 @@ Output:
                                 path:line:col: severity code: message. json: one report,
                                 described in the README.
   --max-warnings <n>            exit 1 when there are more than n warnings
+  --setting-names <option|config>
+                                how a message names a setting: as its option (the default),
+                                or as its tfscript.json key (for the Claude Code hook)
 
 Where tf runs (each is named after the tfscript.* setting in brackets):
   --root <folder>               the workspace folder (default: the folder of --config, else
@@ -8708,9 +8729,10 @@ function main(argv, io, host = nodeHost()) {
     },
     host
   );
-  if (command2.format === "json") io.out(`${JSON.stringify(toJsonReport(result.files, io.cwd, result.problems), null, 2)}
+  const names = NAMERS[command2.settingNames];
+  if (command2.format === "json") io.out(`${JSON.stringify(toJsonReport(result.files, io.cwd, result.problems, names), null, 2)}
 `);
-  else io.out(formatHuman(result.files, io.cwd));
+  else io.out(formatHuman(result.files, io.cwd, names));
   for (const problem of result.problems) io.err(`tfscript: ${problem}
 `);
   const summary = summarize(result.files);

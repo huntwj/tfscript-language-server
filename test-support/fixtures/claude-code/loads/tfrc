@@ -1,0 +1,2 @@
+; Loads a file tf would not find.
+/load missing.tf

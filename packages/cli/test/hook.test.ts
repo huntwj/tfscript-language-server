@@ -179,7 +179,7 @@ describe("runHook", () => {
   it("checks a tf script from its root, and puts errors to Claude as a block", () => {
     const d = deps({ [p("proj", "a.tf")]: "/def x" }, () => ran(report([diagnostic("error", 1)]), 1));
     const out = parsed(runHook(input(p("proj", "a.tf")), d).stdout);
-    expect(d.calls).toEqual([{ args: ["check", "--format", "json", "--root", p("proj"), p("proj", "a.tf")], cwd: p("proj"), timeoutMs: 10000 }]);
+    expect(d.calls).toEqual([{ args: ["check", "--format", "json", "--setting-names", "config", "--root", p("proj"), p("proj", "a.tf")], cwd: p("proj"), timeoutMs: 10000 }]);
     expect(out.decision).toBe("block");
     expect(out.reason).toMatch(/^tfscript found 1 error in a\.tf:\n- a\.tf:1:1: error error-code: /);
     expect(out.hookSpecificOutput).toEqual({ hookEventName: "PostToolUse" });
@@ -209,7 +209,7 @@ describe("runHook", () => {
     const many = report([diagnostic("warning", 1), diagnostic("warning", 2), diagnostic("information", 3)]);
     const d = deps({ [p("proj", "mud", "tfscript.json")]: config, [p("proj", "mud", "wot", "a.tf")]: "" }, () => ran(many));
     const out = parsed(runHook(input(p("proj", "mud", "wot", "a.tf")), d).stdout);
-    expect(d.calls[0]).toEqual({ args: ["check", "--format", "json", "--root", p("proj", "mud"), p("proj", "mud", "wot", "a.tf")], cwd: p("proj"), timeoutMs: 2000 });
+    expect(d.calls[0]).toEqual({ args: ["check", "--format", "json", "--setting-names", "config", "--root", p("proj", "mud"), p("proj", "mud", "wot", "a.tf")], cwd: p("proj"), timeoutMs: 2000 });
     expect(out.hookSpecificOutput.additionalContext?.split("\n")).toEqual([
       `tfscript found 2 warnings and 1 information note in ${path.join("mud", "wot", "a.tf")}:`,
       "- a.tf:1:1: warning warning-code: A warning on line 1: fix it.",
@@ -226,7 +226,7 @@ describe("runHook", () => {
       return ran(report([]));
     };
     expect(runHook(input(p("home", "a.tf")), d)).toEqual({ stdout: "" });
-    expect(calls).toEqual([["check", "--format", "json", "--no-undefined-macros", "--root", p("home"), p("home", "a.tf")]]);
+    expect(calls).toEqual([["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", p("home"), p("home", "a.tf")]]);
   });
 
   it("checks nothing under a tfscript.json that turns it off", () => {
@@ -259,8 +259,8 @@ describe("runHook", () => {
     const d = deps(files, () => (n++ === 0 ? timedOut : ran(report([diagnostic("error", 1)]), 1)));
     const out = parsed(runHook(input(p("proj", "a.tf")), d).stdout);
     expect(d.calls.map((c) => [c.args, c.timeoutMs])).toEqual([
-      [["check", "--format", "json", "--root", p("proj"), p("proj", "a.tf")], 10000],
-      [["check", "--format", "json", "--no-undefined-macros", "--root", p("proj"), p("proj", "a.tf")], RETRY_SECONDS * 1000],
+      [["check", "--format", "json", "--setting-names", "config", "--root", p("proj"), p("proj", "a.tf")], 10000],
+      [["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", p("proj"), p("proj", "a.tf")], RETRY_SECONDS * 1000],
     ]);
     expect(out.decision).toBe("block");
     expect(out.reason?.split("\n")).toEqual(["tfscript found 1 error in a.tf:", "- a.tf:1:1: error error-code: A error on line 1: fix it.", note]);

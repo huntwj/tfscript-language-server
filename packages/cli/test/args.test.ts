@@ -13,7 +13,7 @@ const usageError = (argv: string[]): string => {
 
 describe("parseArgs", () => {
   it("reads check, its paths and the defaults", () => {
-    expect(parseArgs(["check", "tfrc", "scripts"])).toEqual({ kind: "check", paths: ["tfrc", "scripts"], format: "human", settings: {} });
+    expect(parseArgs(["check", "tfrc", "scripts"])).toEqual({ kind: "check", paths: ["tfrc", "scripts"], format: "human", settingNames: "option", settings: {} });
   });
 
   it("reads help and version wherever they are", () => {
@@ -60,6 +60,8 @@ describe("parseArgs", () => {
       "hook_*",
       "--format",
       "json",
+      "--setting-names",
+      "config",
       "--max-warnings",
       "3",
       "a.tf",
@@ -68,6 +70,7 @@ describe("parseArgs", () => {
       kind: "check",
       paths: ["a.tf"],
       format: "json",
+      settingNames: "config",
       maxWarnings: 3,
       root: "ws",
       config: "ws/tfscript.json",
@@ -101,6 +104,9 @@ describe("parseArgs", () => {
     expect(usageError(["check", "--root", "a", "--root", "b", "a.tf"])).toBe("--root was given twice: give it once.");
     expect(usageError(["check", "--no-undefined-macros=yes", "a.tf"])).toBe("--no-undefined-macros doesn't take a value: write it on its own, without =.");
     expect(usageError(["check", "--format", "xml", "a.tf"])).toBe("--format xml isn't a format: use --format human or --format json.");
+    expect(usageError(["check", "--setting-names", "keys", "a.tf"])).toBe(
+      "--setting-names keys isn't a way to name settings: use --setting-names option or --setting-names config.",
+    );
     expect(usageError(["check", "--max-warnings", "-1", "a.tf"])).toBe("--max-warnings -1 isn't a number: give a whole number of warnings, 0 or more.");
     expect(usageError(["check", "--variable", "x", "a.tf"])).toBe("--variable x isn't <name>=<value>: write it as --variable <name>=<value>.");
     expect(usageError(["check", "--variable", "1x=a", "a.tf"])).toBe(

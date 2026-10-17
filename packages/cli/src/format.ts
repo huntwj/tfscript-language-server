@@ -4,6 +4,9 @@ import { codeHref, findCode } from "@tfscript/core/rules/table";
 import type { CheckedFile } from "./check";
 import { forCommandLine } from "./settingNames";
 
+/** How a message names the settings it mentions (forCommandLine() unless told otherwise). */
+export type Namer = (text: string) => string;
+
 /** The JSON output's shape; documented in the README. Bump `version` on any change that isn't an added field. */
 export const JSON_VERSION = 1;
 
@@ -26,7 +29,7 @@ export interface JsonDiagnostic {
   range: JsonRange;
   severity: TfDiagnostic["severity"];
   code: string;
-  /** Core's message, with any tfscript.* setting it names put as the option (forCommandLine()). */
+  /** Core's message, with any tfscript.* setting it names put as the option (forCommandLine()), or as the tfscript.json key with --setting-names config. */
   message: string;
   codeDescription: { href: string } | null;
   /** The titles of the quick fixes an editor offers for it, likelier first. */
@@ -87,18 +90,18 @@ export function summarize(files: CheckedFile[]): Summary {
 }
 
 /** One line per diagnostic, in order (inOrder()): `path:line:col: severity code: message`, line and column 1-based. */
-export function formatHuman(files: CheckedFile[], cwd: string): string {
+export function formatHuman(files: CheckedFile[], cwd: string, names: Namer = forCommandLine): string {
   return inOrder(files, cwd)
     .flatMap((f) =>
       f.diagnostics.map(
-        (d) => `${displayPath(f.file, cwd)}:${d.range.start.line + 1}:${d.range.start.character + 1}: ${d.severity} ${d.code}: ${forCommandLine(d.message)}\n`,
+        (d) => `${displayPath(f.file, cwd)}:${d.range.start.line + 1}:${d.range.start.character + 1}: ${d.severity} ${d.code}: ${names(d.message)}\n`,
       ),
     )
     .join("");
 }
 
 /** The JSON report, in the same order as the human format (inOrder()). */
-export function toJsonReport(unordered: CheckedFile[], cwd: string, problems: string[] = []): JsonReport {
+export function toJsonReport(unordered: CheckedFile[], cwd: string, problems: string[] = [], names: Namer = forCommandLine): JsonReport {
   const files = inOrder(unordered, cwd);
   const diagnostics = files.flatMap((f) => {
     const starts = lineStarts(f.text);
@@ -111,10 +114,10 @@ export function toJsonReport(unordered: CheckedFile[], cwd: string, problems: st
         range: range(d.range),
         severity: d.severity,
         code: d.code,
-        message: forCommandLine(d.message),
+        message: names(d.message),
         codeDescription: findCode(d.code) ? { href: codeHref(d.code) } : null,
         fixes: [d.fix, d.alternative].flatMap((fix) => (fix ? [fix.title] : [])),
-        related: (d.related ?? []).map((r) => ({ range: range(r.range), message: forCommandLine(r.message) })),
+        related: (d.related ?? []).map((r) => ({ range: range(r.range), message: names(r.message) })),
       }),
     );
   });

@@ -1,6 +1,7 @@
 import { parseArgs, UsageError } from "./args";
 import { check, nodeHost, type CheckHost } from "./check";
 import { formatHuman, formatSummary, plural, summarize, toJsonReport } from "./format";
+import { NAMERS } from "./settingNames";
 import { USAGE, VERSION } from "./usage";
 
 /** No errors (and no more warnings than --max-warnings allows). */
@@ -45,8 +46,9 @@ export function main(argv: readonly string[], io: Io, host: CheckHost = nodeHost
     },
     host,
   );
-  if (command.format === "json") io.out(`${JSON.stringify(toJsonReport(result.files, io.cwd, result.problems), null, 2)}\n`);
-  else io.out(formatHuman(result.files, io.cwd));
+  const names = NAMERS[command.settingNames];
+  if (command.format === "json") io.out(`${JSON.stringify(toJsonReport(result.files, io.cwd, result.problems, names), null, 2)}\n`);
+  else io.out(formatHuman(result.files, io.cwd, names));
   for (const problem of result.problems) io.err(`tfscript: ${problem}\n`);
 
   const summary = summarize(result.files);

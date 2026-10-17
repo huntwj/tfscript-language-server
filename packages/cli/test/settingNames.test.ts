@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { OPTIONS } from "../src/args";
 import { check } from "../src/check";
-import { forCommandLine, OPTION_FOR_SETTING, SETTING_NAME } from "../src/settingNames";
+import { SETTING_SHAPES } from "@tfscript/core/workspace/configFile";
+import { forCommandLine, forConfigFile, OPTION_FOR_SETTING, SETTING_NAME } from "../src/settingNames";
 import { testHost } from "./fixtures";
 
 describe("tf's own text in a message", () => {
@@ -83,5 +84,30 @@ describe("the settings core's messages name", () => {
     );
     expect(forCommandLine("add its name to tfscript.diagnostics.ignoreMacros.")).toBe("add its name to --ignore-macro.");
     expect(forCommandLine("tfscript.codeLens.references and tfscript.unknown stay.")).toBe("tfscript.codeLens.references and tfscript.unknown stay.");
+  });
+});
+
+describe("forConfigFile", () => {
+  it("puts each setting as its tfscript.json key, for the Claude Code hook", () => {
+    expect(forConfigFile(`tf won't find "missing.tf": fix the path, or set tfscript.workingDirectory to the folder tf runs in.`)).toBe(
+      `tf won't find "missing.tf": fix the path, or set workingDirectory in tfscript.json to the folder tf runs in.`,
+    );
+    expect(forConfigFile("This load can't be followed here: x, and ~ means tf's HOME: set tfscript.homeDirectory.")).toBe(
+      "This load can't be followed here: x, and ~ means tf's HOME: set homeDirectory in tfscript.json.",
+    );
+    expect(forConfigFile("To have it checked, give %{dir} a value in tfscript.variables.")).toBe("To have it checked, give %{dir} a value under variables in tfscript.json.");
+    expect(forConfigFile("map it with tfscript.pathMappings.")).toBe("map it with pathMappings in tfscript.json.");
+    expect(forConfigFile("To stop this, set tfscript.diagnostics.unresolvedLoads to false.")).toBe("To stop this, set diagnostics.unresolvedLoads in tfscript.json to false.");
+    expect(forConfigFile("add its name to tfscript.diagnostics.ignoreMacros.")).toBe("add its name to diagnostics.ignoreMacros in tfscript.json.");
+  });
+
+  it("leaves tf's own text, and settings tfscript.json doesn't have, as they are", () => {
+    for (const kept of ['/load "tfscript.workingDirectory"', "tfscript.codeLens.references and tfscript.unknown stay.", "/tfscript.workingDirectory"]) {
+      expect(forConfigFile(kept)).toBe(kept);
+    }
+  });
+
+  it("names every setting core's messages name as a key tfscript.json takes", () => {
+    for (const key of Object.keys(OPTION_FOR_SETTING)) expect(Object.keys(SETTING_SHAPES), key).toContain(key.split(".")[0]);
   });
 });

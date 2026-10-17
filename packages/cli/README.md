@@ -101,6 +101,7 @@ Output and exit status:
 | `--format human` (default) | one line per diagnostic on stdout, `path:line:col: severity code: message`, then a count on stderr |
 | `--format json` | one JSON report on stdout (below); stderr has only the paths that couldn't be checked and a `tfscript.json`'s problems (also in the report's `problems`) and the `--max-warnings` message |
 | `--max-warnings <n>` | exit 1 when there are more than `n` warnings |
+| `--setting-names option` (default) or `config` | how a message names a setting: as its option (`give --working-directory`), or as its `tfscript.json` key (`set workingDirectory in tfscript.json`), which the Claude Code hook uses |
 
 - **0**: no errors (warnings and information notes don't count, unless `--max-warnings` is exceeded).
 - **1**: at least one error, or more warnings than `--max-warnings`.

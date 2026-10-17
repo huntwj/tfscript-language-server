@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { CLAUDE_CODE_KEYS, CONFIG_KEYS, DIAGNOSTICS_KEYS, findConfig, overlaySettings, parseConfig, readConfig } from "../src/workspace/configFile";
+import { CLAUDE_CODE_SHAPES, CONFIG_KEYS, DIAGNOSTIC_SHAPES, findConfig, MAX_TIMEOUT_SECONDS, overlaySettings, parseConfig, readConfig, SETTING_SHAPES } from "../src/workspace/configFile";
 
 const ROOT = path.resolve("/fake");
 const p = (...parts: string[]) => path.join(ROOT, ...parts);
@@ -101,6 +101,12 @@ describe("parseConfig", () => {
     ]);
   });
 
+  it("rejects a key a mapping doesn't have, as the schema does", () => {
+    expect(parse({ pathMappings: [{ tf: "/wotmud", local: ".", from: "x" }] }).problems).toEqual([
+      `tfscript.json has "pathMappings[0].from", which isn't part of a mapping: remove it; a mapping has only "tf" and "local".`,
+    ]);
+  });
+
   it("rejects a mapping from a relative tf path and a variable name tf can't have", () => {
     expect(parse({ pathMappings: [{ tf: "wotmud", local: "." }] }).problems).toEqual([
       'tfscript.json maps "wotmud" in "pathMappings", which isn\'t absolute: start tf\'s side with /, as in "tf": "/wotmud".',
@@ -145,10 +151,56 @@ describe("overlaySettings", () => {
 describe("the JSON schema (schemas/tfscript.schema.json)", () => {
   const schema = JSON.parse(readFileSync(path.join(__dirname, "..", "..", "..", "schemas", "tfscript.schema.json"), "utf8"));
 
-  it("has the keys the loader takes, and no others", () => {
+  const strip = (node: unknown): unknown =>
+    Array.isArray(node)
+      ? node.map(strip)
+      : typeof node === "object" && node !== null
+        ? Object.fromEntries(Object.entries(node).filter(([k]) => k !== "description").map(([k, v]) => [k, strip(v)]))
+        : node;
+  const strings = { type: "array", items: { type: "string" } };
+  /** The schema each loader shape stands for: what the loader accepts, no more and no less. */
+  const SCHEMA_OF: Record<string, unknown> = {
+    string: { type: "string" },
+    path: { type: "string" },
+    paths: strings,
+    names: strings,
+    boolean: { type: "boolean" },
+    count: { type: "integer", minimum: 0 },
+    seconds: { type: "number", exclusiveMinimum: 0, maximum: MAX_TIMEOUT_SECONDS },
+    contexts: { type: "object", additionalProperties: strings },
+    pathMappings: {
+      type: "array",
+      items: { type: "object", additionalProperties: false, required: ["tf", "local"], properties: { tf: { type: "string", pattern: "^/" }, local: { type: "string" } } },
+    },
+    variables: { type: "object", propertyNames: { pattern: "^[A-Za-z_][A-Za-z0-9_]*$" }, additionalProperties: { type: "string" } },
+  };
+  const section = (shapes: Record<string, string>) => ({
+    type: "object",
+    additionalProperties: false,
+    properties: Object.fromEntries(Object.entries(shapes).map(([k, shape]) => [k, SCHEMA_OF[shape]])),
+  });
+
+  it("gives each key the shape the loader takes, and no other keys", () => {
     expect(Object.keys(schema.properties).sort()).toEqual([...CONFIG_KEYS].sort());
-    expect(Object.keys(schema.properties.diagnostics.properties).sort()).toEqual([...DIAGNOSTICS_KEYS].sort());
-    expect(Object.keys(schema.properties.claudeCode.properties).sort()).toEqual([...CLAUDE_CODE_KEYS].sort());
+    expect(schema.type).toBe("object");
     expect(schema.additionalProperties).toBe(false);
+    const props = strip(schema.properties) as Record<string, unknown>;
+    expect(props.$schema).toEqual({ type: "string" });
+    for (const [key, shape] of Object.entries(SETTING_SHAPES)) {
+      expect(props[key], key).toEqual(shape === "diagnostics" ? section(DIAGNOSTIC_SHAPES) : SCHEMA_OF[shape]);
+    }
+    expect(props.claudeCode).toEqual(section(CLAUDE_CODE_SHAPES));
+  });
+
+  it("describes every setting", () => {
+    const undescribed: string[] = [];
+    const visit = (node: Record<string, { description?: string; properties?: Record<string, unknown> }>, prefix: string) => {
+      for (const [k, v] of Object.entries(node)) {
+        if (k !== "$schema" && k !== "diagnostics" && !v.description) undescribed.push(prefix + k);
+        if (v.properties) visit(v.properties as never, `${prefix}${k}.`);
+      }
+    };
+    visit(schema.properties, "");
+    expect(undescribed).toEqual([]);
   });
 });

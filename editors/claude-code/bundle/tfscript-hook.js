@@ -36,7 +36,7 @@ var path4 = __toESM(require("node:path"));
 // packages/core/src/workspace/configFile.ts
 var path = __toESM(require("node:path"));
 var CONFIG_FILE = "tfscript.json";
-var SETTINGS = {
+var SETTING_SHAPES = {
   entryFiles: "paths",
   contexts: "contexts",
   activeContext: "string",
@@ -48,21 +48,21 @@ var SETTINGS = {
   variables: "variables",
   diagnostics: "diagnostics"
 };
-var DIAGNOSTICS = {
+var DIAGNOSTIC_SHAPES = {
   unresolvedLoads: "boolean",
   undefinedMacros: "boolean",
   ignoreMacros: "names"
 };
 var MAX_TIMEOUT_SECONDS = 25;
-var CLAUDE_CODE = {
+var CLAUDE_CODE_SHAPES = {
   enabled: "boolean",
   warningLimit: "count",
   showInformation: "boolean",
   timeoutSeconds: "seconds"
 };
-var CONFIG_KEYS = ["$schema", ...Object.keys(SETTINGS), "claudeCode"];
-var DIAGNOSTICS_KEYS = Object.keys(DIAGNOSTICS);
-var CLAUDE_CODE_KEYS = Object.keys(CLAUDE_CODE);
+var CONFIG_KEYS = ["$schema", ...Object.keys(SETTING_SHAPES), "claudeCode"];
+var DIAGNOSTICS_KEYS = Object.keys(DIAGNOSTIC_SHAPES);
+var CLAUDE_CODE_KEYS = Object.keys(CLAUDE_CODE_SHAPES);
 function kindOf(value) {
   if (value === null) return "null";
   if (Array.isArray(value)) return "a list";
@@ -107,7 +107,7 @@ function parseConfig(text, file, label = file) {
         continue;
       }
       for (const [sub, v] of Object.entries(value)) {
-        const shape2 = CLAUDE_CODE[sub];
+        const shape2 = CLAUDE_CODE_SHAPES[sub];
         if (shape2 === void 0) {
           problems.push(`${label} has "claudeCode.${sub}", which isn't a setting: remove it, or use one of ${CLAUDE_CODE_KEYS.join(", ")}.`);
         } else if (shape2 === "boolean") {
@@ -121,11 +121,11 @@ function parseConfig(text, file, label = file) {
       }
       continue;
     }
-    const shape = SETTINGS[key];
+    const shape = SETTING_SHAPES[key];
     if (shape === void 0) {
       const bare = key.startsWith("tfscript.") ? key.slice("tfscript.".length) : void 0;
       problems.push(
-        bare !== void 0 && SETTINGS[bare.split(".")[0]] !== void 0 ? `${label} has "${key}": write the key without the tfscript. prefix, as "${bare.split(".")[0]}".` : `${label} has "${key}", which isn't a setting: remove it, or use one of ${Object.keys(SETTINGS).join(", ")}, claudeCode.`
+        bare !== void 0 && SETTING_SHAPES[bare.split(".")[0]] !== void 0 ? `${label} has "${key}": write the key without the tfscript. prefix, as "${bare.split(".")[0]}".` : `${label} has "${key}", which isn't a setting: remove it, or use one of ${Object.keys(SETTING_SHAPES).join(", ")}, claudeCode.`
       );
       continue;
     }
@@ -151,6 +151,11 @@ function parseConfig(text, file, label = file) {
           wrong(key, value, "a list of mappings", `"pathMappings": [{ "tf": "/wotmud", "local": "<folder>" }]`);
         } else {
           const mappings = value;
+          const extra = mappings.flatMap((m, i) => Object.keys(m).filter((k) => k !== "tf" && k !== "local").map((k) => `pathMappings[${i}].${k}`));
+          if (extra.length > 0) {
+            problems.push(`${label} has "${extra[0]}", which isn't part of a mapping: remove it; a mapping has only "tf" and "local".`);
+            break;
+          }
           const relative3 = mappings.find((m) => !m.tf.startsWith("/"));
           if (relative3) problems.push(`${label} maps "${relative3.tf}" in "pathMappings", which isn't absolute: start tf's side with /, as in "tf": "/wotmud".`);
           else settings.pathMappings = mappings.map((m) => ({ tf: m.tf, local: rebase(m.local, folder) }));
@@ -172,7 +177,7 @@ function parseConfig(text, file, label = file) {
         }
         const diagnostics = {};
         for (const [sub, v] of Object.entries(value)) {
-          const want = DIAGNOSTICS[sub];
+          const want = DIAGNOSTIC_SHAPES[sub];
           if (want === void 0) problems.push(`${label} has "diagnostics.${sub}", which isn't a setting: remove it, or use one of ${DIAGNOSTICS_KEYS.join(", ")}.`);
           else if (want === "boolean") {
             if (typeof v === "boolean") diagnostics[sub] = v;

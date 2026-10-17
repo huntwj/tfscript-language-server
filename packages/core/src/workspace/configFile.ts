@@ -37,10 +37,12 @@ export interface ConfigLoad {
   problems: string[];
 }
 
-type Shape = "string" | "path" | "paths" | "boolean" | "names";
+export type Shape = "string" | "path" | "paths" | "boolean" | "names";
 
-/** Each setting tfscript.json takes, by its key, and the shape of its value. */
-const SETTINGS: Readonly<Record<string, Shape | "contexts" | "pathMappings" | "variables" | "diagnostics">> = {
+export type SettingShape = Shape | "contexts" | "pathMappings" | "variables" | "diagnostics";
+
+/** Each setting tfscript.json takes, by its key, and the shape of its value (the schema test compares these). */
+export const SETTING_SHAPES: Readonly<Record<string, SettingShape>> = {
   entryFiles: "paths",
   contexts: "contexts",
   activeContext: "string",
@@ -53,7 +55,7 @@ const SETTINGS: Readonly<Record<string, Shape | "contexts" | "pathMappings" | "v
   diagnostics: "diagnostics",
 };
 
-const DIAGNOSTICS: Readonly<Record<string, Shape>> = {
+export const DIAGNOSTIC_SHAPES: Readonly<Record<string, Shape>> = {
   unresolvedLoads: "boolean",
   undefinedMacros: "boolean",
   ignoreMacros: "names",
@@ -62,7 +64,7 @@ const DIAGNOSTICS: Readonly<Record<string, Shape>> = {
 /** The longest timeoutSeconds: the hook itself is given 30 seconds, and must answer within them. */
 export const MAX_TIMEOUT_SECONDS = 25;
 
-const CLAUDE_CODE: Readonly<Record<string, "boolean" | "count" | "seconds">> = {
+export const CLAUDE_CODE_SHAPES: Readonly<Record<string, "boolean" | "count" | "seconds">> = {
   enabled: "boolean",
   warningLimit: "count",
   showInformation: "boolean",
@@ -70,10 +72,10 @@ const CLAUDE_CODE: Readonly<Record<string, "boolean" | "count" | "seconds">> = {
 };
 
 /** Every top-level key tfscript.json takes. */
-export const CONFIG_KEYS: readonly string[] = ["$schema", ...Object.keys(SETTINGS), "claudeCode"];
+export const CONFIG_KEYS: readonly string[] = ["$schema", ...Object.keys(SETTING_SHAPES), "claudeCode"];
 /** The keys under `diagnostics` and under `claudeCode`. */
-export const DIAGNOSTICS_KEYS: readonly string[] = Object.keys(DIAGNOSTICS);
-export const CLAUDE_CODE_KEYS: readonly string[] = Object.keys(CLAUDE_CODE);
+export const DIAGNOSTICS_KEYS: readonly string[] = Object.keys(DIAGNOSTIC_SHAPES);
+export const CLAUDE_CODE_KEYS: readonly string[] = Object.keys(CLAUDE_CODE_SHAPES);
 
 function kindOf(value: unknown): string {
   if (value === null) return "null";
@@ -126,7 +128,7 @@ export function parseConfig(text: string, file: string, label: string = file): C
         continue;
       }
       for (const [sub, v] of Object.entries(value)) {
-        const shape = CLAUDE_CODE[sub];
+        const shape = CLAUDE_CODE_SHAPES[sub];
         if (shape === undefined) {
           problems.push(`${label} has "claudeCode.${sub}", which isn't a setting: remove it, or use one of ${CLAUDE_CODE_KEYS.join(", ")}.`);
         } else if (shape === "boolean") {
@@ -140,13 +142,13 @@ export function parseConfig(text: string, file: string, label: string = file): C
       }
       continue;
     }
-    const shape = SETTINGS[key];
+    const shape = SETTING_SHAPES[key];
     if (shape === undefined) {
       const bare = key.startsWith("tfscript.") ? key.slice("tfscript.".length) : undefined;
       problems.push(
-        bare !== undefined && (SETTINGS[bare.split(".")[0] as string] !== undefined)
+        bare !== undefined && (SETTING_SHAPES[bare.split(".")[0] as string] !== undefined)
           ? `${label} has "${key}": write the key without the tfscript. prefix, as "${bare.split(".")[0]}".`
-          : `${label} has "${key}", which isn't a setting: remove it, or use one of ${Object.keys(SETTINGS).join(", ")}, claudeCode.`,
+          : `${label} has "${key}", which isn't a setting: remove it, or use one of ${Object.keys(SETTING_SHAPES).join(", ")}, claudeCode.`,
       );
       continue;
     }
@@ -172,6 +174,11 @@ export function parseConfig(text: string, file: string, label: string = file): C
           wrong(key, value, "a list of mappings", `"pathMappings": [{ "tf": "/wotmud", "local": "<folder>" }]`);
         } else {
           const mappings = value as { tf: string; local: string }[];
+          const extra = mappings.flatMap((m, i) => Object.keys(m).filter((k) => k !== "tf" && k !== "local").map((k) => `pathMappings[${i}].${k}`));
+          if (extra.length > 0) {
+            problems.push(`${label} has "${extra[0]}", which isn't part of a mapping: remove it; a mapping has only "tf" and "local".`);
+            break;
+          }
           const relative = mappings.find((m) => !m.tf.startsWith("/"));
           if (relative) problems.push(`${label} maps "${relative.tf}" in "pathMappings", which isn't absolute: start tf's side with /, as in "tf": "/wotmud".`);
           else settings.pathMappings = mappings.map((m) => ({ tf: m.tf, local: rebase(m.local, folder) }));
@@ -193,7 +200,7 @@ export function parseConfig(text: string, file: string, label: string = file): C
         }
         const diagnostics: NonNullable<RawSettings["diagnostics"]> = {};
         for (const [sub, v] of Object.entries(value)) {
-          const want = DIAGNOSTICS[sub];
+          const want = DIAGNOSTIC_SHAPES[sub];
           if (want === undefined) problems.push(`${label} has "diagnostics.${sub}", which isn't a setting: remove it, or use one of ${DIAGNOSTICS_KEYS.join(", ")}.`);
           else if (want === "boolean") {
             if (typeof v === "boolean") diagnostics[sub as "unresolvedLoads" | "undefinedMacros"] = v;

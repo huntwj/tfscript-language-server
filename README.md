@@ -740,12 +740,39 @@ them.
   kill %{target}
 ```
 
-A body with one statement stays on its line, head and all. The condition of `/if list /then` and
-`/while list /do` stays on one line, and so does anything inside a `$(...)`. Your own line breaks
-inside a statement are kept, the line after one hanging a level deeper. A top-level `/if` or
-`/while` block is re-indented the same way; any other top-level command is left as written
-(nested `/for` lines read better as their author indented them). An entry's first line never
-moves: an indented one is what tf's "possibly missing trailing \" warning is about.
+Long lines are handled as rustfmt handles them: the formatter decides every line break in a
+macro, your own inside a statement included, and keeps lines to 100 columns where they can be
+broken. A body with one statement stays on its head's line when the whole fits, and moves to the
+line after it when it doesn't. A line that is too long breaks, with as much on each line as
+fits, the rest hanging four spaces past the line its statement starts on (two levels, so it
+never lines up with a block's first statement):
+
+- a macro's head between its options, a quoted value kept whole;
+- an `/if`, `/elseif` or `/while` condition before one of its own `&` or `|`;
+- the text `/echo`, `/_echo` or `/send` prints or sends, or text sent to the world, at a blank
+  between words after the command's options, never inside a `$[...]`, `${...}`, `%{...}`,
+  `@{...}` or `$(...)`: a long message is refilled to fill each line;
+- a command whose text is commands (a nested `/def`) where its own body starts, then after each
+  `%%;` of its own.
+
+Nothing else is broken, so a long `/set`, `/test` or trigger pattern stays long, and comments are
+never wrapped. Each break comes right after a blank, which stays at the end of the line before
+the `\`, so tf joins the lines back to the same text, and never before a `;` or `#`, which would
+make the new line a comment tf skips.
+
+```
+/def check_it = \
+  /if (hp_current < hp_max / 3 & !in_combat & target_name =~ "" & auto_heal_enabled \
+      & mana_current > 40) \
+    /cast heal%;\
+  /endif
+```
+
+The condition of `/if list /then` and `/while list /do` stays on one line, and so does anything
+inside a `$(...)`. A top-level `/if` or `/while` block is re-indented the same way, keeping your
+line breaks; any other top-level command is left as written (nested `/for` lines read better as
+their author indented them). An entry's first line never moves: an indented one is what tf's
+"possibly missing trailing \" warning is about.
 
 It only changes whitespace tf ignores, each fact proven against real tf or its source:
 

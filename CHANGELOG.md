@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Formatting handles long lines as rustfmt does: it decides every line break in a macro, joining
+  your own inside a statement, and keeps lines to 100 columns where they can be broken. A
+  one-statement body stays on its head's line when it fits. A long line breaks with as much on
+  each line as fits, the rest hanging four spaces past its statement: a head between its options,
+  a condition before its own `&` or `|`, `/echo`, `/_echo`, `/send` and world text at a blank
+  between words (refilled), and a nested `/def` where its body starts and after its `%%;`s.
+  Anything else stays long, and comments aren't wrapped. A line that continues a statement now
+  hangs two levels past it, not one, everywhere, re-indented entries included.
+
 - `tfscript.tfBuild` (`--tf-build` on the command line, `tfBuild` in the `tfscript.json` it and
   the Claude Code hook read): which tf runs the scripts. It is `upstream` (TinyFugue 5.0 beta 8,
   the default, which checks as before) or `fork`, a tf that drops one CR from the end of each

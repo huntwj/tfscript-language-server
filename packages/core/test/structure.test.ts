@@ -208,9 +208,9 @@ describe("checkStructure in a macro body", () => {
     expect(checkStructure("/echo [$(/while (1) /break 2%; /done)]", "body")[0]?.explanation).toContain("no more levels");
   });
 
-  // tf dev (tf-script-check, 2026-10-14): in an expression, the same error, and then the macro runs
-  // anyway, with the $(...) empty (v= printed each time round, the loop ending on its condition).
-  it("says tf still runs the macro when the $(...) is inside an expression", () => {
+  // tf dev (tf-script-check, 2026-10-17): in an expression, the same error, and the macro doesn't run
+  // (until its fix for errors in an expression operand, 2026-10-14, it ran with the $(...) empty).
+  it("says tf rejects the macro when the $(...) is inside an expression too", () => {
     for (const body of [
       "/set n=0%; /while (n < 2) /echo v=$[ $(/break) ]%; /set n=$[n+1]%; /done",
       "/set n=0%; /while (n < 2) /if ($(/break)) /echo yes%; /endif%; /set n=$[n+1]%; /done",
@@ -220,12 +220,12 @@ describe("checkStructure in a macro body", () => {
     ]) {
       const [found] = checkStructure(body, "body");
       expect(found?.message, body).toBe(
-        "This /break would jump out of the $(...) around it, so tf reports an error and leaves it out: end the loop outside the $(...).",
+        "This /break would jump out of the $(...) around it, so tf rejects the macro: end the loop outside the $(...).",
       );
-      expect(found?.explanation, body).toContain("still runs the macro");
+      expect(found?.explanation, body).toContain("The macro then does nothing.");
     }
-    // tf carries on compiling past it, so a later error is reported too.
-    expect(issue("/while (1) /echo $[ $(/break) ]%; /done%; /if (1) /echo x")).toBe("block@/break block@/if");
+    // tf stops compiling there, so a later error isn't reported.
+    expect(issue("/while (1) /echo $[ $(/break) ]%; /done%; /if (1) /echo x")).toBe("block@/break");
     // In /test text it is a command's text, not an expression operand: the macro doesn't run.
     expect(checkStructure("/while (1) /test $(/break)%; /done", "body")[0]?.message).toContain("tf rejects the macro");
   });

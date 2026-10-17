@@ -475,7 +475,7 @@ class Parser {
   private block: Block = "";
   private cmdsub = 0;
   /** Where each `$(` the parser is inside starts, outermost first, and whether it is an expression operand. */
-  private readonly cmdsubStarts: { at: number; inExpression: boolean }[] = [];
+  private readonly cmdsubStarts: { at: number }[] = [];
   private depth = 0;
   private readonly open: Open[] = [];
   private readonly mids: MidKeyword[] = [];
@@ -1283,9 +1283,10 @@ class Parser {
    * underflow or dirty" and "invalid frame". Both proven in tf dev, 2026-10-14.
    *
    * Where the rejected /break is in a `$(...)` that is an expression operand (`$[ $(/break) ]`, an
-   * `/if` or `/while` condition), at any depth, tf dev prints the same error but still runs the
-   * macro, with that `$(...)` giving nothing; elsewhere (a command, `/test` text) the macro doesn't
-   * run. Proven in tf dev, 2026-10-14.
+   * `/if` or `/while` condition), at any depth, tf dev used to print the same error and still run
+   * the macro (2026-10-14); since its fix for errors in an expression operand, it rejects the
+   * macro there too and stops compiling, so nothing after it is reported. Proven in tf dev,
+   * 2026-10-17.
    */
   private breakOutOfCmdsub(start: number, end: number, levels: number): void {
     if (this.cmdsub === 0) return;
@@ -1298,19 +1299,12 @@ class Parser {
     if (outside) {
       // The $( it would jump out of: the outermost one the loop isn't inside.
       const cmdsubStart = (this.cmdsubStarts[outside.cmdsub] as { at: number }).at;
-      const runs = this.cmdsubStarts.some((c) => c.inExpression);
       const detail: IssueDetail = {
-        message: runs
-          ? "This /break would jump out of the $(...) around it, so tf reports an error and leaves it out: end the loop outside the $(...)."
-          : "This /break would jump out of the $(...) around it, so tf rejects the macro: end the loop outside the $(...).",
+        message: "This /break would jump out of the $(...) around it, so tf rejects the macro: end the loop outside the $(...).",
         label: "jumps out of the $(...)",
         explanation:
           `${rule} This one would end a loop opened outside it, so tf reports "expected a /break that stays inside ` +
-          "this $(...)\" when it compiles the macro. " +
-          (runs
-            ? `Here the ${code("$(...)")} is inside an expression, so tf still runs the macro, with that ${code("$(...)")} ` +
-              `giving nothing and the loop never ended by it.`
-            : "The macro then does nothing.") +
+          "this $(...)\" when it compiles the macro. The macro then does nothing." +
           ` Move the ${code("/break")} out of the ${code("$(...)")}, into the loop's own body. (TinyFugue releases before ` +
           "this check compile it, and running it leaves tf's internal state broken.)",
         related: [
@@ -1318,10 +1312,8 @@ class Parser {
           { start: outside.start, end: outside.end, message: "the loop it would end" },
         ],
       };
-      // tf stops compiling in a command; in an expression it carries on past the $(...).
-      if (!runs) this.fail("block", start, end, detail);
-      this.issues.push({ kind: "block", start, end: Math.max(end, start + 1), ...detail });
-      return;
+      // tf stops compiling there.
+      this.fail("block", start, end, detail);
     }
     if (levels > loops.length) {
       const cmdsubStart = (this.cmdsubStarts[this.cmdsubStarts.length - 1] as { at: number }).at;
@@ -1635,10 +1627,9 @@ class Parser {
   }
 
   /**
-   * `$$...`, `$[...]`, `$(...)` or `${name}`/`$name`, with `this.i` just after the `$` at `dollar`;
-   * `inExpression` when it is an operand of an expression.
+   * `$$...`, `$[...]`, `$(...)` or `${name}`/`$name`, with `this.i` just after the `$` at `dollar`.
    */
-  private dollarsub(dollar: number, inExpression = false): void {
+  private dollarsub(dollar: number): void {
     const s = this.s;
     if (s[this.i] === "$") {
       while (s[this.i] === "$") this.i += 1;
@@ -1652,7 +1643,7 @@ class Parser {
       this.i += 1;
       const start = this.i;
       this.cmdsub += 1;
-      this.cmdsubStarts.push({ at: dollar, inExpression });
+      this.cmdsubStarts.push({ at: dollar });
       const outer = this.block;
       this.cmdsubBlocks.push(outer);
       // Known gap (found in review, 2026-10-14, left for later): a keyword such as /endif inside
@@ -1832,7 +1823,7 @@ class Parser {
       if (ch === "$") {
         const dollar = this.i;
         this.i += 1;
-        this.dollarsub(dollar, true);
+        this.dollarsub(dollar);
         if (s[dollar + 1] === "[") this.dollarOperand(dollar, from, close, keyword, parens.length > 0);
         continue;
       }

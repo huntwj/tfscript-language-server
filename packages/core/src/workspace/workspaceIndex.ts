@@ -19,6 +19,7 @@ import {
   type UnfollowedLoad,
 } from "./loadPathDiagnostics";
 import type { TfDiagnostic } from "../diagnostics";
+import { asLoaded, DEFAULT_TF_BUILD, type TfBuild } from "../tfBuild";
 
 export interface FileSystem {
   readFile(file: string): string | undefined;
@@ -131,7 +132,23 @@ export class WorkspaceIndex {
   /** Files read from disk, until a watched file changes (filesChanged()) or, unwatched, until their modification time does. */
   private disk = new Map<string, { file: string; text: string | undefined; mtime: number | undefined }>();
 
+  /** A file's text as tf reads it with `/load` (see asLoaded()): the editor's if it is open, else what is on disk. */
   private read = (file: string): string | undefined => {
+    const text = this.readAsIs(file);
+    return text === undefined ? undefined : asLoaded(text, this.tfBuildFor(file));
+  };
+
+  /**
+   * Which tf reads `file`: the tfBuild of the workspace folder it is in, or of the first folder
+   * for a file in none (tf's library, say), as one tf runs them all.
+   */
+  tfBuildFor(file: string): TfBuild {
+    const inside = this.folders.some((f) => isInside(file, f));
+    const folder = inside ? this.folderFor(file) : this.folders[0];
+    return folder === undefined ? DEFAULT_TF_BUILD : this.settingsFor(folder).tfBuild;
+  }
+
+  private readAsIs(file: string): string | undefined {
     const key = keyOf(file);
     const open = this.overlay.get(key);
     if (open !== undefined) return open;
@@ -141,7 +158,7 @@ export class WorkspaceIndex {
     const text = this.fs.readFile(file);
     this.disk.set(key, { file, text, mtime });
     return text;
-  };
+  }
 
   /**
    * Forgets the disk text of every file no watcher covers whose modification time has changed

@@ -99,8 +99,13 @@ export function renderNotesRules(): string {
   return out.join("\n");
 }
 
-/** The tf-scripting skill: the "when code runs" preamble, a section per rule, then how to check a script. */
-export function renderSkill(): string {
+/**
+ * The tf-scripting skill: the "when code runs" preamble, a section per rule, then how to check a
+ * script. `notes` is the copy for the notes repo, whose cases and tf-script-check it names;
+ * `plugin` is the Claude Code plugin's, for anyone, which names the checker the plugin bundles.
+ */
+export function renderSkill(audience: "notes" | "plugin" = "notes"): string {
+  const notes = audience === "notes";
   const out: string[] = [
     "---",
     "name: tf-scripting",
@@ -113,10 +118,14 @@ export function renderSkill(): string {
     "",
     "# TinyFugue scripting",
     "",
-    "Do not trust memory or the manual for tf macro syntax. Each rule below was proven by running a script against the " +
-      `real tf (cases in \`${CASES_DIR}\`, full page \`site/src/content/docs/tinyfugue/scripting.md\` in ` +
-      "`~/ai/mud`), except what a rule lists as not run. Check every .tf edit against them. The tfscript language " +
-      "server reports the codes named under each rule.",
+    notes
+      ? "Do not trust memory or the manual for tf macro syntax. Each rule below was proven by running a script against the " +
+        `real tf (cases in \`${CASES_DIR}\`, full page \`site/src/content/docs/tinyfugue/scripting.md\` in ` +
+        "`~/ai/mud`), except what a rule lists as not run. Check every .tf edit against them. The tfscript language " +
+        "server reports the codes named under each rule."
+      : "Do not trust memory or the manual for tf macro syntax. Each rule below was proven by running a script against the " +
+        "real tf, except what a rule lists as not run. Check every .tf edit against them. The tfscript plugin checks each " +
+        `.tf file you write or edit and reports problems by the codes named under each rule, explained in full at ${RULES_DOC_URL}.`,
     "",
     "## When code runs",
     "",
@@ -126,15 +135,31 @@ export function renderSkill(): string {
   for (const section of RULE_SECTIONS) {
     out.push(`## ${heading(section)}`, "", list(section.statement), "", "Fix:", "", list(section.fix), "");
     const lines = [`Codes: ${codeList(section, (c) => `\`${c}\``)}.`];
-    if (section.cases.length > 0) lines.push(`Cases: ${section.cases.map((c) => `\`${c}\``).join(", ")}.`);
+    if (notes && section.cases.length > 0) lines.push(`Cases: ${section.cases.map((c) => `\`${c}\``).join(", ")}.`);
     out.push(lines.join(" "), "");
     for (const note of section.sourceOnly ?? []) out.push(`Not run: ${note}`, "");
   }
+  out.push("## Shapes that may be deliberate (planned)", "", MAYBE_INTENTIONAL.join("\n\n"), "");
+  if (!notes) {
+    out.push(
+      "## Checking a script (do this instead of guessing)",
+      "",
+      "The plugin's hook checks every `.tf` file, `tfrc` and `.tfrc` you write or edit, and blocks an edit that leaves an " +
+        "error. To check files yourself, run the checker the plugin bundles, from the plugin's folder (two folders above " +
+        "this skill's):",
+      "",
+      "    node <plugin folder>/bundle/tfscript.js check --root <project folder> FILE_OR_FOLDER...",
+      "    node <plugin folder>/bundle/tfscript.js --help    # every option",
+      "",
+      "Where tf finds what a file loads (its library folder, `TFPATH`, the tfrc it starts from) goes in a " +
+        "`tfscript.json` in the project folder, keyed by the setting names `--help` shows in brackets. A clean check is " +
+        "not proof that a macro does what you meant, since a body is only parsed when it runs: when it matters, `/load` " +
+        "the file in tf and run the macro.",
+      "",
+    );
+    return out.join("\n");
+  }
   out.push(
-    "## Shapes that may be deliberate (planned)",
-    "",
-    MAYBE_INTENTIONAL.join("\n\n"),
-    "",
     "## Checking a script with tf-script-check (do this instead of guessing)",
     "",
     "From `~/ai/mud` (use `MSYS_NO_PATHCONV=1` in Git Bash for container paths):",
@@ -162,6 +187,6 @@ export function generatedFiles(): Record<string, string> {
     "docs/generated/scripting-rules.md": renderNotesRules(),
     "docs/generated/tf-scripting-skill.md": renderSkill(),
     // The Claude Code plugin's copy, at the path a plugin's skills are loaded from.
-    "editors/claude-code/skills/tf-scripting/SKILL.md": renderSkill(),
+    "editors/claude-code/skills/tf-scripting/SKILL.md": renderSkill("plugin"),
   };
 }

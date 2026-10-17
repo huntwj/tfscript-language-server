@@ -7,7 +7,7 @@ description: Use when writing, editing, reviewing or debugging TinyFugue scripts
 
 # TinyFugue scripting
 
-Do not trust memory or the manual for tf macro syntax. Each rule below was proven by running a script against the real tf (cases in `~/ai/mud/tests/tfscript/cases/`, full page `site/src/content/docs/tinyfugue/scripting.md` in `~/ai/mud`), except what a rule lists as not run. Check every .tf edit against them. The tfscript language server reports the codes named under each rule.
+Do not trust memory or the manual for tf macro syntax. Each rule below was proven by running a script against the real tf, except what a rule lists as not run. Check every .tf edit against them. The tfscript plugin checks each .tf file you write or edit and reports problems by the codes named under each rule, explained in full at https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md.
 
 ## When code runs
 
@@ -33,7 +33,7 @@ Fix:
 - Save `.tf` files with LF line endings, and with no blanks after a final `\`.
 - Comment out a line that isn't a command with `;`, on every physical line of it.
 
-Codes: `missing-continuation`, `indented-line-after-command`, `backslash-not-last`, `not-a-command`, `incomplete-continuation`, `body-continues-without-backslash`. Cases: `if-multiline-top-level`, `if-oneline-top-level`, `if-multiline-top-level-backslash`, `if-multiline-in-def`, `indented-line-after-command`, `comment-lines`, `trailing-space-after-backslash`, `bare-line-after-command`, `blank-lines-between-defs`, `tab-expanded-on-load`, `missing-continuation-bare-endif`, `missing-continuation-indented-endif`, `missing-continuation-while`, `body-continues-without-backslash`, `incomplete-continuation`, `continuation-ended-by-blank-line`, `continuation-ended-by-whitespace-line`, `bom-is-not-a-blank`, `not-a-command-also-incomplete`, `percent-backslash-not-joined`, `crlf`, `tab-expanded-with-expand-tabs-off`.
+Codes: `missing-continuation`, `indented-line-after-command`, `backslash-not-last`, `not-a-command`, `incomplete-continuation`, `body-continues-without-backslash`.
 
 Not run: That such a line is an `/addworld` in `~/.tinytalk` (`command.c:606-616`) is read from the source; the cases only show that a `/load`ed file stops.
 
@@ -52,7 +52,7 @@ Fix:
 - Put several commands in a `/def`, or start the line with `/eval`, to separate them with `%;`.
 - In a condition, write the variable's name, `{x}`, not `%{x}`.
 
-Codes: `not-substituted-here`. Cases: `load-no-expansion`, `load-with-eval`, `separator-top-level`, `unclosed-substitution-top-level-text`, `top-level-literal-substitutions`, `top-level-if-line-level`, `repeat-substitutes`, `at-command-substitutes`, `quote-command-substitutes`, `for-body-substitutes`, `expression-operand-top-level`, `string-substitution-body-test`, `string-no-substitution-in-expressions`, `while-reads-variable`, `return-result-substituted`, `separator-percent-backslash-top-level-if`.
+Codes: `not-substituted-here`.
 
 ## R3. Statements and keywords
 
@@ -71,7 +71,7 @@ Fix:
 - Write a condition list's statements as commands: `/if /test x%; /then ...`.
 - Put `%;` between `/endif` or `/done` and whatever follows it.
 
-Codes: `keyword-mid-statement`, `condition-list-text`, `keyword-needs-space`, `block-structure`, `nesting-too-deep`. Cases: `let-swallows-endif`, `let-with-separator`, `block-structure-keyword-mid-statement`, `block-structure-keyword-as-text`, `block-structure-stray-keyword`, `block-structure-text-after-endif`, `block-structure-condition-list`, `block-structure-condition-list-ok`, `block-structure-top-level`, `keyword-mid-statement-set-value`, `keyword-mid-statement-setenv`, `keyword-mid-statement-let-no-equals`, `condition-list-text`, `keyword-needs-space`, `keyword-glued-macro-names`, `break-needs-positive-number`, `only-first-error-in-body`.
+Codes: `keyword-mid-statement`, `condition-list-text`, `keyword-needs-space`, `block-structure`, `nesting-too-deep`.
 
 ## R4. Separators and escapes
 
@@ -86,7 +86,7 @@ Fix:
 - Separate statements with one `%;`.
 - Write `%%;` for a literal `%;` in a body.
 
-Codes: none of its own. Cases: `separator-blanks-in-body`, `separator-literal-forms`, `separator-percent-backslash`, `separator-percent-runs`.
+Codes: none of its own.
 
 Not run: That `%|` pipes one statement's output into the next is read from the source; no case runs it.
 
@@ -99,7 +99,7 @@ Fix:
 
 - Delete the `%;` that ends the empty statement: `/if (x) /echo a%; /endif`, not `/if (x)%; /echo a%; /endif`.
 
-Codes: `empty-statement`. Cases: `separator-sends-blank-line`, `empty-statement-double-separator`, `empty-statement-after-then`, `empty-statement-after-do`, `empty-statement-after-else`, `empty-statement-body-start`, `empty-statement-trailing`.
+Codes: `empty-statement`.
 
 ## R6. Substitution syntax
 
@@ -114,7 +114,7 @@ Fix:
 - Nest through the default: `%{foo-%{bar}}`.
 - Write `%%-` for a literal `%-`: `50%%-off`.
 
-Codes: `substitution-syntax`. Cases: `unclosed-substitution-percent-brace`, `unclosed-substitution-percent-dash`, `unclosed-substitution-dollar-brace-paren`, `substitution-syntax-glued-in-body`, `substitution-syntax-top-level-glued`.
+Codes: `substitution-syntax`.
 
 ## R7. Expressions
 
@@ -127,7 +127,7 @@ Fix:
 - Write the plain expression in a condition: `/if (strstr({P0}, "x") >= 0)`, not `/if ($[strstr({P0}, "x")] >= 0)`.
 - Write `{x}`, not `%{x}`, for a variable in an expression.
 
-Codes: `expression-syntax`, `substitution-in-expression`. Cases: `dollar-bracket-in-if`, `if-expression-plain`, `unclosed-substitution-dollar-bracket`, `unclosed-substitution-string`, `unclosed-substitution-condition`, `expression-syntax-top-level-test`, `substitution-in-expression-warns`, `substitution-in-expression-body-test`, `substitution-in-expression-once-per-session`.
+Codes: `expression-syntax`, `substitution-in-expression`.
 
 ## R8. Macro names
 
@@ -139,7 +139,7 @@ Fix:
 
 - Name macros with something other than a keyword, and write the `=`: `/def greet = /echo hi`.
 
-Codes: `invalid-macro-name`. Cases: `reserved-macro-name`, `invalid-macro-name`, `builtin-redefined`.
+Codes: `invalid-macro-name`.
 
 ## R9. Load paths
 
@@ -151,7 +151,7 @@ Fix:
 - Put library directories on `TFPATH`, and write paths relative to tf's current directory, not the script's.
 - Build a path from a variable with `/eval`: `/eval /load %{dir}/x.tf`.
 
-Codes: `unresolved-load`, `undefined-macro`. Cases: `load-path-tfpath`, `load-path-tfpath-target`, `load-path-tfpath-replaces-libdir`, `load-path-libdir`, `load-not-loader-dir`, `undefined-macro-goes-on`.
+Codes: `unresolved-load`, `undefined-macro`.
 
 ## Shapes that may be deliberate (planned)
 
@@ -159,14 +159,11 @@ Some shapes tf runs without a word may be deliberate, so nothing flags them now.
 
 The candidates so far are an empty `/def x =` body, and bare text in a body, which tf sends to the world. For the second the warning would suggest `/send -h text`, which says that on purpose and does the same: bare text runs the SEND hook (`expand.c:620`), and `/send` runs it only with `-h` (`socket.c:2953`).
 
-## Checking a script with tf-script-check (do this instead of guessing)
+## Checking a script (do this instead of guessing)
 
-From `~/ai/mud` (use `MSYS_NO_PATHCONV=1` in Git Bash for container paths):
+The plugin's hook checks every `.tf` file, `tfrc` and `.tfrc` you write or edit, and blocks an edit that leaves an error. To check files yourself, run the checker the plugin bundles, from the plugin's folder (two folders above this skill's):
 
-    just tf-script-check PATH/TO/script.tf                              # load it, list problems
-    just tf-script-check --mount HOSTDIR=/wotmud /wotmud/tf/main.tf    # a script that loads others
-    ... --world NAME --server-text "line" --server-text "line"          # connect to a fake server so hooks/triggers fire
-    ... --cmd "/macroname arg"                                          # run a macro after loading
-    ... --all                                                           # show every % line tf prints
+    node <plugin folder>/bundle/tfscript.js check --root <project folder> FILE_OR_FOLDER...
+    node <plugin folder>/bundle/tfscript.js --help    # every option
 
-Exit 1 means tf printed a syntax error, missing file, unknown command or warning. Feed trigger scripts the server lines that should fire them. To learn a new rule, write a case in `tests/tfscript/cases/` (`;; expect: clean|problem`, `;; run: ...`, `;; rule: ...`), run `just test-tfscript`, then add it to the rule table in the language server's `packages/core/src/rules/table.ts` and regenerate this file. Only write a rule down after a test proved it; an untested rule from memory has already been wrong once.
+Where tf finds what a file loads (its library folder, `TFPATH`, the tfrc it starts from) goes in a `tfscript.json` in the project folder, keyed by the setting names `--help` shows in brackets. A clean check is not proof that a macro does what you meant, since a body is only parsed when it runs: when it matters, `/load` the file in tf and run the macro.

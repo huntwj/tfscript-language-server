@@ -24,6 +24,14 @@ describe("the docs generated from the rule table", () => {
     });
   }
 
+  it("gives the plugin's skill nothing that only works on the notes repo's machine", () => {
+    const plugin = generatedFiles()["editors/claude-code/skills/tf-scripting/SKILL.md"] as string;
+    expect(plugin).not.toMatch(/~\/ai\/|tf-script-check|just |Cases: /);
+    expect(plugin).toContain("bundle/tfscript.js check");
+    // The notes repo's copy keeps its cases and checker.
+    expect(generatedFiles()["docs/generated/tf-scripting-skill.md"]).toContain("just tf-script-check");
+  });
+
   it("README.md's rule table is up to date (npm run docs:rules)", () => {
     const readme = read("README.md");
     expect(readme).toBe(withReadmeTable(readme));

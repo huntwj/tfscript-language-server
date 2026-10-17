@@ -15,7 +15,7 @@ import { macroBodyStart, parseLayout, type Layout, type StructureIssue } from ".
  *
  * What makes that safe, each proven against real tf or its source (tinyfugue/src):
  *  - tf strips the leading whitespace of every line it reads, continuation lines included, and a
- *    trailing `\` joins the next line, removing only the `\` (command.c's load_file()). So
+ *    trailing `\` joins the next line, removing only the `\` (command.c's do_file_load()). So
  *    indentation is free, and a break inserted right after whitespace (`/if (x) \`) or after a
  *    `%;` joins back to the same text, but for the whitespace that followed the `%;`.
  *  - In a macro body, whitespace after a `%;` that separates statements is skipped before the next
@@ -27,10 +27,10 @@ import { macroBodyStart, parseLayout, type Layout, type StructureIssue } from ".
  *    /result, /if, /elseif, /else, /while, /break, nested /if bodies, a nested /def (whose body is
  *    stored without the blanks) and a `%%;` one level down (2026-10-16).
  *  - Not every `%;` separates: one inside a string or `(...)` of an expression (`/if ("a%; b")`,
- *    `$[strlen("a%;  b")]`) is text, and the blanks after it count. Only the separators that both
- *    tf's model (structure.ts) and a bracket-wary scan (topLevelSeparators()) agree on
- *    are touched, and only in the body itself: not inside a `$(...)` or a `/if list /then`
- *    condition list.
+ *    `$[strlen("a%;  b")]`) is text, and the blanks after it count. Quotes matter nowhere else
+ *    (topLevelSeparators()). Only the separators that both tf's model (structure.ts) and that
+ *    bracket-wary scan agree on are touched, and only in the body itself: not inside a `$(...)`
+ *    or a `/if list /then` condition list.
  *  - Dropping the blanks before a `%;` can glue it to what precedes: `50% %;` would become `50%%;`
  *    (text), and `x\ %;` would become `x\%;` (an escaped `%`); both proven to change what runs. So
  *    those blanks stay after `%`, `\`, `$` and `/`.
@@ -42,17 +42,20 @@ import { macroBodyStart, parseLayout, type Layout, type StructureIssue } from ".
  *    the head, options (`-p10 -mglob -t"a = b"`) included.
  *
  * What it guarantees: the definitions tf stores are the same, except that blanks next to the `%;`
- * separators above may be gone. Anything that reads a body as text, `/list`, `$(/list)`, `/edit`,
- * or `%mecho` showing each command as it runs, sees that difference; nothing else does.
+ * separators above may be gone. Whatever reads a body back as text sees that difference: `/list`
+ * and `$(/list)`, `/save`, `/edit`, a `${name}` substitution (`/echo [${name}]` prints the body,
+ * which is how alias.tf's ~listalias shows an alias), and `%mecho` showing each command as it
+ * runs. Running the macro is the same.
  *
  * What it leaves exactly as written, a whole entry at a time: files with CRLF line endings (where
  * `\` never continues a line); an entry the file ends in the middle of; one with a comment or blank
- * line among its lines, a `%\`, a `\` followed by blanks, or a tab after a line's indentation; one
- * whose structure tf would reject or that the checks flag (an unbalanced /if, an empty statement,
- * any error diagnostic); one with a block keyword in the middle of a statement, which tf reads as
- * text (`/echo a /else /echo b`); and any layout that doesn't
- * join back, the way tf joins lines, to the same statements. An entry's first line is never moved:
- * an indented one is what tf's "possibly missing trailing \" warning is about.
+ * line among its lines, a `%\`, a `\` followed by blanks, a tab after a line's indentation, or a
+ * U+FFFD (a byte that wasn't UTF-8); one whose structure tf would reject or that the checks flag
+ * (an unbalanced /if, an empty statement, any error diagnostic); one with a block keyword in the
+ * middle of a statement, which tf reads as text (`/echo a /else /echo b`), unless that statement's
+ * text is itself commands (`/eval /if ...`); and any layout that doesn't join back, the way tf
+ * joins lines, to the same statements. An entry's first line is never moved: an indented one is
+ * what tf's "possibly missing trailing \" warning is about.
  */
 
 export interface FormatOptions {

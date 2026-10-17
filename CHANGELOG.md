@@ -32,8 +32,9 @@
   each `/if`, `/elseif`, `/else` and `/while` block's contents a level further in. The Split,
   Extract and Inline refactorings lay bodies out the same way, in two spaces rather than the
   file's own indentation.
-- Formatting now leaves exactly as written a command with a comment or blank line among its
-  lines, a `%\`, a `\` followed by blanks, a U+FFFD, a structural problem, a block keyword in the
+- Formatting now only re-indents a command with a comment or blank line among its lines (no
+  text moved, no statement split; a comment line takes the depth of the block it sits in), and
+  leaves exactly as written one with a `%\`, a `\` followed by blanks, a U+FFFD, a structural problem, a block keyword in the
   middle of a statement (but for one in a command made of commands, like `/eval /if ...`), or an
   error diagnostic, rather than only re-indenting it; and a plain top-level command that isn't a
   block. It splits only at `%;`s that both tf's model and a scan of brackets agree separate

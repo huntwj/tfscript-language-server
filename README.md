@@ -751,14 +751,35 @@ this way), and `%mecho` showing each command as it runs. Running the macro is th
 
 Left exactly as written: a file with CRLF line endings, in the editor and on the command line
 alike (tf doesn't join a line ending in `\` before a `\r`); a command the file ends in the
-middle of; one with a comment or blank line among its lines, a `%\`, a `\` followed by blanks, a
-tab after a line's indentation, or a U+FFFD (what a byte that wasn't UTF-8 became when the file
+middle of; one with a `%\`, a `\` followed by blanks, a tab after a line's indentation, or a
+U+FFFD (what a byte that wasn't UTF-8 became when the file
 was read); one tf would reject, or with a problem the checks find (an unbalanced `/if`, an empty
 statement, an error diagnostic); and one with a block keyword in the middle of a statement,
 which tf reads as text (`/echo a /else /echo b`), unless the statement's text is itself commands
 (`/eval /if ...`, a nested `/def`). Every layout is joined again the way tf joins it and parsed
 again, and must give the same statements, or the entry is left alone. Formatting a file adds no
-diagnostic, and formatting it twice changes nothing more. `tfscript format` also leaves alone a
+diagnostic, and formatting it twice changes nothing more.
+
+A command with a comment or blank line among its lines is only re-indented: no text moves and no
+statement is split. tf skips a comment line inside a continuation, so the code lines are laid out
+as the formatter would (with splitting off), and each comment line goes back between them at the
+depth of the block it sits in: a comment before `/endif` stays in its `/else` branch, and one
+straight after a `/def`'s head is in the body. A comment's own text is kept, and so is a blank
+line that ends the command.
+
+```
+/def wotmud_captureMob = \
+  ;    /echo Capturing mob: '%{*}'%;\
+  /let _mob=$[textencode({*})]%;\
+  /if (strstr(wotmud_known_mobs, _mob) == -1) \
+    ;        /echo Unknown mob: %{*}%;\
+    /test ++map_unknownMobCount%;\
+  /else \
+    ;        /echo Known.%;\
+  /endif
+```
+
+`tfscript format` also leaves alone a
 file that isn't UTF-8, and replaces each file it changes in one step (a new file renamed over
 it).
 
@@ -766,7 +787,8 @@ it).
 formatted version into real tf, with the formatted library as `TFLIBDIR` so tf starts from it,
 and compares every macro `/list` shows and what each changed macro prints and sends to a world.
 Over tf's library, the WoTMUD scripts and the tf-* repos (72 files, 2238 entries,
-327 of them changed) every macro was the same or the same but for blanks beside `%;`,
+361 of them changed, 34 of those re-indented around comment or blank lines) every macro was
+the same or the same but for blanks beside `%;`,
 the 127 definitions that differed printed and sent the same when run, and the loads printed
 the same messages but for the line numbers they name; the WoTMUD scripts were already in this
 style.

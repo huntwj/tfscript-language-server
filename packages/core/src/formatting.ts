@@ -48,14 +48,14 @@ import { macroBodyStart, parseLayout, type Layout, type StructureIssue } from ".
  * runs. Running the macro is the same.
  *
  * What it leaves exactly as written, a whole entry at a time: files with CRLF line endings (where
- * `\` never continues a line); an entry the file ends in the middle of; one with a comment or blank
- * line among its lines, a `%\`, a `\` followed by blanks, a tab after a line's indentation, or a
- * U+FFFD (a byte that wasn't UTF-8); one whose structure tf would reject or that the checks flag
+ * `\` never continues a line); an entry the file ends in the middle of; one with a `%\`, a `\`
+ * followed by blanks, a tab after a line's indentation, or a U+FFFD (a byte that wasn't UTF-8); one whose structure tf would reject or that the checks flag
  * (an unbalanced /if, an empty statement, any error diagnostic); one with a block keyword in the
  * middle of a statement, which tf reads as text (`/echo a /else /echo b`), unless that statement's
  * text is itself commands (`/eval /if ...`); and any layout that doesn't join back, the way tf
  * joins lines, to the same statements. An entry's first line is never moved: an indented one is
- * what tf's "possibly missing trailing \" warning is about.
+ * what tf's "possibly missing trailing \" warning is about. One with a comment or blank line among
+ * its lines is only re-indented (reindentWithComments()).
  */
 
 export interface FormatOptions {

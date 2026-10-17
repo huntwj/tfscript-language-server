@@ -61,9 +61,10 @@ Usage: tfscript format [--check] <file or folder>...
 
 Lays out tf scripts the way the language server's Format Document does: a macro body on the
 lines after its head, one statement per line ending %;\\, each /if and /while block indented two
-spaces more. Only whitespace tf ignores changes. A command it can't prove the same once laid out
-(one with a comment or blank line among its lines, a tab after a line's indentation, or a
-structural error) is left as it is, and so is a file with CRLF line endings or that isn't UTF-8.
+spaces more. Only whitespace tf ignores changes. A command with a comment or blank line among its
+lines is only re-indented. A command it can't prove the same once laid out (one with a tab after
+a line's indentation, or a structural error) is left as it is, and so is a file with CRLF line
+endings or that isn't UTF-8.
 Folders are searched as for check. Each file that changes is named on stdout.
 
   --check                       change nothing: name the files that would change, and exit 1

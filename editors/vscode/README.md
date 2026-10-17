@@ -41,9 +41,10 @@ source). Node and npm are only needed to *build* this extension from source.
 - Format Document (Shift+Alt+F) and Format Selection lay a tf file out in one style: a macro
   body on the lines after its `= \`, one statement per line ending `%;\`, and each `/if` and
   `/while` block's contents two spaces further in. Only whitespace tf ignores changes, so the
-  file loads and runs the same. A command it can't prove the same once laid out (one with a
-  comment or blank line among its lines, a tab after a line's indentation, a `%\`, a keyword in
-  the middle of a statement, or an error diagnostic) is left exactly as written. A file with
+  file loads and runs the same. A command with a comment or blank line among its lines is only
+  re-indented, each comment at the depth of the block it sits in. A command it can't prove the
+  same once laid out (one with a tab after a line's indentation, a `%\`, a keyword in the middle
+  of a statement, or an error diagnostic) is left exactly as written. A file with
   CRLF line endings isn't formatted at all, as tf doesn't join a line ending in `\` before a
   `\r`: Format Document leaves it as it is (switch it to LF in the status bar first). The style
   has no settings, and the editor's tab size doesn't change it. To format on save:

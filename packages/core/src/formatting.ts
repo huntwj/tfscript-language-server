@@ -122,9 +122,15 @@ function keywordsIn(line: string): string[] {
   return found;
 }
 
+/** Blanks before a `%;` can go unless dropping them glues the `%;` to one of these (`50%%;`, `x\%;`). */
+const GLUES = new Set(["%", "\\", "$", "/"]);
+
 /**
  * The joined text with the whitespace beside each separator in the body removed: the parts of
- * an entry formatting may change. Two entries that normalise the same run the same.
+ * an entry formatting may change. Two entries that normalise the same run the same. Blanks that
+ * would glue a `%;` to a `%`, `\`, `$` or `/` before them are kept: `/echo 50% %;` would become
+ * `/echo 50%%;`, which is text, and `/echo a\ %;` would become `/echo a\%;`, an escaped `%`
+ * (both proven in real tf to change what runs, 2026-10-16).
  */
 export function normalise(joined: string, body: number): string {
   if (body < 0) return joined;
@@ -132,7 +138,9 @@ export function normalise(joined: string, body: number): string {
   let out = "";
   let from = 0;
   for (const s of seps) {
-    out += joined.slice(from, s).replace(/[ \t\f\v]+$/, "") + "%;";
+    const before = joined.slice(from, s);
+    const trimmed = before.replace(/[ \t\f\v]+$/, "");
+    out += (trimmed.length < before.length && GLUES.has(trimmed[trimmed.length - 1] ?? "") ? before : trimmed) + "%;";
     from = s + 2;
     while (/[ \t\f\v]/.test(joined[from] ?? "")) from += 1;
   }

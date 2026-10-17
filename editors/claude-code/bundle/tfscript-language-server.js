@@ -17046,13 +17046,16 @@ function keywordsIn(line) {
   }
   return found;
 }
+var GLUES = /* @__PURE__ */ new Set(["%", "\\", "$", "/"]);
 function normalise(joined2, body) {
   if (body < 0) return joined2;
   const seps = topLevelSeparators(joined2).filter((s) => s >= body);
   let out = "";
   let from = 0;
   for (const s of seps) {
-    out += joined2.slice(from, s).replace(/[ \t\f\v]+$/, "") + "%;";
+    const before2 = joined2.slice(from, s);
+    const trimmed = before2.replace(/[ \t\f\v]+$/, "");
+    out += (trimmed.length < before2.length && GLUES.has(trimmed[trimmed.length - 1] ?? "") ? before2 : trimmed) + "%;";
     from = s + 2;
     while (/[ \t\f\v]/.test(joined2[from] ?? "")) from += 1;
   }

@@ -75,6 +75,12 @@ describe("formatText", () => {
     expect(format("/def go = /a%; /b\r\n")).toBe("/def go = /a%; /b\r\n");
   });
 
+  it("keeps the blanks that stop a %; gluing to a % or \\ before it", () => {
+    // `/echo 50%%;/echo b` would echo `50%;/echo b`, and `x\%;` escapes the %.
+    expect(format("/def x = /echo 50% %; /echo b\n")).toBe("/def x = \\\n    /echo 50% %;\\\n    /echo b\n");
+    expect(format("/def x = /echo a\\ %; /echo b\n")).toBe("/def x = \\\n    /echo a\\ %;\\\n    /echo b\n");
+  });
+
   it("does not split what isn't a separator, or text that would become a comment line", () => {
     expect(format("/def go = /echo don't%; /b\n")).toBe("/def go = /echo don't%; /b\n");
     expect(format("/def go = /a%; ;not a comment\n")).toBe("/def go = /a%; ;not a comment\n");

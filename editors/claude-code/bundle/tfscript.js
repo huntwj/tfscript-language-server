@@ -8663,6 +8663,7 @@ function formatSummary(s) {
 }
 
 // packages/cli/src/formatFiles.ts
+var import_node_crypto = require("node:crypto");
 var import_node_fs3 = require("node:fs");
 var path9 = __toESM(require("node:path"));
 
@@ -8973,21 +8974,49 @@ function applyFormatEdits(text, edits) {
 }
 
 // packages/cli/src/formatFiles.ts
-var writeFileAtomic = (file, text) => {
-  const temp = path9.join(path9.dirname(file), `.${path9.basename(file)}.tfscript-${process.pid}.tmp`);
+var BackupKept = class extends Error {
+  constructor(backup) {
+    super(`the old text couldn't be put back; it is in ${backup}`);
+    this.backup = backup;
+  }
+  backup;
+};
+function overwrite(fd, data) {
+  (0, import_node_fs3.ftruncateSync)(fd, 0);
+  let done = 0;
+  while (done < data.length) done += (0, import_node_fs3.writeSync)(fd, data, done, data.length - done, done);
+}
+function writeFileInPlace(file, text, write = overwrite) {
+  const old = (0, import_node_fs3.readFileSync)(file);
+  const backup = path9.join(path9.dirname(file), `.${path9.basename(file)}.tfscript-${(0, import_node_crypto.randomBytes)(8).toString("hex")}.bak`);
+  (0, import_node_fs3.writeFileSync)(backup, old, { flag: "wx" });
+  let fd;
   try {
-    (0, import_node_fs3.writeFileSync)(temp, text);
-    (0, import_node_fs3.chmodSync)(temp, (0, import_node_fs3.statSync)(file).mode);
-    (0, import_node_fs3.renameSync)(temp, file);
+    fd = (0, import_node_fs3.openSync)(file, "r+");
   } catch (error) {
-    (0, import_node_fs3.rmSync)(temp, { force: true });
+    (0, import_node_fs3.rmSync)(backup, { force: true });
     throw error;
   }
-};
+  try {
+    write(fd, Buffer.from(text, "utf8"));
+  } catch (error) {
+    try {
+      write(fd, old);
+    } catch {
+      (0, import_node_fs3.closeSync)(fd);
+      throw new BackupKept(backup);
+    }
+    (0, import_node_fs3.closeSync)(fd);
+    (0, import_node_fs3.rmSync)(backup, { force: true });
+    throw error;
+  }
+  (0, import_node_fs3.closeSync)(fd);
+  (0, import_node_fs3.rmSync)(backup, { force: true });
+}
 var UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 function formatFiles(request, host, write, read = (f) => (0, import_node_fs3.readFileSync)(f)) {
   const problems = [];
-  const outcome = { files: [], changed: [], crlf: [], notUtf8: [], problems };
+  const outcome = { files: [], changed: [], crlf: [], notUtf8: [], replacement: [], problems };
   for (const { file, real } of expandPaths(request.paths, request.cwd, host, problems)) {
     const shown = path9.relative(request.cwd, file) || file;
     let bytes;
@@ -9007,12 +9036,15 @@ function formatFiles(request, host, write, read = (f) => (0, import_node_fs3.rea
     }
     const result = formatDocument(text);
     if (result.crlf) outcome.crlf.push(file);
+    if (result.replacement) outcome.replacement.push(file);
     if (result.edits.length === 0) continue;
     if (!request.check) {
       try {
         write(real, applyFormatEdits(text, result.edits));
-      } catch {
-        problems.push(`${shown} can't be written: check that it is a file you may change.`);
+      } catch (error) {
+        problems.push(
+          error instanceof BackupKept ? `${shown} was only partly written, and its old text couldn't be put back: it is in ${path9.relative(request.cwd, error.backup) || error.backup}, so copy it back.` : `${shown} can't be written: check that it is a file you may change.`
+        );
         continue;
       }
     }
@@ -9093,15 +9125,15 @@ Folders are searched as for check. Each file that changes is named on stdout.
                                 if there are any
 
 Exit status: 0 when every file is formatted (with --check, when none would change), 1 with
---check when a file would change, 2 when the command line is wrong or a path can't be read or
-written.
+--check when a file would change, 2 when the command line is wrong or a path can't be read,
+written or decoded (a file that isn't UTF-8, or holds U+FFFD).
 `;
 
 // packages/cli/src/main.ts
 var EXIT_OK = 0;
 var EXIT_PROBLEMS = 1;
 var EXIT_USAGE = 2;
-function main(argv, io, host = nodeHost(), write = writeFileAtomic) {
+function main(argv, io, host = nodeHost(), write = (f, t) => writeFileInPlace(f, t)) {
   let command2;
   try {
     command2 = parseArgs(argv);
@@ -9158,7 +9190,11 @@ function format(paths, checkOnly, io, host, write) {
 `);
   }
   for (const name of names(outcome.notUtf8)) {
-    io.err(`tfscript: ${name} isn't UTF-8, so it was left as it is, as formatting it would lose the bytes that aren't: convert it to UTF-8 to format it.
+    io.err(`tfscript: ${name} isn't UTF-8, so it can't be formatted or checked, as formatting it would lose the bytes that aren't: convert it to UTF-8.
+`);
+  }
+  for (const name of names(outcome.replacement)) {
+    io.err(`tfscript: ${name} holds U+FFFD, the mark of a byte that wasn't UTF-8, so it can't be formatted or checked: put back the character it stood for.
 `);
   }
   for (const problem of outcome.problems) io.err(`tfscript: ${problem}
@@ -9168,7 +9204,7 @@ function format(paths, checkOnly, io, host, write) {
 `);
   else if (!checkOnly && outcome.changed.length > 0) io.err(`Reformatted ${of}.
 `);
-  if (outcome.problems.length > 0) return EXIT_USAGE;
+  if (outcome.problems.length > 0 || outcome.notUtf8.length > 0 || outcome.replacement.length > 0) return EXIT_USAGE;
   return checkOnly && outcome.changed.length > 0 ? EXIT_PROBLEMS : EXIT_OK;
 }
 

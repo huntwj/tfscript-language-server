@@ -780,8 +780,9 @@ line that ends the command.
 ```
 
 `tfscript format` also leaves alone a
-file that isn't UTF-8, and replaces each file it changes in one step (a new file renamed over
-it).
+file that isn't UTF-8 (exiting 2, as it couldn't check it), and writes each file it changes in
+place, after a copy of the old one that it removes once the write is done, so the file keeps its
+links, owner and permissions, and a read-only file is refused.
 
 `npm run test:format-live` (`scripts/check-format-live.js`) loads each corpus file and its
 formatted version into real tf, with the formatted library as `TFLIBDIR` so tf starts from it,

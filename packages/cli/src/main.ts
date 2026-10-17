@@ -1,7 +1,7 @@
 import { parseArgs, UsageError } from "./args";
 import { check, nodeHost, type CheckHost } from "./check";
 import { displayPath, formatHuman, formatSummary, plural, summarize, toJsonReport } from "./format";
-import { formatFiles, writeFileAtomic, type WriteFile } from "./formatFiles";
+import { formatFiles, writeFileInPlace, type WriteFile } from "./formatFiles";
 import { NAMERS } from "./settingNames";
 import { USAGE, VERSION } from "./usage";
 
@@ -19,7 +19,7 @@ export interface Io {
 }
 
 /** Runs the command line `argv` (without node and the script) and returns the exit status. */
-export function main(argv: readonly string[], io: Io, host: CheckHost = nodeHost(), write: WriteFile = writeFileAtomic): number {
+export function main(argv: readonly string[], io: Io, host: CheckHost = nodeHost(), write: WriteFile = (f, t) => writeFileInPlace(f, t)): number {
   let command;
   try {
     command = parseArgs(argv);
@@ -77,12 +77,16 @@ function format(paths: string[], checkOnly: boolean, io: Io, host: CheckHost, wr
     io.err(`tfscript: ${name} has CRLF line endings, where tf doesn't join a line ending in \\ to the next, so it was left as it is: convert it to LF to format it.\n`);
   }
   for (const name of names(outcome.notUtf8)) {
-    io.err(`tfscript: ${name} isn't UTF-8, so it was left as it is, as formatting it would lose the bytes that aren't: convert it to UTF-8 to format it.\n`);
+    io.err(`tfscript: ${name} isn't UTF-8, so it can't be formatted or checked, as formatting it would lose the bytes that aren't: convert it to UTF-8.\n`);
+  }
+  for (const name of names(outcome.replacement)) {
+    io.err(`tfscript: ${name} holds U+FFFD, the mark of a byte that wasn't UTF-8, so it can't be formatted or checked: put back the character it stood for.\n`);
   }
   for (const problem of outcome.problems) io.err(`tfscript: ${problem}\n`);
   const of = `${outcome.changed.length} of ${plural(outcome.files.length, "file", "files")}`;
   if (checkOnly && outcome.changed.length > 0) io.err(`${of} would be reformatted: run tfscript format on ${outcome.changed.length === 1 ? "it" : "them"}.\n`);
   else if (!checkOnly && outcome.changed.length > 0) io.err(`Reformatted ${of}.\n`);
-  if (outcome.problems.length > 0) return EXIT_USAGE;
+  // A file that couldn't be looked at isn't known to be formatted, so --check can't pass it.
+  if (outcome.problems.length > 0 || outcome.notUtf8.length > 0 || outcome.replacement.length > 0) return EXIT_USAGE;
   return checkOnly && outcome.changed.length > 0 ? EXIT_PROBLEMS : EXIT_OK;
 }

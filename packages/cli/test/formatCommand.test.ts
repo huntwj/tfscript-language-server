@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, ftruncateSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseArgs, UsageError } from "../src/args";
-import { writeFileAtomic } from "../src/formatFiles";
+import { BackupKept, writeFileInPlace } from "../src/formatFiles";
 import { EXIT_OK, EXIT_PROBLEMS, EXIT_USAGE, main } from "../src/main";
 import { USAGE } from "../src/usage";
 import { runBin, testHost } from "./fixtures";
@@ -79,14 +79,23 @@ describe("tfscript format", () => {
     expect(read("crlf.tf")).toBe("/def go = /echo a%; /echo b\r\n");
   });
 
-  it("leaves a file that isn't UTF-8 alone, byte for byte, saying why", () => {
+  it("leaves a file that isn't UTF-8 alone, byte for byte, and exits 2, --check or not", () => {
     // Latin-1 "café": decoded leniently, the é would be written back as U+FFFD (ef bf bd).
     const latin1 = Buffer.from("/def go = /echo caf\xe9%; /echo b\n", "latin1");
     writeFileSync(path.join(dir, "latin1.tf"), latin1);
-    const { code, out, err } = run(["format", "latin1.tf"]);
-    expect({ code, out }).toEqual({ code: EXIT_OK, out: "" });
-    expect(err).toBe("tfscript: latin1.tf isn't UTF-8, so it was left as it is, as formatting it would lose the bytes that aren't: convert it to UTF-8 to format it.\n");
+    const note = "tfscript: latin1.tf isn't UTF-8, so it can't be formatted or checked, as formatting it would lose the bytes that aren't: convert it to UTF-8.\n";
+    expect(run(["format", "latin1.tf"])).toEqual({ code: EXIT_USAGE, out: "", err: note });
+    expect(run(["format", "--check", "latin1.tf"])).toEqual({ code: EXIT_USAGE, out: "", err: note });
     expect(readFileSync(path.join(dir, "latin1.tf")).equals(latin1)).toBe(true);
+  });
+
+  it("leaves a file holding U+FFFD alone, and exits 2", () => {
+    writeFileSync(path.join(dir, "fffd.tf"), "/def go = /echo caf\uFFFD%; /echo b\n");
+    expect(run(["format", "--check", "fffd.tf"])).toEqual({
+      code: EXIT_USAGE,
+      out: "",
+      err: "tfscript: fffd.tf holds U+FFFD, the mark of a byte that wasn't UTF-8, so it can't be formatted or checked: put back the character it stood for.\n",
+    });
   });
 
   it("keeps a UTF-8 file's byte order mark and its other characters", () => {
@@ -95,14 +104,64 @@ describe("tfscript format", () => {
     expect(read("bom.tf")).toBe("﻿;; café\n/def go = \\\n  /echo café%;\\\n  /echo b\n");
   });
 
-  it("writes through a file beside the old one, renamed over it, leaving nothing behind", () => {
-    const file = path.join(dir, "scripts", "a.tf");
-    writeFileAtomic(file, LAID_OUT);
-    expect(read("scripts/a.tf")).toBe(LAID_OUT);
-    expect(readdirSync(path.join(dir, "scripts")).sort()).toEqual(["a.tf", "b.tf"]);
-    // A file that can't be replaced keeps its old text, and no temporary file is left.
-    expect(() => writeFileAtomic(path.join(dir, "scripts", "missing.tf"), LAID_OUT)).toThrow();
-    expect(readdirSync(path.join(dir, "scripts")).sort()).toEqual(["a.tf", "b.tf"]);
+  describe("writing in place", () => {
+    const file = () => path.join(dir, "scripts", "a.tf");
+    const listing = () => readdirSync(path.join(dir, "scripts")).sort();
+
+    it("writes the new text into the same file and leaves no copy behind", () => {
+      writeFileInPlace(file(), LAID_OUT);
+      expect(read("scripts/a.tf")).toBe(LAID_OUT);
+      expect(listing()).toEqual(["a.tf", "b.tf"]);
+    });
+
+    it("keeps hard links to the file", () => {
+      const link = path.join(dir, "link.tf");
+      linkSync(file(), link);
+      writeFileInPlace(file(), LAID_OUT);
+      expect(readFileSync(link, "utf8")).toBe(LAID_OUT);
+    });
+
+    it("refuses a read-only file and leaves it untouched", () => {
+      chmodSync(file(), 0o444);
+      try {
+        expect(() => writeFileInPlace(file(), LAID_OUT)).toThrow();
+        expect(read("scripts/a.tf")).toBe(ONE_LINE);
+        expect(listing()).toEqual(["a.tf", "b.tf"]);
+        expect(run(["format", "scripts/a.tf"]).code).toBe(EXIT_USAGE);
+      } finally {
+        chmodSync(file(), 0o644);
+      }
+    });
+
+    it("puts the old text back when the write fails part way", () => {
+      let calls = 0;
+      const failFirst = (fd: number, data: Uint8Array) => {
+        calls += 1;
+        if (calls === 1) throw new Error("disk full");
+        ftruncateSync(fd, 0);
+        writeSync(fd, data, 0, data.length, 0);
+      };
+      expect(() => writeFileInPlace(file(), LAID_OUT, failFirst)).toThrow("disk full");
+      expect(read("scripts/a.tf")).toBe(ONE_LINE);
+      expect(listing()).toEqual(["a.tf", "b.tf"]);
+    });
+
+    it("keeps the copy, and names it, when the old text can't be put back either", () => {
+      const failAll = () => {
+        throw new Error("disk full");
+      };
+      let error: unknown;
+      try {
+        writeFileInPlace(file(), LAID_OUT, failAll);
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(BackupKept);
+      const backup = (error as BackupKept).backup;
+      expect(readFileSync(backup, "utf8")).toBe(ONE_LINE);
+      expect(path.dirname(backup)).toBe(path.join(dir, "scripts"));
+      rmSync(backup);
+    });
   });
 
   it("exits 2 on a path it can't read or write", () => {

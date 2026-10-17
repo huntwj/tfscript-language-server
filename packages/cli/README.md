@@ -133,9 +133,15 @@ The style has no options.
 
 Each file that changes is named on stdout, then a count goes to stderr. A file with CRLF line
 endings is left as it is, with a note on stderr: tf doesn't join a line ending in `\` before a
-`\r`, so its layout can't be changed safely. So is a file that isn't valid UTF-8, whose other
-bytes would be lost (a byte order mark is kept). Each changed file is written to a new file
-beside it, which is then renamed over it, so a write that fails leaves the old file whole.
+`\r`, so its layout can't be changed safely. A file that isn't valid UTF-8 (whose other bytes
+would be lost), or that holds U+FFFD (the mark of a byte that wasn't), can't be formatted or
+checked: it is left as it is, with a note, and the exit status is 2. A byte order mark is kept.
+
+A changed file is written in place, as gofmt writes one: first a copy of the old file beside it,
+under a name nobody can guess, then the new text into the file itself, so it keeps its hard
+links, owner, permissions and attributes, and a read-only file is refused untouched. The copy is
+removed once the write is done. If a write fails part way the old text is put back, and if that
+fails too the copy is kept, and the message names it.
 
 | Option | Meaning |
 |---|---|
@@ -144,8 +150,9 @@ beside it, which is then renamed over it, so a write that fails leaves the old f
 - **0**: every file is formatted (with `--check`: no file would change).
 - **1**: with `--check`, at least one file would change.
 - **2**: the command line is wrong (an option `check` takes, nothing to format), or a path can't
-  be formatted (it doesn't exist, can't be read or written, or is a folder with no tf scripts).
-  The other paths are still formatted.
+  be formatted or checked (it doesn't exist, can't be read or written, isn't UTF-8 or holds
+  U+FFFD, or is a folder with no tf scripts). The other paths are still formatted. A CRLF file
+  doesn't count: it is left as it is on purpose.
 
 ## JSON output
 

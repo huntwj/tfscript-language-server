@@ -47,10 +47,11 @@
   before a `%;` even after a `%` or `\`, turning `/echo 50% %; /echo b` into `/echo 50%%;/echo b`
   (one `/echo` of `50%;/echo b`) and `/echo a\ %;` into an escaped `%`. Those blanks are kept now.
 - `tfscript format [--check] <files or folders>`: the server's formatting from the command line.
-  It rewrites each file in place (through a new file renamed over it) and names the ones it
-  changed; with `--check` it changes nothing, names the files that would change, and exits 1 if
-  there are any. A file with CRLF line endings, or that isn't UTF-8, is left as it is, with a
-  note.
+  It rewrites each file in place (after a copy of the old text, which it puts back if the write
+  fails) and names the ones it changed; with `--check` it changes nothing, names the files that
+  would change, and exits 1 if there are any. A file with CRLF line endings is left as it is, with
+  a note; one that isn't UTF-8, or holds U+FFFD, is left as it is too, but exits 2, as it couldn't
+  be checked. In the editor, a document holding U+FFFD isn't formatted either.
 - `unresolved-load` on one of tf's own library files (`/load alias.tf`, any of the `.tf` files tf
   installs) when no library folder is known (no `tfscript.libraryPath`, no `TFLIBDIR`, and an
   empty TFPATH) is now a note asking for `tfscript.libraryPath`, rather than a warning to set

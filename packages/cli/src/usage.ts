@@ -71,6 +71,6 @@ Folders are searched as for check. Each file that changes is named on stdout.
                                 if there are any
 
 Exit status: 0 when every file is formatted (with --check, when none would change), 1 with
---check when a file would change, 2 when the command line is wrong or a path can't be read or
-written.
+--check when a file would change, 2 when the command line is wrong or a path can't be read,
+written or decoded (a file that isn't UTF-8, or holds U+FFFD).
 `;

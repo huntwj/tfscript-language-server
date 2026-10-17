@@ -82,9 +82,9 @@ describe("formatText: the style", () => {
     );
   });
 
-  it("re-indents an already-split body, oddly indented, and keeps the author's breaks inside a statement", () => {
+  it("re-indents an already-split body, oddly indented, and joins the author's breaks inside a statement", () => {
     const text = lines("/def go = \\", "/while (i < 3) \\", "         /test ++i%;\\", "/done%;\\", "  /echo -p a \\", "long tail");
-    expect(format(text)).toBe(lines("/def go = \\", "  /while (i < 3) \\", "    /test ++i%;\\", "  /done%;\\", "  /echo -p a \\", "    long tail"));
+    expect(format(text)).toBe(lines("/def go = \\", "  /while (i < 3) \\", "    /test ++i%;\\", "  /done%;\\", "  /echo -p a long tail"));
   });
 
   it("keeps a /while list /do or /if list /then condition on one line", () => {
@@ -107,11 +107,11 @@ describe("formatText: the style", () => {
     expect(format('/def -p10 -mglob -t"a = b" -F h = /a%; /b\n')).toBe(lines('/def -p10 -mglob -t"a = b" -F h = \\', "  /a%;\\", "  /b"));
   });
 
-  it("lays out /bind, /hook, /trig and /alias bodies too, and hangs a nested /def's body", () => {
+  it("lays out /bind, /hook, /trig and /alias bodies too, and joins a nested /def that fits", () => {
     expect(format("/hook CONNECT = /a%; /b\n")).toBe(lines("/hook CONNECT = \\", "  /a%;\\", "  /b"));
     expect(format("/alias go /a %; /b\n")).toBe(lines("/alias go \\", "  /a%;\\", "  /b"));
     const text = lines("/def log = \\", "/if (c) \\", "/def -t'x' inner =\\", "/echo hi%;\\", "/endif");
-    expect(format(text)).toBe(lines("/def log = \\", "  /if (c) \\", "    /def -t'x' inner =\\", "      /echo hi%;\\", "  /endif"));
+    expect(format(text)).toBe(lines("/def log = \\", "  /if (c) \\", "    /def -t'x' inner =/echo hi%;\\", "  /endif"));
   });
 
   it("leaves a one-statement body on its line", () => {
@@ -120,6 +120,85 @@ describe("formatText: the style", () => {
 
   it("keeps an entry's first line where it is, indented or not", () => {
     expect(format("/echo x\n  /def go = /echo a%; /echo b\n")).toBe("/echo x\n  /def go = \\\n  /echo a%;\\\n  /echo b\n");
+  });
+});
+
+describe("formatText: long lines", () => {
+  const widest = (text: string) => Math.max(...text.split("\n").map((l) => l.length));
+
+  it("joins a one-statement macro that fits in 100 columns, and moves the body of one that doesn't", () => {
+    expect(format(lines("/def -i idle_warn = \\", "    /echo -aCyellow You have been idle \\", "        for $[idle()] seconds."))).toBe(
+      lines("/def -i idle_warn = /echo -aCyellow You have been idle for $[idle()] seconds."),
+    );
+    expect(format("/def -i idle_warn = /echo -aCyellow You have been idle for $[idle()] seconds, which is longer than allowed.\n")).toBe(
+      lines("/def -i idle_warn = \\", "  /echo -aCyellow You have been idle for $[idle()] seconds, which is longer than allowed."),
+    );
+  });
+
+  it("fills a head with as many options as fit, then hangs the rest four spaces in, a quoted value whole", () => {
+    const head = "/def -i -F -p100 -mregexp -ag -c50 -w'wotmud' -T'diku' -t'^(\\w+) tells you, \\'(.*) and more text here\\'$' tell = /echo %{P1}%; /beep\n";
+    expect(format(head)).toBe(
+      lines("/def -i -F -p100 -mregexp -ag -c50 -w'wotmud' -T'diku' \\", "    -t'^(\\w+) tells you, \\'(.*) and more text here\\'$' tell = \\", "  /echo %{P1}%;\\", "  /beep"),
+    );
+  });
+
+  it("breaks a condition before its own & or |, hanging four spaces past the /if", () => {
+    expect(format("/def check_it = /if (hp_current < hp_max / 3 & !in_combat & target_name =~ \"\" & auto_heal_enabled & mana_current > 40) /cast heal%; /endif\n")).toBe(
+      lines(
+        "/def check_it = \\",
+        "  /if (hp_current < hp_max / 3 & !in_combat & target_name =~ \"\" & auto_heal_enabled \\",
+        "      & mana_current > 40) \\",
+        "    /cast heal%;\\",
+        "  /endif",
+      ),
+    );
+  });
+
+  it("refills text to 100 columns at blanks between words, after the command's options", () => {
+    // lib/tf/kbfunc.tf's message, split by its author in three.
+    const text = lines(
+      "/def -i -ag -mregexp -h'NOMACRO ^key_' no_named_key_macro = \\",
+      '    /echo -p %% The key "@{B}%PR@{n}" is undefined; \\',
+      '\tyou may use "@{B}/def key_%PR = <commands>@{n}" to define it.  \\',
+      '\tSee "@{B}/help keys@{n}".',
+    );
+    const out = format(text);
+    expect(out).toBe(
+      lines(
+        "/def -i -ag -mregexp -h'NOMACRO ^key_' no_named_key_macro = \\",
+        '  /echo -p %% The key "@{B}%PR@{n}" is undefined; you may use "@{B}/def key_%PR = <commands>@{n}" \\',
+        '      to define it.  See "@{B}/help keys@{n}".',
+      ),
+    );
+    expect(joined(out)).toEqual(joined(text));
+  });
+
+  it("never starts a line with a ; or #, which tf would skip as a comment", () => {
+    const out = format("/def h = /echo aaaaaaaaaa bbbbbbbbbb cccccccccc dddddddddd eeeeeeeeee ffffffffff gggggggggg hhhhhhhhh #1 is here%; /x\n");
+    expect(out).toBe(lines("/def h = \\", "  /echo aaaaaaaaaa bbbbbbbbbb cccccccccc dddddddddd eeeeeeeeee ffffffffff gggggggggg hhhhhhhhh #1 \\", "      is here%;\\", "  /x"));
+    expect(out.split("\n").some((l) => /^\s*[;#]/.test(l))).toBe(false);
+  });
+
+  it("breaks a nested macro where its body starts, then after its own %%;", () => {
+    const text =
+      "/def outer = /def -i -p1 -n1 -w -mregexp -h'PROMPT login: *$$' ~detect_worldtype_telnet_${world_name} = /echo -e %%% This looks like a telnet world.%%; /addworld -Ttelnet ${world_name}%%; /set lp=1%%; /localecho on%; /x\n";
+    const out = format(text);
+    expect(out).toBe(
+      lines(
+        "/def outer = \\",
+        "  /def -i -p1 -n1 -w -mregexp -h'PROMPT login: *$$' ~detect_worldtype_telnet_${world_name} = \\",
+        "      /echo -e %%% This looks like a telnet world.%%; /addworld -Ttelnet ${world_name}%%; \\",
+        "      /set lp=1%%; /localecho on%;\\",
+        "  /x",
+      ),
+    );
+    expect(widest(out)).toBeLessThanOrEqual(100);
+  });
+
+  it("leaves a statement with nowhere to break long, and an entry with a comment line as its author broke it", () => {
+    const set = "/def s = /set list=aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll mmmm nnnn oooo pppp qqqq rrrr%; /x\n";
+    expect(format(set)).toBe(lines("/def s = \\", "  /set list=aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll mmmm nnnn oooo pppp qqqq rrrr%;\\", "  /x"));
+    expect(format(lines("/def c = \\", "; a comment", "/echo a \\", "b%;\\", "/x"))).toBe(lines("/def c = \\", "  ; a comment", "  /echo a \\", "      b%;\\", "  /x"));
   });
 });
 

@@ -9,9 +9,12 @@ import { macroBodyStart, parseLayout, type Layout, type StructureIssue } from ".
  * The layout: a macro body (`/def`, `/bind`, `/hook`, `/trig*`, `/alias`...) starts on the line
  * after its head, which ends `= \`; each statement goes on a line of its own ending `%;\`, the last
  * with no `%;`; `/if`, `/elseif`, `/while` and `/else` start a block whose children sit one level
- * deeper, and `/endif` and `/done` line up with the keyword that opened them. A line that continues
- * a statement (a break the author made) hangs one level deeper still. A top-level `/if` or
- * `/while` block is re-indented the same way; other top-level commands are left as written.
+ * deeper, and `/endif` and `/done` line up with the keyword that opened them. A macro's line
+ * breaks are the formatter's: the author's inside a statement are joined, a body of one statement
+ * stays on its head's line when it fits, and a line over `maxWidth` is broken where it can be
+ * (wrapLines(), breakPoints()). A line that continues a statement hangs two levels past it. A
+ * top-level `/if` or `/while` block is re-indented the same way, keeping its author's breaks;
+ * other top-level commands are left as written.
  *
  * What makes that safe, each proven against real tf or its source (tinyfugue/src):
  *  - tf strips the leading whitespace of every line it reads, continuation lines included, and a
@@ -63,10 +66,12 @@ export interface FormatOptions {
   indentWidth: number;
   /** Put each `%;`-separated statement of a macro body on its own line. Off: only re-indent. */
   splitStatements: boolean;
+  /** The width a macro's lines are kept to where they can be broken (wrapLines()). */
+  maxWidth: number;
 }
 
-/** Wil's style: two spaces, one statement per line. */
-export const DEFAULT_FORMAT_OPTIONS: Readonly<FormatOptions> = { indentWidth: 2, splitStatements: true };
+/** Wil's style: two spaces, one statement per line, lines of at most 100 where they can be broken. */
+export const DEFAULT_FORMAT_OPTIONS: Readonly<FormatOptions> = { indentWidth: 2, splitStatements: true, maxWidth: 100 };
 
 /** One level of indentation: what formatting and the Split, Extract and Inline refactorings indent by. */
 export function formatIndent(options: Partial<FormatOptions> = {}): string {
@@ -267,15 +272,15 @@ interface Plan {
 
 /**
  * Where to break the joined text of a macro entry, and what blanks to drop: after each separator
- * of the body itself, at each block part's first statement, and where the body starts.
+ * of the body itself, at each block part's first statement, and where the body starts. The
+ * author's own breaks are not kept: the formatter decides them all (wrapLines() adds those a
+ * long line needs). A body of one statement stays on its head's line when `moveBody` is false.
  */
-function splitPlan(entry: LogicalEntry, body: number, layout: Layout, authorBreaks: number[], multiLine: boolean): Plan | undefined {
+function splitPlan(entry: LogicalEntry, body: number, layout: Layout, moveBody: boolean): Plan | undefined {
   const j = entry.text;
   const cuts = new Set<number>();
   const removed = new Set<number>();
   const spaced = new Set<number>();
-  // Where an author's break is replaced by one of ours.
-  const zones: [number, number][] = [];
   const safe = new Set(topLevelSeparators(j));
   const own = layout.separators.filter((sep) => sep.char === ";" && layout.lists[sep.list]?.kind === "body");
   // Where the two disagree (a `:-(` in text sent to the world), the body is only
@@ -290,7 +295,6 @@ function splitPlan(entry: LogicalEntry, body: number, layout: Layout, authorBrea
     while (r > body && isTfSpace(j[r - 1])) r -= 1;
     if (r < at && r > body && !GLUES.has(j[r - 1] as string)) for (let k = r; k < at; k += 1) removed.add(k);
     for (let k = at + 2; k < q; k += 1) removed.add(k);
-    zones.push([r, q]);
     // A %; that ends the body stays on its last line: breaking after it would continue the last
     // line onto whatever follows the entry.
     if (q < j.length) cuts.add(q);
@@ -301,11 +305,10 @@ function splitPlan(entry: LogicalEntry, body: number, layout: Layout, authorBrea
     // joins back the same; not where a %; follows straight away (`/else%;`).
     if (p >= j.length || !isTfSpace(j[p - 1]) || /^%[;|]/.test(j.slice(p))) continue;
     cuts.add(p);
-    zones.push([p, p]);
   }
   let first = body;
   while (isTfSpace(j[first])) first += 1;
-  if (first < j.length && (cuts.size > 0 || multiLine)) {
+  if (first < j.length && (cuts.size > 0 || moveBody)) {
     cuts.add(first);
     let name = body - 1;
     if (entry.isDefBody) {
@@ -317,10 +320,171 @@ function splitPlan(entry: LogicalEntry, body: number, layout: Layout, authorBrea
       spaced.add(body - 1);
       spaced.add(first);
     }
-    zones.push([name, first]);
   }
-  for (const b of authorBreaks) if (!zones.some(([r, q]) => r <= b && b <= q)) cuts.add(b);
   return { cuts, removed, spaced };
+}
+
+/** Commands whose text is text: printed or sent as it is, so it may break at any blank between its words. */
+const TEXT_COMMAND_RE = /^\/@?(?:echo|_echo|send)(?![^ \t%])/i;
+/** A statement that starts a condition in parentheses. */
+const CONDITION_RE = /^\/@?(?:if|elseif|while)[ \t]*\(/i;
+
+/**
+ * Where a line running from `from` to `to` in the joined text `j` may break, by what it holds:
+ * a macro's head between its words (outside quotes, which group an option's value); a condition
+ * before an `&` or `|` of its own; text sent or printed at a blank between words (outside any
+ * `$[...]`, `${...}`, `%{...}`, `@{...}` or `$(...)`); and a command whose text is commands (a
+ * nested /def, say) after a `%%;` of that inner level, or else between its words. Anything else
+ * isn't broken. Each place is the first character of the new line, right after a blank, which
+ * stays at the end of the line before, so tf joins the lines back to the same text; never a `;` or
+ * `#`, which would make the new line a comment tf skips, nor a `%;` or `%|` (`removed` blanks don't
+ * count). `first` are the places to break at; `then`, where none of those fits, the next best.
+ */
+function breakPoints(j: string, from: number, to: number, head: boolean, removed: Set<number>): { first: number[]; then: number[] } {
+  const out: number[] = [];
+  const ok = (o: number): boolean =>
+    isTfSpace(j[o - 1]) && !removed.has(o - 1) && !isTfSpace(j[o]) && j[o] !== ";" && j[o] !== "#" && !/^%[;|]/.test(j.slice(o)) && j[o - 2] !== "\\";
+  let s = from;
+  while (isTfSpace(j[s])) s += 1;
+  const stmt = j.slice(s, to);
+  // Between words after the command's own, not inside a quoted option value.
+  const words = (): number[] => {
+    const at: number[] = [];
+    let quote = "";
+    let started = false;
+    for (let o = s; o < to; o += 1) {
+      const ch = j[o] as string;
+      if (quote) {
+        if (ch === "\\") o += 1;
+        else if (ch === quote) quote = "";
+      } else if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+      else if (started && ok(o)) at.push(o);
+      else if (isTfSpace(ch)) started = true;
+    }
+    return at;
+  };
+  if (head) return { first: words(), then: [] };
+  if (CONDITION_RE.test(stmt)) {
+    let o = j.indexOf("(", s);
+    let depth = 0;
+    let quote = "";
+    for (; o < to; o += 1) {
+      const ch = j[o] as string;
+      if (quote) {
+        if (ch === "\\") o += 1;
+        else if (ch === quote) quote = "";
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+      else if (ch === "(" || ch === "[" || ch === "{") depth += 1;
+      else if (ch === ")" || ch === "]" || ch === "}") {
+        depth -= 1;
+        if (depth === 0) break;
+      } else if (depth === 1 && (ch === "&" || ch === "|") && ok(o)) out.push(o);
+    }
+    return { first: out, then: [] };
+  }
+  const word = /^\/@?([A-Za-z_]\w*)/.exec(stmt)?.[1]?.toLowerCase();
+  if (word && NESTED_COMMANDS.test(word)) {
+    // Where a nested macro's body starts, then after each of its own %%;.
+    const inner = macroBodyStart(stmt);
+    if (inner > 0) {
+      let o = s + inner;
+      while (isTfSpace(j[o])) o += 1;
+      if (o < to && ok(o)) out.push(o);
+    }
+    for (let o = s; o < to; o += 1) {
+      if (!ok(o)) continue;
+      let p = o - 1;
+      while (p > s && isTfSpace(j[p])) p -= 1;
+      let n = 0;
+      while (j[p - 1 - n] === "%") n += 1;
+      if (j[p] === ";" && n >= 2) out.push(o);
+    }
+    return { first: out, then: words() };
+  }
+  if (!TEXT_COMMAND_RE.test(stmt) && stmt.startsWith("/")) return { first: [], then: [] };
+  // Text: after the command and its options, at a blank between words, outside substitutions.
+  let o = s;
+  if (stmt.startsWith("/")) {
+    while (o < to && !isTfSpace(j[o])) o += 1;
+    for (;;) {
+      let w = o;
+      while (isTfSpace(j[w])) w += 1;
+      if (j[w] !== "-") break;
+      o = w;
+      while (o < to && !isTfSpace(j[o])) o += 1;
+    }
+  }
+  let depth = 0;
+  let quote = "";
+  for (; o < to; o += 1) {
+    const ch = j[o] as string;
+    if (quote) {
+      if (ch === "\\") o += 1;
+      else if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === "\\") {
+      o += 1;
+      continue;
+    }
+    if (depth > 0) {
+      if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+      else if ("([{".includes(ch)) depth += 1;
+      else if (")]}".includes(ch)) depth -= 1;
+      continue;
+    }
+    if ("$%@".includes(ch) && "([{".includes(j[o + 1] ?? "")) {
+      depth = 1;
+      o += 1;
+      continue;
+    }
+    if (ok(o)) out.push(o);
+  }
+  return { first: out, then: [] };
+}
+
+/** The text of the joined offsets `from` to `to` as `plan` lays it out on one line (cutLines()'s rules). */
+function piece(j: string, plan: Plan, from: number, to: number): string {
+  let out = "";
+  for (let o = from; o < to; o += 1) {
+    if (o > from && plan.spaced.has(o)) out += " ";
+    if (!plan.removed.has(o)) out += j[o];
+  }
+  if (to > from && plan.spaced.has(to)) out += " ";
+  return out;
+}
+
+/**
+ * Adds to `plan` the breaks that keep each line within `maxWidth`, where the line has places to
+ * break (breakPoints()): as much on each line as fits, the rest hanging two levels past the
+ * statement's own line. A line with no place that fits keeps the shortest overflow it can.
+ * `widthOf(o, hang)` is the indentation of a line starting at `o`, `hang` for one that continues
+ * the line before. `head` is where the head of a macro ends (-1 for none).
+ */
+function wrapLines(j: string, plan: Plan, maxWidth: number, head: number, widthOf: (o: number) => number, hangOf: (o: number) => number): void {
+  const starts = [...plan.cuts].filter((c) => c > 0 && c < j.length).sort((a, b) => a - b);
+  const bounds = [0, ...starts, j.length];
+  for (let k = 0; k + 1 < bounds.length; k += 1) {
+    const from = bounds[k] as number;
+    const to = bounds[k + 1] as number;
+    const fits = (a: number, b: number, lead: number): boolean => lead + piece(j, plan, a, b).length + (b === j.length ? 0 : 1) <= maxWidth;
+    if (fits(from, to, widthOf(from))) continue;
+    const { first, then } = breakPoints(j, from, to, head >= 0 && from < head, plan.removed);
+    let at = from;
+    let lead = widthOf(from);
+    while (!fits(at, to, lead)) {
+      // The last place that fits, of the first kind if one does; else the nearest overflow.
+      const fitting = (points: number[]) => points.filter((p) => p > at && fits(at, p, lead));
+      const best = fitting(first).pop() ?? fitting(then).pop() ?? [...first, ...then].filter((p) => p > at).sort((a, b) => a - b)[0];
+      if (best === undefined) break;
+      const cut = best;
+      plan.cuts.add(cut);
+      at = cut;
+      lead = hangOf(from);
+    }
+  }
 }
 
 /** The joined text cut into lines by `plan`, without indentation or `\`, and where in it each line starts. */
@@ -417,7 +581,7 @@ function reindentWithComments(entry: LogicalEntry, original: string[], indent: s
  * its physical lines; `indent` is one level; `split` puts a macro body's statements on lines of
  * their own (off: only re-indent).
  */
-export function layoutEntry(entry: LogicalEntry, original: string[], indent: string, split: boolean): string[] | Refusal {
+export function layoutEntry(entry: LogicalEntry, original: string[], indent: string, split: boolean, maxWidth: number = DEFAULT_FORMAT_OPTIONS.maxWidth): string[] | Refusal {
   if (entry.incomplete) return "incomplete";
   if (original.some((l) => l.includes("%\\"))) return "percent-backslash";
   if (original.some((l) => /\\[ \t\f\v]+$/.test(l))) return "space-after-backslash";
@@ -451,30 +615,45 @@ export function layoutEntry(entry: LogicalEntry, original: string[], indent: str
   // A plain top-level command (`/set x=\`, `/for i 0 2 \`) keeps the author's indentation: nested
   // /for lines read better as written than at one level. Only a top-level block is re-indented.
   if (!inner && top.blocks.length === 0) return original;
-  const plan: Plan = (inner && split ? splitPlan(entry, body, inner, authorBreaks, original.length > 1) : undefined) ?? {
+  const firstIndent = (original[0] ?? "").slice(0, leadingWhitespaceLength(original[0] ?? ""));
+  const split1 = inner && split ? splitPlan(entry, body, inner, firstIndent.length + j.length > maxWidth) : undefined;
+  // Only a body laid out afresh is wrapped; one only re-indented keeps the author's breaks.
+  const wrap = split1 !== undefined;
+  const plan: Plan = split1 ?? {
     cuts: new Set(authorBreaks),
     removed: new Set(),
     spaced: new Set(),
   };
-  const { contents, starts } = cutLines(j, plan);
 
   const layout = inner ?? top;
   const base = inner ? body : 0;
   const stmtStarts = statementStarts(j, layout, base);
+  let first = body;
   if (inner) {
-    let first = body;
     while (isTfSpace(j[first])) first += 1;
     stmtStarts.add(first);
   }
-  const firstIndent = (original[0] ?? "").slice(0, leadingWhitespaceLength(original[0] ?? ""));
+  // A line of a macro's head hangs two levels in; in the body, a statement is one level in, more
+  // in each block, and a line that continues one hangs two levels past it, so that it never lines
+  // up with a block's first statement.
+  const statementLevel = (o: number): number => (inner ? 1 : 0) + depthAt(layout, base, o);
+  const levelAt = (o: number): number => (inner && o < body ? 2 : statementLevel(o) + (stmtStarts.has(o) ? 0 : 2));
+  if (wrap) {
+    const width = indent.length;
+    wrapLines(
+      j,
+      plan,
+      maxWidth,
+      first,
+      (o) => (o === 0 ? firstIndent.length : levelAt(o) * width),
+      (o) => (o < body ? 2 : statementLevel(o) + 2) * width,
+    );
+  }
+  const { contents, starts } = cutLines(j, plan);
   const lines = contents.map((content, i) => {
     const end = i < contents.length - 1 ? "\\" : "";
     if (i === 0) return `${firstIndent}${content}${end}`;
-    const o = starts[i] as number;
-    // A break in a macro's head hangs under it; in the body, a line is one level in, more in each
-    // block, and one more when it continues a statement rather than starting one.
-    const level = inner && o < body ? 2 : (inner ? 1 : 0) + depthAt(layout, base, o) + (stmtStarts.has(o) ? 0 : 1);
-    return `${indent.repeat(level)}${content}${end}`;
+    return `${indent.repeat(levelAt(starts[i] as number))}${content}${end}`;
   });
 
   // The proof that this layout is the same program: no line tf would skip or end on, the same
@@ -536,7 +715,7 @@ export function formatDocument(text: string, options: Partial<FormatOptions> = {
     const original = lines.slice(entry.startLine, entry.endLine + 1);
     let hasError = false;
     for (let l = entry.startLine; l <= entry.endLine; l += 1) if (errors.has(l)) hasError = true;
-    const laid = hasError ? "error" : layoutEntry(entry, original, indent, opts.splitStatements);
+    const laid = hasError ? "error" : layoutEntry(entry, original, indent, opts.splitStatements, opts.maxWidth);
     if (typeof laid === "string") {
       entries.push({ ...at, changed: false, refused: laid });
       continue;

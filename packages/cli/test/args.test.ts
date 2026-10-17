@@ -95,7 +95,7 @@ describe("parseArgs", () => {
 
   it("says what is wrong with a command line, and how to fix it", () => {
     expect(usageError([])).toBe("No command given: run tfscript check <files or folders>, or tfscript --help.");
-    expect(usageError(["lint", "a.tf"])).toBe("There's no command lint: the only one is check, as in tfscript check tfrc.");
+    expect(usageError(["lint", "a.tf"])).toBe("There's no command lint: use check or format, as in tfscript check tfrc.");
     expect(usageError(["check"])).toBe("Nothing to check: name the .tf files or folders, as in tfscript check tfrc scripts/.");
     expect(usageError(["check", "--fix", "a.tf"])).toBe("There's no option --fix: run tfscript --help to see the options.");
     expect(usageError(["check", "--fix=all", "a.tf"])).toBe("There's no option --fix: run tfscript --help to see the options.");

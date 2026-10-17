@@ -100,7 +100,7 @@ export const nodeHost = (): CheckHost => ({
  * .jj and node_modules, and not following a link to a folder inside it), in name order. Each
  * file once, however it is reached: two names through links for one file are the first.
  */
-function expand(request: CheckRequest, host: CheckHost, problems: string[]): { file: string; real: string }[] {
+export function expandPaths(paths: string[], cwd: string, host: CheckHost, problems: string[]): { file: string; real: string }[] {
   const seen = new Set<string>();
   const out: { file: string; real: string }[] = [];
   const add = (file: string): void => {
@@ -109,8 +109,8 @@ function expand(request: CheckRequest, host: CheckHost, problems: string[]): { f
     seen.add(fileKey(real));
     out.push({ file, real });
   };
-  for (const given of request.paths) {
-    const p = path.resolve(request.cwd, given);
+  for (const given of paths) {
+    const p = path.resolve(cwd, given);
     const kind = host.kind(p);
     if (kind === "file") add(p);
     else if (kind === "dir") {
@@ -161,7 +161,7 @@ export function check(request: CheckRequest, host: CheckHost = nodeHost()): Chec
     if (!loaded.config) return { files: [], problems: loaded.problems };
     settings = overlaySettings(loaded.config.settings, request.settings);
   }
-  const files = expand(request, host, problems);
+  const files = expandPaths(request.paths, request.cwd, host, problems);
   // Whether a file is in the root, and where its loads lead, is worked out from where each really
   // is, so a file named through a link (or a root that is one) is placed as the file itself.
   const realRoot = host.realpath(root);

@@ -18,6 +18,12 @@ export type Command =
       config?: string;
       /** The tfscript.* settings the options give, resolved by core like the editor's. */
       settings: RawSettings;
+    }
+  | {
+      kind: "format";
+      paths: string[];
+      /** Only report which files would change. */
+      check: boolean;
     };
 
 /** A command line that can't be run: `message` says what is wrong and how to fix it. */
@@ -29,6 +35,7 @@ type Kind = "value" | "list" | "flag";
 export const OPTIONS: Readonly<Record<string, Kind>> = {
   help: "flag",
   version: "flag",
+  check: "flag",
   format: "value",
   "setting-names": "value",
   "max-warnings": "value",
@@ -152,14 +159,24 @@ function settingsOf(p: Parsed): RawSettings {
   return settings;
 }
 
+/** `tfscript format [--check] <paths>`: the formatter has one style, so no other option applies. */
+function formatCommand(p: Parsed, paths: string[]): Command {
+  const other = [...p.values.keys(), ...[...p.flags].filter((f) => f !== "check")][0];
+  if (other !== undefined) throw new UsageError(`--${other} only goes with tfscript check: tfscript format takes only --check.`);
+  if (paths.length === 0) throw new UsageError("Nothing to format: name the .tf files or folders, as in tfscript format tfrc scripts/.");
+  return { kind: "format", paths, check: p.flags.has("check") };
+}
+
 export function parseArgs(argv: readonly string[]): Command {
   const p = tokenize(argv);
   if (p.flags.has("help")) return { kind: "help" };
   if (p.flags.has("version")) return { kind: "version" };
   const [command, ...paths] = p.positionals;
   if (command === undefined) throw new UsageError("No command given: run tfscript check <files or folders>, or tfscript --help.");
-  if (command !== "check") throw new UsageError(`There's no command ${command}: the only one is check, as in tfscript check tfrc.`);
+  if (command === "format") return formatCommand(p, paths);
+  if (command !== "check") throw new UsageError(`There's no command ${command}: use check or format, as in tfscript check tfrc.`);
   if (paths.length === 0) throw new UsageError("Nothing to check: name the .tf files or folders, as in tfscript check tfrc scripts/.");
+  if (p.flags.has("check")) throw new UsageError("--check only goes with tfscript format: leave it out, as tfscript check never changes a file.");
 
   const format = p.values.get("format")?.[0] ?? "human";
   if (format !== "human" && format !== "json") throw new UsageError(`--format ${format} isn't a format: use --format human or --format json.`);

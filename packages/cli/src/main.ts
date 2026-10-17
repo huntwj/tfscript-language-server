@@ -1,12 +1,14 @@
+import { writeFileSync } from "node:fs";
 import { parseArgs, UsageError } from "./args";
 import { check, nodeHost, type CheckHost } from "./check";
-import { formatHuman, formatSummary, plural, summarize, toJsonReport } from "./format";
+import { displayPath, formatHuman, formatSummary, plural, summarize, toJsonReport } from "./format";
+import { formatFiles, type WriteFile } from "./formatFiles";
 import { NAMERS } from "./settingNames";
 import { USAGE, VERSION } from "./usage";
 
-/** No errors (and no more warnings than --max-warnings allows). */
+/** No errors (and no more warnings than --max-warnings allows); for format, every file formatted. */
 export const EXIT_OK = 0;
-/** Errors found, or more warnings than --max-warnings allows. */
+/** Errors found, or more warnings than --max-warnings allows; for format --check, a file that would change. */
 export const EXIT_PROBLEMS = 1;
 /** The command line was wrong, or a file or folder couldn't be read. */
 export const EXIT_USAGE = 2;
@@ -18,7 +20,7 @@ export interface Io {
 }
 
 /** Runs the command line `argv` (without node and the script) and returns the exit status. */
-export function main(argv: readonly string[], io: Io, host: CheckHost = nodeHost()): number {
+export function main(argv: readonly string[], io: Io, host: CheckHost = nodeHost(), write: WriteFile = (f, t) => writeFileSync(f, t)): number {
   let command;
   try {
     command = parseArgs(argv);
@@ -35,6 +37,8 @@ export function main(argv: readonly string[], io: Io, host: CheckHost = nodeHost
     io.out(`${VERSION}\n`);
     return EXIT_OK;
   }
+
+  if (command.kind === "format") return format(command.paths, command.check, io, host, write);
 
   const result = check(
     {
@@ -60,4 +64,23 @@ export function main(argv: readonly string[], io: Io, host: CheckHost = nodeHost
     return EXIT_PROBLEMS;
   }
   return EXIT_OK;
+}
+
+/**
+ * `tfscript format`: each changed file's name on stdout (with --check, each that would change),
+ * then a count on stderr.
+ */
+function format(paths: string[], checkOnly: boolean, io: Io, host: CheckHost, write: WriteFile): number {
+  const outcome = formatFiles({ paths, check: checkOnly, cwd: io.cwd }, host, write);
+  const names = (files: string[]) => files.map((f) => displayPath(f, io.cwd)).sort();
+  for (const name of names(outcome.changed)) io.out(`${name}\n`);
+  for (const name of names(outcome.crlf)) {
+    io.err(`tfscript: ${name} has CRLF line endings, where tf doesn't join a line ending in \\ to the next, so it was left as it is: convert it to LF to format it.\n`);
+  }
+  for (const problem of outcome.problems) io.err(`tfscript: ${problem}\n`);
+  const of = `${outcome.changed.length} of ${plural(outcome.files.length, "file", "files")}`;
+  if (checkOnly && outcome.changed.length > 0) io.err(`${of} would be reformatted: run tfscript format on ${outcome.changed.length === 1 ? "it" : "them"}.\n`);
+  else if (!checkOnly && outcome.changed.length > 0) io.err(`Reformatted ${of}.\n`);
+  if (outcome.problems.length > 0) return EXIT_USAGE;
+  return checkOnly && outcome.changed.length > 0 ? EXIT_PROBLEMS : EXIT_OK;
 }

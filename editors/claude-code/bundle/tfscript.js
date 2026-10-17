@@ -24,12 +24,16 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// packages/cli/src/main.ts
+var import_node_fs3 = require("node:fs");
+
 // packages/cli/src/args.ts
 var UsageError = class extends Error {
 };
 var OPTIONS = {
   help: "flag",
   version: "flag",
+  check: "flag",
   format: "value",
   "setting-names": "value",
   "max-warnings": "value",
@@ -135,16 +139,24 @@ function settingsOf(p) {
   if (Object.keys(diagnostics).length > 0) settings.diagnostics = diagnostics;
   return settings;
 }
+function formatCommand(p, paths) {
+  const other = [...p.values.keys(), ...[...p.flags].filter((f) => f !== "check")][0];
+  if (other !== void 0) throw new UsageError(`--${other} only goes with tfscript check: tfscript format takes only --check.`);
+  if (paths.length === 0) throw new UsageError("Nothing to format: name the .tf files or folders, as in tfscript format tfrc scripts/.");
+  return { kind: "format", paths, check: p.flags.has("check") };
+}
 function parseArgs(argv) {
   const p = tokenize(argv);
   if (p.flags.has("help")) return { kind: "help" };
   if (p.flags.has("version")) return { kind: "version" };
   const [command2, ...paths] = p.positionals;
   if (command2 === void 0) throw new UsageError("No command given: run tfscript check <files or folders>, or tfscript --help.");
-  if (command2 !== "check") throw new UsageError(`There's no command ${command2}: the only one is check, as in tfscript check tfrc.`);
+  if (command2 === "format") return formatCommand(p, paths);
+  if (command2 !== "check") throw new UsageError(`There's no command ${command2}: use check or format, as in tfscript check tfrc.`);
   if (paths.length === 0) throw new UsageError("Nothing to check: name the .tf files or folders, as in tfscript check tfrc scripts/.");
-  const format = p.values.get("format")?.[0] ?? "human";
-  if (format !== "human" && format !== "json") throw new UsageError(`--format ${format} isn't a format: use --format human or --format json.`);
+  if (p.flags.has("check")) throw new UsageError("--check only goes with tfscript format: leave it out, as tfscript check never changes a file.");
+  const format2 = p.values.get("format")?.[0] ?? "human";
+  if (format2 !== "human" && format2 !== "json") throw new UsageError(`--format ${format2} isn't a format: use --format human or --format json.`);
   const settingNames = p.values.get("setting-names")?.[0] ?? "option";
   if (settingNames !== "option" && settingNames !== "config") {
     throw new UsageError(`--setting-names ${settingNames} isn't a way to name settings: use --setting-names option or --setting-names config.`);
@@ -160,7 +172,7 @@ function parseArgs(argv) {
   return {
     kind: "check",
     paths,
-    format,
+    format: format2,
     settingNames,
     ...maxWarnings === void 0 ? {} : { maxWarnings },
     ...root === void 0 ? {} : { root },
@@ -296,8 +308,8 @@ function parseConfig(text, file, label = file) {
             problems.push(`${label} has "${extra[0]}", which isn't part of a mapping: remove it; a mapping has only "tf" and "local".`);
             break;
           }
-          const relative6 = mappings.find((m) => !m.tf.startsWith("/"));
-          if (relative6) problems.push(`${label} maps "${relative6.tf}" in "pathMappings", which isn't absolute: start tf's side with /, as in "tf": "/wotmud".`);
+          const relative7 = mappings.find((m) => !m.tf.startsWith("/"));
+          if (relative7) problems.push(`${label} maps "${relative7.tf}" in "pathMappings", which isn't absolute: start tf's side with /, as in "tf": "/wotmud".`);
           else settings.pathMappings = mappings.map((m) => ({ tf: m.tf, local: rebase(m.local, folder) }));
         }
         break;
@@ -2034,6 +2046,12 @@ function parseRegions(text, mode) {
     issues: parser.issues,
     stopped: parser.stopped
   };
+}
+function parseLayout(text, mode) {
+  const parser = new Parser(text, mode);
+  parser.run();
+  const { units, lists, separators, partStarts, blocks, issues, stopped } = parser;
+  return { units, lists, separators, partStarts, blocks, issues, stopped };
 }
 function entryStatements(entry) {
   const statements = parseStatements(entry.text, "top");
@@ -8030,7 +8048,7 @@ var nodeHost = () => ({
     }
   }
 });
-function expand(request, host, problems) {
+function expandPaths(paths, cwd, host, problems) {
   const seen = /* @__PURE__ */ new Set();
   const out = [];
   const add = (file) => {
@@ -8039,8 +8057,8 @@ function expand(request, host, problems) {
     seen.add(fileKey(real));
     out.push({ file, real });
   };
-  for (const given of request.paths) {
-    const p = path7.resolve(request.cwd, given);
+  for (const given of paths) {
+    const p = path7.resolve(cwd, given);
     const kind = host.kind(p);
     if (kind === "file") add(p);
     else if (kind === "dir") {
@@ -8081,7 +8099,7 @@ function check5(request, host = nodeHost()) {
     if (!loaded.config) return { files: [], problems: loaded.problems };
     settings = overlaySettings(loaded.config.settings, request.settings);
   }
-  const files = expand(request, host, problems);
+  const files = expandPaths(request.paths, request.cwd, host, problems);
   const realRoot = host.realpath(root);
   const index = new WorkspaceIndex(host.fs, host.environment);
   index.setFolders([realRoot]);
@@ -8647,6 +8665,265 @@ function formatSummary(s) {
 `;
 }
 
+// packages/cli/src/formatFiles.ts
+var path9 = __toESM(require("node:path"));
+
+// packages/core/src/formatting.ts
+var DEFAULT_FORMAT_OPTIONS = { indentWidth: 2, splitStatements: true };
+function topLevelSeparators(s) {
+  const out = [];
+  let quote = "";
+  let depth = 0;
+  for (let i = 0; i < s.length; i += 1) {
+    const ch = s[i];
+    if (quote) {
+      if (ch === "\\") i += 1;
+      else if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === "\\") {
+      i += 1;
+      continue;
+    }
+    if (ch === "%") {
+      let n = 1;
+      while (s[i + n] === "%") n += 1;
+      if (n === 1 && s[i + n] === ";" && depth === 0) out.push(i);
+      i += n - 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+    else if ("([{".includes(ch)) depth += 1;
+    else if (")]}".includes(ch)) depth = Math.max(0, depth - 1);
+  }
+  return out;
+}
+var GLUES = /* @__PURE__ */ new Set(["%", "\\", "$", "/"]);
+function rejoin(lines) {
+  return splitLogicalEntries(lines.join("\n"))[0]?.text ?? "";
+}
+function hasInnerTab(lines) {
+  return lines.some((l) => !isCommentLine(l) && /\S[^\t]*\t/.test(l));
+}
+var harmless = (issue) => issue.kind === "operand";
+var parsedCleanly = (layout) => !layout.stopped && layout.issues.every(harmless);
+var MID_KEYWORD_RE = /\s\/@?(?:if|elseif|else|endif|while|do|done|then)(?![\w@])/i;
+function keywordMidStatement2(text, layout) {
+  return layout.units.some((u) => !u.block && MID_KEYWORD_RE.test(text.slice(u.start, u.end)));
+}
+function statementStarts(text, layout, base) {
+  const out = /* @__PURE__ */ new Set();
+  for (const u of layout.units) out.add(u.start + base);
+  for (const p of layout.partStarts) out.add(p + base);
+  for (const s of layout.separators) {
+    let q = s.at + base + 2;
+    while (isTfSpace(text[q])) q += 1;
+    out.add(q);
+  }
+  return out;
+}
+function depthAt(layout, base, o) {
+  return layout.blocks.filter((b) => b.parts.some((p) => p.start + base <= o && o < p.end + base)).length;
+}
+function statementTexts(text, layout) {
+  return layout.units.filter((u) => !u.block).map((u) => `${u.word}:${text.slice(u.start, u.end).replace(/^[ \t]+|[ \t]+$/g, "")}`);
+}
+function splitPlan(entry, body, layout, authorBreaks, multiLine) {
+  const j = entry.text;
+  const cuts = /* @__PURE__ */ new Set();
+  const removed = /* @__PURE__ */ new Set();
+  const spaced = /* @__PURE__ */ new Set();
+  const zones = [];
+  const safe = new Set(topLevelSeparators(j));
+  const own = layout.separators.filter((sep2) => sep2.char === ";" && layout.lists[sep2.list]?.kind === "body");
+  if (own.some((sep2) => !safe.has(sep2.at + body))) return void 0;
+  for (const sep2 of own) {
+    const at2 = sep2.at + body;
+    let q = at2 + 2;
+    while (isTfSpace(j[q])) q += 1;
+    let r = at2;
+    while (r > body && isTfSpace(j[r - 1])) r -= 1;
+    if (r < at2 && r > body && !GLUES.has(j[r - 1])) for (let k = r; k < at2; k += 1) removed.add(k);
+    for (let k = at2 + 2; k < q; k += 1) removed.add(k);
+    zones.push([r, q]);
+    if (q < j.length) cuts.add(q);
+  }
+  for (const p0 of layout.partStarts) {
+    const p = p0 + body;
+    if (p >= j.length || !isTfSpace(j[p - 1]) || /^%[;|]/.test(j.slice(p))) continue;
+    cuts.add(p);
+    zones.push([p, p]);
+  }
+  let first = body;
+  while (isTfSpace(j[first])) first += 1;
+  if (first < j.length && (cuts.size > 0 || multiLine)) {
+    cuts.add(first);
+    zones.push([body, first]);
+    if (first === body && entry.isDefBody) spaced.add(first);
+  }
+  for (const b of authorBreaks) if (!zones.some(([r, q]) => r <= b && b <= q)) cuts.add(b);
+  return { cuts, removed, spaced };
+}
+function cutLines(j, plan) {
+  const contents = [];
+  const starts = [0];
+  let line = "";
+  for (let o = 0; o <= j.length; o += 1) {
+    if (plan.spaced.has(o)) line += " ";
+    if (plan.cuts.has(o) && o > 0 && o < j.length) {
+      contents.push(line);
+      starts.push(o);
+      line = "";
+    }
+    if (o < j.length && !plan.removed.has(o)) line += j[o];
+  }
+  contents.push(line);
+  return { contents, starts };
+}
+function expectedText(j, plan) {
+  let out = "";
+  for (let o = 0; o < j.length; o += 1) {
+    if (plan.spaced.has(o)) out += " ";
+    if (!plan.removed.has(o)) out += j[o];
+  }
+  return out;
+}
+function tabMoves(original, entry, body) {
+  if (hasInnerTab(original.slice(1))) return true;
+  const firstLine = original[0] ?? "";
+  const lead = leadingWhitespaceLength(firstLine);
+  const tab = firstLine.indexOf("	", lead);
+  return tab >= 0 && (body < 0 || tab - lead >= body);
+}
+function layoutEntry(entry, original, indent, split) {
+  if (entry.incomplete) return "incomplete";
+  if (original.some((l, i) => i > 0 && isCommentLine(l))) return "comment";
+  if (original.some((l, i) => i > 0 && isBlankLine(l))) return "blank-line";
+  if (original.some((l) => l.includes("%\\"))) return "percent-backslash";
+  if (original.some((l) => /\\[ \t\f\v]+$/.test(l))) return "space-after-backslash";
+  const j = entry.text;
+  const macro = entry.isDefBody || entry.isOtherMacroBody;
+  const body = macro ? macroBodyStart(j) : -1;
+  if (tabMoves(original, entry, body)) return "tab";
+  const top = parseLayout(j, "top");
+  if (!parsedCleanly(top)) return "structure";
+  const inner2 = body >= 0 ? parseLayout(j.slice(body), "body") : void 0;
+  if (inner2 && !parsedCleanly(inner2)) return "structure";
+  if (inner2 ? keywordMidStatement2(j.slice(body), inner2) : keywordMidStatement2(j, top)) return "keyword-mid-statement";
+  const authorBreaks = [];
+  let offset = 0;
+  for (const part of entry.parts.slice(0, -1)) {
+    offset += part.text.length;
+    authorBreaks.push(offset);
+  }
+  const plan = (inner2 && split ? splitPlan(entry, body, inner2, authorBreaks, original.length > 1) : void 0) ?? {
+    cuts: new Set(authorBreaks),
+    removed: /* @__PURE__ */ new Set(),
+    spaced: /* @__PURE__ */ new Set()
+  };
+  const { contents, starts } = cutLines(j, plan);
+  const layout = inner2 ?? top;
+  const base = inner2 ? body : 0;
+  const stmtStarts = statementStarts(j, layout, base);
+  if (inner2) {
+    let first = body;
+    while (isTfSpace(j[first])) first += 1;
+    stmtStarts.add(first);
+  }
+  const firstIndent = (original[0] ?? "").slice(0, leadingWhitespaceLength(original[0] ?? ""));
+  const lines = contents.map((content, i) => {
+    const end = i < contents.length - 1 ? "\\" : "";
+    if (i === 0) return `${firstIndent}${content}${end}`;
+    const o = starts[i];
+    const level = inner2 && o < body ? 2 : (inner2 ? 1 : 0) + depthAt(layout, base, o) + (stmtStarts.has(o) ? 0 : 1);
+    return `${indent.repeat(level)}${content}${end}`;
+  });
+  if (lines.some((l, i) => i > 0 && (isBlankLine(l) || isCommentLine(l)))) return "unverified";
+  if (lines.some((l, i) => i < lines.length - 1 !== continuesToNextLine(l))) return "unverified";
+  const joined2 = rejoin(lines);
+  if (joined2 !== expectedText(j, plan)) return "unverified";
+  if (inner2) {
+    const again = parseLayout(joined2.slice(body), "body");
+    if (!parsedCleanly(again)) return "unverified";
+    if (again.separators.length !== inner2.separators.length || again.blocks.length !== inner2.blocks.length) return "unverified";
+    if (statementTexts(joined2.slice(body), again).join("\n") !== statementTexts(j.slice(body), inner2).join("\n")) return "unverified";
+  }
+  return lines;
+}
+function errorLines(text) {
+  const out = /* @__PURE__ */ new Set();
+  for (const d of getDiagnostics(text, { joinFixes: false })) {
+    if (d.severity !== "error") continue;
+    for (let l = d.range.start.line; l <= d.range.end.line; l += 1) out.add(l);
+  }
+  return out;
+}
+function formatDocument(text, options = {}, range) {
+  const opts = { ...DEFAULT_FORMAT_OPTIONS, ...options };
+  if (text.includes("\r")) return { edits: [], entries: [], crlf: true };
+  const indent = " ".repeat(opts.indentWidth);
+  const lines = splitRawLines(text);
+  const errors = errorLines(text);
+  const edits = [];
+  const entries = [];
+  for (const entry of splitLogicalEntries(text)) {
+    if (range && (entry.endLine < range.start.line || entry.startLine > range.end.line)) continue;
+    const at2 = { startLine: entry.startLine, endLine: entry.endLine };
+    const original = lines.slice(entry.startLine, entry.endLine + 1);
+    let hasError = false;
+    for (let l = entry.startLine; l <= entry.endLine; l += 1) if (errors.has(l)) hasError = true;
+    const laid = hasError ? "error" : layoutEntry(entry, original, indent, opts.splitStatements);
+    if (typeof laid === "string") {
+      entries.push({ ...at2, changed: false, refused: laid });
+      continue;
+    }
+    const changed = laid.join("\n") !== original.join("\n");
+    entries.push({ ...at2, changed });
+    if (!changed) continue;
+    const last = original[original.length - 1] ?? "";
+    edits.push({
+      range: { start: { line: entry.startLine, character: 0 }, end: { line: entry.endLine, character: last.length } },
+      newText: laid.join("\n")
+    });
+  }
+  return { edits, entries, crlf: false };
+}
+function applyFormatEdits(text, edits) {
+  const lines = splitRawLines(text);
+  for (const e of [...edits].sort((a, b) => b.range.start.line - a.range.start.line)) {
+    lines.splice(e.range.start.line, e.range.end.line - e.range.start.line + 1, ...e.newText.split("\n"));
+  }
+  return lines.join("\n");
+}
+
+// packages/cli/src/formatFiles.ts
+function formatFiles(request, host, write) {
+  const problems = [];
+  const outcome = { files: [], changed: [], crlf: [], problems };
+  for (const { file, real } of expandPaths(request.paths, request.cwd, host, problems)) {
+    const shown = path9.relative(request.cwd, file) || file;
+    const text = host.fs.readFile(real);
+    if (text === void 0) {
+      problems.push(`${shown} can't be read: check that it is a file you may read.`);
+      continue;
+    }
+    outcome.files.push(file);
+    const result = formatDocument(text);
+    if (result.crlf) outcome.crlf.push(file);
+    if (result.edits.length === 0) continue;
+    if (!request.check) {
+      try {
+        write(real, applyFormatEdits(text, result.edits));
+      } catch {
+        problems.push(`${shown} can't be written: check that it is a file you may change.`);
+        continue;
+      }
+    }
+    outcome.changed.push(file);
+  }
+  return outcome;
+}
+
 // packages/cli/src/usage.ts
 var VERSION = "0.2.0";
 var USAGE = `Usage: tfscript check [options] <file or folder>...
@@ -8704,13 +8981,29 @@ Exit status: 0 when no errors are found, 1 when there are errors (or more warnin
 --max-warnings), 2 when it can't check: the command line is wrong, --root is missing or is a
 file, the tfscript.json is missing or bad, a path doesn't exist, can't be read or is a folder
 with no tf scripts, or an internal error.
+
+Usage: tfscript format [--check] <file or folder>...
+
+Lays out tf scripts the way the language server's Format Document does: a macro body on the
+lines after its head, one statement per line ending %;\\, each /if and /while block indented two
+spaces more. Only whitespace tf ignores changes. A command it can't prove the same once laid out
+(one with a comment or blank line among its lines, a tab, or a structural error) is left as it
+is, and so is a file with CRLF line endings. Folders are searched as for check. Each file that
+changes is named on stdout.
+
+  --check                       change nothing: name the files that would change, and exit 1
+                                if there are any
+
+Exit status: 0 when every file is formatted (with --check, when none would change), 1 with
+--check when a file would change, 2 when the command line is wrong or a path can't be read or
+written.
 `;
 
 // packages/cli/src/main.ts
 var EXIT_OK = 0;
 var EXIT_PROBLEMS = 1;
 var EXIT_USAGE = 2;
-function main(argv, io, host = nodeHost()) {
+function main(argv, io, host = nodeHost(), write = (f, t) => (0, import_node_fs3.writeFileSync)(f, t)) {
   let command2;
   try {
     command2 = parseArgs(argv);
@@ -8729,6 +9022,7 @@ function main(argv, io, host = nodeHost()) {
 `);
     return EXIT_OK;
   }
+  if (command2.kind === "format") return format(command2.paths, command2.check, io, host, write);
   const result = check5(
     {
       paths: command2.paths,
@@ -8755,6 +9049,25 @@ function main(argv, io, host = nodeHost()) {
     return EXIT_PROBLEMS;
   }
   return EXIT_OK;
+}
+function format(paths, checkOnly, io, host, write) {
+  const outcome = formatFiles({ paths, check: checkOnly, cwd: io.cwd }, host, write);
+  const names = (files) => files.map((f) => displayPath(f, io.cwd)).sort();
+  for (const name of names(outcome.changed)) io.out(`${name}
+`);
+  for (const name of names(outcome.crlf)) {
+    io.err(`tfscript: ${name} has CRLF line endings, where tf doesn't join a line ending in \\ to the next, so it was left as it is: convert it to LF to format it.
+`);
+  }
+  for (const problem of outcome.problems) io.err(`tfscript: ${problem}
+`);
+  const of = `${outcome.changed.length} of ${plural(outcome.files.length, "file", "files")}`;
+  if (checkOnly && outcome.changed.length > 0) io.err(`${of} would be reformatted: run tfscript format on ${outcome.changed.length === 1 ? "it" : "them"}.
+`);
+  else if (!checkOnly && outcome.changed.length > 0) io.err(`Reformatted ${of}.
+`);
+  if (outcome.problems.length > 0) return EXIT_USAGE;
+  return checkOnly && outcome.changed.length > 0 ? EXIT_PROBLEMS : EXIT_OK;
 }
 
 // packages/cli/src/cli.ts

@@ -56,4 +56,20 @@ Exit status: 0 when no errors are found, 1 when there are errors (or more warnin
 --max-warnings), 2 when it can't check: the command line is wrong, --root is missing or is a
 file, the tfscript.json is missing or bad, a path doesn't exist, can't be read or is a folder
 with no tf scripts, or an internal error.
+
+Usage: tfscript format [--check] <file or folder>...
+
+Lays out tf scripts the way the language server's Format Document does: a macro body on the
+lines after its head, one statement per line ending %;\\, each /if and /while block indented two
+spaces more. Only whitespace tf ignores changes. A command it can't prove the same once laid out
+(one with a comment or blank line among its lines, a tab, or a structural error) is left as it
+is, and so is a file with CRLF line endings. Folders are searched as for check. Each file that
+changes is named on stdout.
+
+  --check                       change nothing: name the files that would change, and exit 1
+                                if there are any
+
+Exit status: 0 when every file is formatted (with --check, when none would change), 1 with
+--check when a file would change, 2 when the command line is wrong or a path can't be read or
+written.
 `;

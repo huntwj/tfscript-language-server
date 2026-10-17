@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `tfscript.tfBuild` (`tfBuild` in `tfscript.json`, `--tf-build` on the command line): which tf
+  runs the scripts. It is `upstream` (TinyFugue 5.0 beta 8, the default and what was checked
+  before) or `fork`, a tf that drops one CR from the end of each line it loads and fixes the `?:`
+  crash, the text a `,` in `$[...]` lost, and `/else` running after a true `/elseif`. With `fork`,
+  a file saved with CRLF line endings is read like an LF one, the files it loads too: a `\` before
+  the CR continues the line, with no `backslash-not-last` warning, and splitting, joining,
+  extracting and inlining are offered in it. Extracting a local variable is also offered for a
+  `?:` and inside a `$[...]` with a `,`. The formatter still leaves a CRLF file as it is.
+
 - A Claude Code plugin, `editors/claude-code`, listed in the repo's marketplace
   (`/plugin marketplace add huntwj/tfscript-language-server`, then
   `/plugin install tfscript@tfscript-language-server`). After each Edit or Write of a `.tf` file,

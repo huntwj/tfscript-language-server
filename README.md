@@ -62,7 +62,7 @@ list and skill under `docs/generated/` are all generated from one table, `packag
 | --- | --- | --- |
 | [R1](docs/rules.md#r1-lines) | [`missing-continuation`](docs/rules.md#missing-continuation) | a top-level `/if` or `/while` still open where its line ends, with no `\` to continue it. Reported once, at the opener: the stray `/then`, `/else`, `/endif`, `/do` or `/done` and the indented lines that were meant to be part of it are its related locations, not diagnostics of their own |
 | [R1](docs/rules.md#r1-lines) | [`indented-line-after-command`](docs/rules.md#indented-line-after-command) | an indented line starting a new command right after one that didn't end in `\` — tf's own "possibly missing trailing \\" warning |
-| [R1](docs/rules.md#r1-lines) | [`backslash-not-last`](docs/rules.md#backslash-not-last) | a final `\` followed by whitespace (including a CRLF file's trailing `\r`) — not a continuation, tf warns and runs the line as-is |
+| [R1](docs/rules.md#r1-lines) | [`backslash-not-last`](docs/rules.md#backslash-not-last) | a final `\` followed by whitespace (including a CRLF file's trailing `\r`, unless `tfscript.tfBuild` is `fork`) — not a continuation, tf warns and runs the line as-is |
 | [R1](docs/rules.md#r1-lines) | [`not-a-command`](docs/rules.md#not-a-command) | a line that is not blank, a comment, or a `/command` — tf aborts the rest of the file's load; everything after it is suppressed from the other rules, since tf never reads it either |
 | [R1](docs/rules.md#r1-lines) | [`incomplete-continuation`](docs/rules.md#incomplete-continuation) | (warning) the file's last command ends in `\`: tf says "last command is incomplete because of trailing \\" and drops it, so a macro it would define isn't defined. A final newline doesn't complete it (tf reads no line after it); a real blank line does. The fix removes the `\` |
 | [R1](docs/rules.md#r1-lines) | [`body-continues-without-backslash`](docs/rules.md#body-continues-without-backslash) | (information) a macro body whose last line ends in `%;` but not `\`, with an unindented command on the next line: that line is a command of its own, run when the file loads. Not when the body ends at a blank line, nor when the next line runs the macro just defined |
@@ -117,7 +117,8 @@ checking live with `tf-script-check`, not from scripting.md alone:
 - a file's line reader only breaks on `\n`; a `\r` left over from a CRLF line stays on as the
   line's literal last byte, so `\<CR>` does not continue (confirmed live: a CRLF-encoded
   version of the three-line `/if` example above produced 4 problem lines from real tf, where
-  the LF version is clean);
+  the LF version is clean). That is upstream tf; the fork drops the CR (see
+  [Which tf](#which-tf-tfscripttfbuild));
 - a trailing `\` at the true end of the file never reaches tf's abort check at all — tf just
   warns "last command is incomplete" and silently drops that command.
 
@@ -279,6 +280,27 @@ from a library file your path never loads still gets a hover, with a hint to `/r
 file no entry path reaches sees only what `stdlib.tf` loads. When a file is reached more than
 once, its first load sets its place in the order; every load site is recorded, for a future
 "which context is active" choice.
+
+## Which tf: `tfscript.tfBuild`
+
+Some of what a script does depends on which tf runs it. `tfscript.tfBuild` says which
+(`packages/core/src/tfBuild.ts`), per workspace folder, and the same key goes in `tfscript.json`
+and `--tf-build` on the command line:
+
+- `upstream`, the default: TinyFugue 5.0 beta 8 as released. Every rule here is proven
+  against it unless it says otherwise.
+- `fork`: a tf with four fixes a script can see, as the fork this project is developed beside
+  has them:
+  - `/load` drops one CR from the end of each line, so a file saved with CRLF line endings reads
+    like one saved with LF. A `\` before a CRLF ending continues the line, so it gets no
+    `backslash-not-last` warning, and splitting, joining, extracting and inlining are offered in
+    such a file. Every file is read this way, the files it loads too. The formatter still leaves
+    a CRLF file as it is.
+  - A `?:` whose condition is a true constant no longer crashes tf in a macro body, and a `,` in a
+    `$[...]` in command text no longer loses the text before it. Extracting a local variable is
+    offered for both (each rewrite was run in the fork's tf, before and after).
+  - `/else` no longer also runs after a true `/if` and a true `/elseif`. Nothing here
+    depended on that bug.
 
 ## Command data (drives completion and hover)
 
@@ -812,7 +834,7 @@ on every cursor move.
 Each is offered only when the result reads back as the same program: the same head, the same
 body once the blanks beside each `%;` are dropped, the same statements and the same structural
 problems; a split must also join back to the same program. They aren't offered on CRLF lines
-(a `\` before the `\r` continues nothing), when a tab after a line's indentation would move to
+(a `\` before the `\r` continues nothing, unless `tfscript.tfBuild` is `fork`), when a tab after a line's indentation would move to
 another column (a tab in the head, as tf's library writes `/def -i true<tab>= ...`, stays put
 and is fine), across comment lines (tf skips them, but joining would delete them), or on an
 entry the file ends in the middle of, final newline or not, which tf drops
@@ -883,7 +905,7 @@ When it is disabled:
 - a tab after a line's indentation (tf turns it into spaces by column, and the column moves), or
   comment lines inside the selection, which would be lost.
 
-It isn't offered in an `/alias` or in a file with CRLF line endings. Over tf's library and the
+It isn't offered in an `/alias` or in a file with CRLF line endings (unless `tfscript.tfBuild` is `fork`). Over tf's library and the
 WoTMUD scripts, of the 3,763 runs of consecutive statements in a list, 1,480 can be extracted
 and the rest are disabled with a reason (most often a `/let` the rest of the macro uses, 870, or
 a `/return`, 640); none of the extractions adds a diagnostic.
@@ -966,7 +988,8 @@ When it is disabled, each checked in tf where the reason is a behaviour:
 - a `%|` or `%\` before the statement, a tab in the selection, or comment lines inside it;
 - a body with a condition or `$[...]` tf can't compile, which never runs either way.
 
-It isn't offered in an `/alias`, at the top level, or in a file with CRLF line endings. Over tf's
+It isn't offered in an `/alias`, at the top level, or in a file with CRLF line endings (unless
+`tfscript.tfBuild` is `fork`). Over tf's
 library and the WoTMUD scripts, of the 2,191 sub-expressions in macro bodies, 806 can be
 extracted and the rest are disabled with a reason (most often a side effect in the selection,
 175, or a branch of `?:`, 117); none of the extractions adds a diagnostic. Twenty-eight rewrites

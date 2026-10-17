@@ -65,6 +65,7 @@ default settings.
 | `--home-directory <folder>` | `homeDirectory` |
 | `--path-mapping <tf>=<local>`, repeatable | `pathMappings` |
 | `--variable <name>=<value>`, repeatable | `variables` |
+| `--tf-build upstream\|fork` | `tfBuild` |
 | `--no-unresolved-loads` | `diagnostics.unresolvedLoads: false` |
 | `--no-undefined-macros` | `diagnostics.undefinedMacros: false` |
 | `--ignore-macro <name>`, repeatable | `diagnostics.ignoreMacros` |
@@ -73,8 +74,8 @@ default settings.
 
 The settings can be kept in a `tfscript.json` instead of given as options each time. Its keys are
 the `tfscript.*` settings without the prefix: `entryFiles`, `contexts`, `activeContext`,
-`libraryPath`, `tfPath`, `workingDirectory`, `homeDirectory`, `pathMappings`, `variables`, and
-`diagnostics` with `unresolvedLoads`, `undefinedMacros` and `ignoreMacros`. Relative paths in it
+`libraryPath`, `tfPath`, `workingDirectory`, `homeDirectory`, `pathMappings`, `variables`,
+`tfBuild`, and `diagnostics` with `unresolvedLoads`, `undefinedMacros` and `ignoreMacros`. Relative paths in it
 are relative to its own folder.
 
 ```json

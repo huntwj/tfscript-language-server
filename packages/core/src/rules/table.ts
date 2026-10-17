@@ -77,7 +77,8 @@ export const RULE_SECTIONS: RuleSection[] = [
         "its lines left bare is rejected, because `/if` needs its `/endif` in the same command, and an indented second " +
         "line draws `possibly missing trailing \\`.",
       "Whitespace after a final `\\`, including the `\\r` of a CRLF file, draws `whitespace following final '\\'`, " +
-        "and the line is not continued.",
+        "and the line is not continued. A tf that drops that `\\r` (`tfscript.tfBuild` set to `fork`) reads a CRLF file " +
+        "like an LF one.",
       "A command that doesn't start with `/` makes tf print \"Invalid command. Aborting.\" and stop loading the file; it " +
         "is never sent to a connected world. A byte order mark is not a blank, so a file that starts with one stops at " +
         "its first line. tf treats such a line as an implicit `/addworld` only in the `~/.tinytalk` file it reads at " +
@@ -163,8 +164,8 @@ export const RULE_SECTIONS: RuleSection[] = [
           "End the line with a `\\` that has no `%` before it and nothing after it, in a file saved with LF line " +
           "endings.",
         detail:
-          "a final `\\` followed by whitespace (including a CRLF file's trailing `\\r`) — not a continuation, tf warns " +
-          "and runs the line as-is",
+          "a final `\\` followed by whitespace (including a CRLF file's trailing `\\r`, unless `tfscript.tfBuild` is " +
+          "`fork`) — not a continuation, tf warns and runs the line as-is",
       },
       {
         code: "not-a-command",

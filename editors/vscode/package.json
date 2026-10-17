@@ -146,7 +146,7 @@
           "enum": ["upstream", "fork"],
           "enumDescriptions": [
             "TinyFugue 5.0 beta 8, as released.",
-            "A tf that loads a file saved with CRLF line endings like an LF one, and fixes three bugs in macro bodies: a ?: that crashed tf, a comma in $[...] that lost text, and /else running after a true /elseif."
+            "A tf that loads a file saved with CRLF line endings like an LF one, and fixes three bugs in macro bodies: a ?: that crashed tf, a comma in $[...] that lost text, and /else running after a true /if and a true /elseif."
           ],
           "default": "upstream",
           "scope": "resource",

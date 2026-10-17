@@ -284,23 +284,28 @@ once, its first load sets its place in the order; every load site is recorded, f
 ## Which tf: `tfscript.tfBuild`
 
 Some of what a script does depends on which tf runs it. `tfscript.tfBuild` says which
-(`packages/core/src/tfBuild.ts`), per workspace folder, and the same key goes in `tfscript.json`
-and `--tf-build` on the command line:
+(`packages/core/src/tfBuild.ts`), per workspace folder. The same key goes in `tfscript.json`
+(which `tfscript check` and the Claude Code hook read; the editor's own settings are what the
+server reads) and `--tf-build` on the command line:
 
-- `upstream`, the default: TinyFugue 5.0 beta 8 as released. Every rule here is proven
-  against it unless it says otherwise.
-- `fork`: a tf with four fixes a script can see, as the fork this project is developed beside
-  has them:
+- `upstream`, the default: TinyFugue 5.0 beta 8 as released.
+- `fork`: a tf with the fixes of the fork this project is developed beside. Most rules hold in
+  both; the ground-truth cases are run in the fork's tf. Where they differ:
   - `/load` drops one CR from the end of each line, so a file saved with CRLF line endings reads
     like one saved with LF. A `\` before a CRLF ending continues the line, so it gets no
     `backslash-not-last` warning, and splitting, joining, extracting and inlining are offered in
-    such a file. Every file is read this way, the files it loads too. The formatter still leaves
-    a CRLF file as it is.
+    such a file. Their edits add lines ending in LF, which VS Code turns into CRLF and some
+    editors leave as they are; the fork reads a file with both the same. The formatter still
+    leaves a CRLF file as it is. A file a load path reaches is read as the tf of the folder whose
+    load path it is.
   - A `?:` whose condition is a true constant no longer crashes tf in a macro body, and a `,` in a
     `$[...]` in command text no longer loses the text before it. Extracting a local variable is
     offered for both (each rewrite was run in the fork's tf, before and after).
   - `/else` no longer also runs after a true `/if` and a true `/elseif`. Nothing here
     depended on that bug.
+  - A `/break` inside a `$(...)` that would end a loop outside it is rejected when the macro is
+    compiled, whatever this setting says (`block-structure`); upstream tf compiles it, and
+    running it breaks tf's internal state.
 
 ## Command data (drives completion and hover)
 

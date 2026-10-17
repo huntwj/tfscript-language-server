@@ -58,7 +58,7 @@
       "additionalProperties": { "type": "string" }
     },
     "tfBuild": {
-      "description": "Which tf the scripts run in. \"upstream\" (the default) is TinyFugue 5.0 beta 8 as released. \"fork\" is a tf that loads a file saved with CRLF line endings like an LF one, and fixes three bugs in macro bodies: a ?: that crashed tf, a comma in $[...] that lost text, and /else running after a true /elseif.",
+      "description": "Which tf the scripts run in. \"upstream\" (the default) is TinyFugue 5.0 beta 8 as released. \"fork\" is a tf that loads a file saved with CRLF line endings like an LF one, and fixes three bugs in macro bodies: a ?: that crashed tf, a comma in $[...] that lost text, and /else running after a true /if and a true /elseif.",
       "type": "string",
       "enum": ["upstream", "fork"]
     },

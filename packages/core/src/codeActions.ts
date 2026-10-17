@@ -3,6 +3,7 @@ import { getDiagnostics, type Position, type Range, type TfDiagnostic, type TfTe
 import { getExtractActions } from "./extractMacro";
 import { getExtractVariableActions } from "./extractVariable";
 import { getInlineActions } from "./inlineMacro";
+import type { TfBuild } from "./tfBuild";
 
 /**
  * Quick fixes: the `fix` a diagnostic carries, the same one its hover shows. Diagnostics are
@@ -91,6 +92,8 @@ export interface CodeActionRequest {
   library?: boolean;
   /** Whether a macro (lower case) is called as a function, `name(...)`, anywhere that can be seen. */
   calledAsFunction?: (name: string) => boolean;
+  /** Which tf runs the file (tfBuild.ts). Default upstream. */
+  tfBuild?: TfBuild;
   /** The client shows an action greyed out with the reason it can't run (LSP `disabled`). */
   disabledSupport?: boolean;
 }
@@ -155,7 +158,10 @@ export function routeCodeActions(text: string, request: CodeActionRequest): Rout
       ...(request.isTaken ? { isTaken: request.isTaken } : {}),
       ...(request.calledAsFunction ? { calledAsFunction: request.calledAsFunction } : {}),
     };
-    const variable = request.mentionedOutside ? { mentionedOutside: request.mentionedOutside } : {};
+    const variable = {
+      ...(request.mentionedOutside ? { mentionedOutside: request.mentionedOutside } : {}),
+      ...(request.tfBuild ? { tfBuild: request.tfBuild } : {}),
+    };
     for (const a of [...getExtractActions(text, request.range, options), ...getExtractVariableActions(text, request.range, variable)]) {
       if (a.disabled === undefined) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: a.edits, ...(a.rename ? { rename: a.rename } : {}) });
       else if (request.disabledSupport) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: [], disabled: a.disabled });

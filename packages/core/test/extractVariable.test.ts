@@ -264,6 +264,17 @@ describe("extract to a local variable", () => {
       expect(extract("/def f = /if ((a, b + 1)) /echo y%; /else /echo n%; /endif\n", "b + 1")).toBeDefined();
     });
 
+    it("extracts a ? : and from a $[...] with a , for the fork, which fixed both bugs", () => {
+      // Each pair printed the same in the fork's tf (tf_script_check, 2026-10-17), with a set to 1 and to 0.
+      const fork = (text: string, sub: string) => {
+        const [action] = getExtractVariableActions(text, rangeOf(text, sub), { tfBuild: "fork" });
+        return action && !action.disabled ? apply(text, action.edits) : action?.disabled;
+      };
+      expect(fork("/def f = /echo $[(a ? 1 : 2) + 1]\n", "(a ? 1 : 2)")).toBe("/def f = /let value=%; /test value:=((a ? 1 : 2))%; /echo $[{value} + 1]\n");
+      expect(fork("/def f = /echo x $[(a, b + 1)] y\n", "b + 1")).toBe("/def f = /let value=%; /test value:=(b + 1)%; /echo x $[(a, {value})] y\n");
+      expect(getExtractVariableActions("/def f = /echo $[(a ? 1 : 2) + 1]\n", rangeOf("/def f = /echo $[(a ? 1 : 2) + 1]\n", "(a ? 1 : 2)"), { tfBuild: "upstream" })[0]?.disabled).toMatch(/crashes tf/);
+    });
+
     it("refuses a %, $ or \\ that the /test would substitute again", () => {
       expect(reason('/def f = /if (x =~ "50%%") /echo y%; /endif%; /echo n\n', 'x =~ "50%%"')).toMatch(/^The selection has a %, \$ or \\/);
       expect(reason('/def f = /echo $[strcat("a\\"b", x)]\n', 'strcat("a\\"b", x)')).toMatch(/^The selection has a %, \$ or \\/);

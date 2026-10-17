@@ -5,6 +5,7 @@ import { applyEdits, compare, isDefEntry, mentions, readerOutside, selected, tri
 import { alwaysEvaluated, ExprSyntaxError, nodes, parseExpression, pathTo, type ExprNode } from "./expressionTree";
 import { isTfSpace, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { macroBodyStart, parseRegions, parseUnits, type ExpressionRegion, type Unit } from "./structure";
+import type { TfBuild } from "./tfBuild";
 import { findFunctionCalls, findMacroCalls, SPECIAL_VARIABLE_NAMES } from "./variables";
 
 /**
@@ -49,7 +50,8 @@ import { findFunctionCalls, findMacroCalls, SPECIAL_VARIABLE_NAMES } from "./var
  *  - Bugs of tf's: a `?:` whose condition is true and whose value is used crashed tf in a macro
  *    body (in `$[...]`, `echo(...)` or an assignment, though not in a condition), and a `,` in a
  *    `$[...]` in command text threw away the text before it. Refused when the selection holds a
- *    `? :`, or the `$[...]` it is in holds a `,`.
+ *    `? :`, or the `$[...]` it is in holds a `,`, unless the tf is the fork (tfBuild.ts), which
+ *    fixed both.
  *  - `{value}` is a variable where the selection was a value, and `whatis()` says so
  *    (`id:float` for `float`); nothing else tells them apart (an assignment, `$[...]`, a
  *    `/return` and a macro's arguments all take the value). Refused as `whatis()`'s argument.
@@ -71,6 +73,8 @@ import { findFunctionCalls, findMacroCalls, SPECIAL_VARIABLE_NAMES } from "./var
 export interface ExtractVariableOptions {
   /** Whether a file other than this one mentions a word (lower case), as any name. */
   mentionedOutside?: (name: string) => boolean;
+  /** Which tf runs the macro: the fork has neither the `?:` crash nor the lost text before a `,`. Default upstream. */
+  tfBuild?: TfBuild;
 }
 
 const TITLE = "Extract to a local variable";
@@ -217,7 +221,7 @@ function plan(text: string, entry: LogicalEntry, range: Range, options: ExtractV
         return { disabled: `${n.name}() has the wrong number of arguments, which tf reports when the macro is compiled; in the /test it would only be reported when that runs: fix the call first.` };
       }
     }
-    if (n.kind === "conditional" && n.then) {
+    if (n.kind === "conditional" && n.then && options.tfBuild !== "fork") {
       return { disabled: "The selection has a ? : in it, which crashes tf when its condition is true and its value is used, as it would be in the /test: it can't be extracted." };
     }
   }
@@ -258,7 +262,7 @@ function plan(text: string, entry: LogicalEntry, range: Range, options: ExtractV
   }
   // A $[...] in substituted text: tf drops the text before it when it holds a `,`.
   const substitutedBracket = root.kind === "bracket" && !regions.expressions.some((r) => r !== root && r.kind !== "statement" && r.start <= root.start && rEnd(root) <= rEnd(r));
-  if (substitutedBracket && nodes(tree).some((n) => n.kind === "binary" && n.op === ",")) {
+  if (substitutedBracket && options.tfBuild !== "fork" && nodes(tree).some((n) => n.kind === "binary" && n.op === ",")) {
     return { disabled: "tf mis-compiles the , in this $[...], losing the text before it, so rewriting it can't be checked: it can't be extracted." };
   }
   // Inside a substitution whose default only runs when the variable is empty, or a $(...).

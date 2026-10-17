@@ -1,5 +1,6 @@
 /**
- * The rule table: tf's scripting rules, one section per underlying rule (R1 to R9), each with the
+ * The rule table: tf's scripting rules, one section per underlying rule (R1 to R9, and L1, the lint
+ * tier: shapes tf runs without a word that may be deliberate), each with the
  * plain statement of the rule, the tf source that proves it, its proof cases, the diagnostic codes
  * it covers and the fix idiom. docs/rules.md, the README's rule table, the notes page's rule list,
  * the tf-scripting skill and the hover text and links for each diagnostic code are all generated
@@ -11,7 +12,7 @@
  * locations are in ~/ai/mud/tinyfugue/src.
  */
 
-export type SectionId = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9";
+export type SectionId = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9" | "L1";
 
 export interface CodeEntry {
   /** The diagnostic code, as sent in the LSP `code`. */
@@ -51,15 +52,6 @@ export const WHEN_CODE_RUNS: string[] = [
     "appears the first time the macro fires (for a trigger, on the first line that matches, then on every line). A clean " +
     "`/load` proves nothing about a macro: run it. The test cases do so with `;; run: /name` lines.",
   "A top-level command of a file runs, and is checked, as the file loads.",
-];
-
-/** Shapes tf runs without a word that may still be deliberate: planned, not built. */
-export const MAYBE_INTENTIONAL: string[] = [
-  "Some shapes tf runs without a word may be deliberate, so nothing flags them now. The plan, not built yet, is a " +
-    "lint-level warning for each, which a `; tflint:ignore-nextline` comment on the line before turns off.",
-  "The candidates so far are an empty `/def x =` body, and bare text in a body, which tf sends to the world. For the " +
-    "second the warning would suggest `/send -h text`, which says that on purpose and does the same: bare text runs the " +
-    "SEND hook (`expand.c:620`), and `/send` runs it only with `-h` (`socket.c:2953`).",
 ];
 
 export const RULE_SECTIONS: RuleSection[] = [
@@ -668,6 +660,70 @@ export const RULE_SECTIONS: RuleSection[] = [
     fix: [
       "Put library directories on `TFPATH`, and write paths relative to tf's current directory, not the script's.",
       "Build a path from a variable with `/eval`: `/eval /load %{dir}/x.tf`.",
+    ],
+  },
+  {
+    id: "L1",
+    title: "Shapes that may be deliberate",
+    statement: [
+      "tf runs these without a word, and each may be what its author meant, so they are lint: warnings that don't count " +
+        "as problems tf has, and that a comment turns off. A comment line holding `tflint:ignore-nextline` (`; " +
+        "tflint:ignore-nextline`) turns off every lint warning on the line after it; with codes after it (`; " +
+        "tflint:ignore-nextline text-sent-from-body`), only those.",
+      "A plain `/def` with an empty body (`/def x =`) sends a blank line to the world when it runs, through the `SEND` " +
+        "hook. A trigger, hook or key binding with an empty body sends nothing when it fires.",
+      "Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as " +
+        "`/send -h text` sends it; `/send` without `-h` skips the hook.",
+      "`/require file` loads a file as `/load file` does, options and all, but not again once the file has run " +
+        "`/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again.",
+    ],
+    source: [
+      { at: "expand.c:620", what: "text in a body runs the `SEND` hook, then is sent" },
+      { at: "socket.c:2991", what: "handle_send_function() runs the `SEND` hook only for `-h`" },
+    ],
+    cases: ["lint-empty-body", "lint-empty-trigger-body", "lint-send-h"],
+    sourceOnly: [
+      "That `/send` passes `-h` on to `send()` is read from stdlib.tf's `/send` (lib/tf/stdlib.tf:103-115).",
+      "That `/require` is `/let _required=1%; /load %{-L} %{L}`, and that `/loaded` ends the second load of a file, is " +
+        "read from lib/tf/stdlib.tf:36-47; which library files run `/loaded` is read from lib/tf (scripts/extract-command-tables.js).",
+    ],
+    codes: [
+      {
+        code: "empty-macro-body",
+        severity: "warning",
+        summary:
+          "This macro's body is empty, so running it sends a blank line to the world. Give it a body, or put " +
+          "`; tflint:ignore-nextline` on the line before if that is what you want.",
+        detail:
+          "a plain `/def` (no `-t`, `-h`, `-b` or `-B`) with nothing after its `=`, which sends an empty line when it " +
+          "runs; a trigger, hook or key binding with an empty body sends nothing, so it isn't flagged",
+      },
+      {
+        code: "text-sent-from-body",
+        severity: "warning",
+        summary:
+          "This text in a macro body is sent to the world. Write it as `/send -h text` to say so (it does the same, " +
+          "the `SEND` hook included), or put `; tflint:ignore-nextline` on the line before.",
+        detail:
+          "a statement of a macro body that isn't a command, which tf sends to the world; the fix puts `/send -h ` " +
+          "before it, but not where the text starts with `-` or a substitution, which `/send` could read as an option",
+      },
+      {
+        code: "load-of-library-file",
+        severity: "warning",
+        summary:
+          "This `/load`s one of tf's library files, which `/require` loads only if it isn't loaded yet. Write " +
+          "`/require`, or put `; tflint:ignore-nextline` on the line before if loading it again is the point.",
+        detail:
+          "a top-level `/load` of a library file that runs `/loaded`, named on its own (found through `TFPATH` or " +
+          "`TFLIBDIR`); the fix writes `/require`. A file without `/loaded`, which `/require` would load again anyway, " +
+          "isn't flagged",
+      },
+    ],
+    fix: [
+      "Send text on purpose with `/send -h text`.",
+      "Load a library file with `/require`: `/require alias.tf`.",
+      "Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before.",
     ],
   },
 ];

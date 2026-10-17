@@ -57,8 +57,8 @@ describe("the rule table", () => {
     expect(new Set(listed).size).toBe(listed.length);
   });
 
-  it("has sections R1 to R9 in order", () => {
-    expect(RULE_SECTIONS.map((s) => s.id)).toEqual(["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9"]);
+  it("has sections R1 to R9 in order, then the lint tier", () => {
+    expect(RULE_SECTIONS.map((s) => s.id)).toEqual(["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "L1"]);
   });
 
   it("gives each rule's code its default severity first", () => {

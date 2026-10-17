@@ -3,7 +3,7 @@
  * notes page's rule list and the tf-scripting skill. scripts/generate-rule-docs.js writes them;
  * test/ruleDocs.test.ts fails when a checked-in copy differs from what these produce.
  */
-import { MAYBE_INTENTIONAL, RULE_SECTIONS, RULES_DOC_URL, WHEN_CODE_RUNS, sectionSlug, type RuleSection } from "./table";
+import { RULE_SECTIONS, RULES_DOC_URL, WHEN_CODE_RUNS, sectionSlug, type RuleSection } from "./table";
 
 const GENERATED = "<!-- Generated from packages/core/src/rules/table.ts by scripts/generate-rule-docs.js (npm run docs:rules). Edit the table, not this file. -->";
 
@@ -64,7 +64,6 @@ export function renderRulesDoc(): string {
       out.push(`### ${entry.code}`, "", `**${capital(entry.severity)}.** ${entry.summary}`, "", `${capital(entry.detail)}.`, "");
     }
   }
-  out.push("## Planned: shapes that may be deliberate", "", MAYBE_INTENTIONAL.join("\n\n"), "");
   return out.join("\n");
 }
 
@@ -95,7 +94,6 @@ export function renderNotesRules(): string {
     const codes = codeList(section, (c) => `[\`${c}\`](${RULES_DOC_URL}#${c})`);
     out.push("Codes and proof:", "", list([`Language-server codes: ${codes}.`, ...proofLines(section)]), "");
   }
-  out.push("### Planned: shapes that may be deliberate", "", MAYBE_INTENTIONAL.join("\n\n"), "");
   return out.join("\n");
 }
 
@@ -142,7 +140,6 @@ export function renderSkill(audience: "notes" | "plugin" | "cloud" = "notes"): s
     out.push(lines.join(" "), "");
     for (const note of section.sourceOnly ?? []) out.push(`Not run: ${note}`, "");
   }
-  out.push("## Shapes that may be deliberate (planned)", "", MAYBE_INTENTIONAL.join("\n\n"), "");
   if (!notes) {
     out.push(
       "## Checking a script (do this instead of guessing)",

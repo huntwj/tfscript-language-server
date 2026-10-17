@@ -75,4 +75,32 @@ describe("a file saved with CRLF line endings", () => {
     expect(check({ tfBuild: "fork" }, p("ws", "lib.tf"))).toEqual([]);
     expect(check({ tfBuild: "fork" }, p("ws", "tfrc"))).toEqual([]);
   });
+
+  it("is read again when the setting changes", () => {
+    const fs = memoryFs(files);
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    const codes = () => documentDiagnostics(asLoaded(fs.readFile(p("ws", "tfrc")) as string, index.tfBuildFor(p("ws", "tfrc"))), p("ws", "tfrc"), index).map((d) => d.code);
+    index.setSettings(p("ws"), { entryFiles: ["tfrc"] });
+    expect(codes()).toContain("undefined-macro");
+    index.setSettings(p("ws"), { entryFiles: ["tfrc"], tfBuild: "fork" });
+    expect(codes()).toEqual([]);
+    index.setSettings(p("ws"), { entryFiles: ["tfrc"] });
+    expect(codes()).toContain("undefined-macro");
+  });
+
+  it("is read as the tf of the folder whose load path reaches it, not of the folder it is in", () => {
+    // One tf runs a whole load path: the fork folder's tfrc loads a CRLF file from the upstream folder.
+    const fs = memoryFs({
+      [p("up", "lib.tf")]: "/def -i \\\r\n  greet = /echo hi\r\n",
+      [p("fork", "tfrc")]: "/load ../up/lib.tf\n/greet\n",
+    });
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("up"), p("fork")]);
+    index.setSettings(p("up"), {});
+    index.setSettings(p("fork"), { entryFiles: ["tfrc"], tfBuild: "fork" });
+    const tfrc = p("fork", "tfrc");
+    expect(documentDiagnostics(fs.readFile(tfrc) as string, tfrc, index).map((d) => d.code)).toEqual([]);
+    expect(index.tfBuildFor(p("up", "lib.tf"))).toBe("upstream");
+  });
 });

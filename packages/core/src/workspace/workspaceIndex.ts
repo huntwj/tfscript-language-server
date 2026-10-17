@@ -132,15 +132,31 @@ export class WorkspaceIndex {
   /** Files read from disk, until a watched file changes (filesChanged()) or, unwatched, until their modification time does. */
   private disk = new Map<string, { file: string; text: string | undefined; mtime: number | undefined }>();
 
-  /** A file's text as tf reads it with `/load` (see asLoaded()): the editor's if it is open, else what is on disk. */
-  private read = (file: string): string | undefined => {
-    const text = this.readAsIs(file);
-    return text === undefined ? undefined : asLoaded(text, this.tfBuildFor(file));
-  };
+  /**
+   * A file's text as `build` reads it with `/load` (see asLoaded()): the editor's if it is open,
+   * else what is on disk. One tf runs a whole load path, so what a folder's graph and its other
+   * files read is read as that folder's tf does, wherever the file is.
+   */
+  private readerFor(build: TfBuild): (file: string) => string | undefined {
+    let reader = this.readers.get(build);
+    if (!reader) {
+      reader = (file) => {
+        const text = this.readAsIs(file);
+        return text === undefined ? undefined : asLoaded(text, build);
+      };
+      this.readers.set(build, reader);
+    }
+    return reader;
+  }
+
+  private readers = new Map<TfBuild, (file: string) => string | undefined>();
+
+  /** A file's text as the tf that would open it on its own reads it (tfBuildFor()). */
+  private read = (file: string): string | undefined => this.readerFor(this.tfBuildFor(file))(file);
 
   /**
-   * Which tf reads `file`: the tfBuild of the workspace folder it is in, or of the first folder
-   * for a file in none (tf's library, say), as one tf runs them all.
+   * Which tf reads `file` on its own (an open document, say): the tfBuild of the workspace folder
+   * it is in, or of the first folder for a file in none (tf's library, say).
    */
   tfBuildFor(file: string): TfBuild {
     const inside = this.folders.some((f) => isInside(file, f));
@@ -222,7 +238,7 @@ export class WorkspaceIndex {
       for (const file of this.fs.walkTfFiles(folder)) {
         if (seen.has(keyOf(file))) continue;
         seen.add(keyOf(file));
-        const text = this.read(file);
+        const text = this.readerFor(this.settingsFor(folder).tfBuild)(file);
         if (text === undefined) continue;
         for (const symbol of getDocumentSymbols(text)) {
           if (matches(symbol.name)) results.push({ file: path.resolve(file), folder, symbol });
@@ -262,7 +278,7 @@ export class WorkspaceIndex {
       home: settings.home,
       pathMappings: settings.pathMappings,
       variables: settings.variables,
-      readFile: this.read,
+      readFile: this.readerFor(settings.tfBuild),
     });
     const built = { settings, graph };
     this.graphs.set(key, built);
@@ -273,9 +289,9 @@ export class WorkspaceIndex {
    * tf's library files: listed once (until a watched file changes), read like any other file, so
    * an open library file's unsaved text counts and a changed one is read again.
    */
-  private library(dir: string): LibraryFile[] {
+  private library(dir: string, build: TfBuild): LibraryFile[] {
     return this.libraryListing(dir).files.flatMap((file) => {
-      const text = this.read(file);
+      const text = this.readerFor(build)(file);
       return text === undefined ? [] : [{ path: file, text, defs: this.librarySymbols(file, text) }];
     });
   }
@@ -522,10 +538,10 @@ export class WorkspaceIndex {
         elsewhere.push({ file: path.resolve(f), label: this.label(f, folder, lib), library, defs: this.macroNamesOf(f, text) });
       };
       for (const f of files) {
-        const text = this.read(f);
+        const text = this.readerFor(settings.tfBuild)(f);
         if (text !== undefined) add(f, text, Boolean(lib && isInside(f, lib)));
       }
-      if (lib) for (const f of this.library(lib)) add(f.path, f.text, true);
+      if (lib) for (const f of this.library(lib, settings.tfBuild)) add(f.path, f.text, true);
       // On the path, the graph knows which loads it couldn't follow.
       const unfollowed = unfollowedOnPath(graph, (f) => this.label(f, folder, lib));
       shared = { walked, listed, elsewhere, unfollowed, files, truncated };
@@ -554,7 +570,7 @@ export class WorkspaceIndex {
   private offPathUnfollowed(file: string, files: string[], folder: string, settings: ResolvedSettings): UnfollowedLoad[] {
     const env = this.envFor(settings);
     const loadsOf = (f: string): { written: string[]; unfollowed: UnfollowedLoad[] } => {
-      const text = this.read(f);
+      const text = this.readerFor(settings.tfBuild)(f);
       const loads = text === undefined ? [] : this.analysis(f, text).loads;
       return {
         written: loads.flatMap((l) => (l.literal === undefined ? [] : [l.literal])),
@@ -625,7 +641,7 @@ export class WorkspaceIndex {
       workingDir: settings.workingDir,
       pathMappings: settings.pathMappings,
       local: { home: true, tfPath: true, libraryDir: true },
-      readFile: this.read,
+      readFile: this.readerFor(settings.tfBuild),
     };
   }
 
@@ -638,7 +654,7 @@ export class WorkspaceIndex {
       workingDir: settings.workingDir,
       pathMappings: settings.pathMappings,
       local: at.local,
-      readFile: this.read,
+      readFile: this.readerFor(settings.tfBuild),
     };
   }
 
@@ -739,7 +755,7 @@ export class WorkspaceIndex {
 
     if (lib) {
       const reached = new Set(graph.files.filter((f) => onPath || f.stdlib).map((f) => keyOf(f.path)));
-      for (const f of this.library(lib)) {
+      for (const f of this.library(lib, settings.tfBuild)) {
         if (reached.has(keyOf(f.path)) || keyOf(f.path) === self) continue;
         const lines = splitRawLines(f.text);
         for (const symbol of f.defs) {
@@ -767,17 +783,17 @@ export class WorkspaceIndex {
   callerFiles(file: string, uriOf: (file: string) => string): ContextFile[] {
     const { folder, graph } = this.contextFor(file);
     const out = new Map<string, ContextFile>();
-    const add = (p: string, text?: string): void => {
+    const add = (p: string, text?: string, read = this.read): void => {
       const key = keyOf(p);
       if (out.has(key)) return;
-      const t = text ?? this.read(p);
+      const t = text ?? read(p);
       if (t !== undefined) out.set(key, { uri: uriOf(path.resolve(p)), text: t });
     };
     add(file);
     for (const f of graph.files) add(f.path, f.text);
     for (const f of this.isWorkspaceFolder(folder) ? [folder] : this.folders) {
       for (const loaded of this.graphFor(f).graph.files) add(loaded.path, loaded.text);
-      for (const walked of this.walk(f).files) add(walked);
+      for (const walked of this.walk(f).files) add(walked, undefined, this.readerFor(this.settingsFor(f).tfBuild));
     }
     return [...out.values()];
   }

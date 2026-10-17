@@ -8692,8 +8692,9 @@ function topLevelSeparators(s) {
       i += n - 1;
       continue;
     }
-    if (ch === '"' || ch === "'" || ch === "`") quote = ch;
-    else if ("([{".includes(ch)) depth += 1;
+    if (ch === '"' || ch === "'" || ch === "`") {
+      if (depth > 0) quote = ch;
+    } else if ("([{".includes(ch)) depth += 1;
     else if (")]}".includes(ch)) depth = Math.max(0, depth - 1);
   }
   return out;

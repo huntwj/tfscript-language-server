@@ -14,10 +14,16 @@ const joined = (text: string) => splitLogicalEntries(text).map((e) => e.text);
 const refusals = (text: string) => formatDocument(text).entries.map((e) => e.refused ?? (e.changed ? "changed" : "same"));
 
 describe("topLevelSeparators", () => {
-  it("skips %%;, %%%;, quotes and brackets", () => {
+  it("skips %%;, %%%;, brackets and quotes inside brackets", () => {
     expect(topLevelSeparators("/a%; /b %%; c%;d")).toEqual([2, 13]);
     expect(topLevelSeparators("/a %%%; /b%; /c")).toEqual([10]);
-    expect(topLevelSeparators('/echo "a%;b"%; $[x%;y]%; %{a%;}')).toEqual([12, 22]);
+    expect(topLevelSeparators('/echo $[x%;y]%; %{a%;}%; $["]%;"]%; /b')).toEqual([13, 22, 33]);
+  });
+
+  it("counts no quote outside brackets, as tf reads none there", () => {
+    // Real tf: `/echo "a%; /echo b"` is two /echos, and `say don't%; say it's ok` two sends.
+    expect(topLevelSeparators('/echo "a%;b"%; c')).toEqual([8, 12]);
+    expect(topLevelSeparators("say don't%; say it's ok%; /x")).toEqual([9, 23]);
   });
 });
 
@@ -124,9 +130,13 @@ describe("formatText: only whitespace tf ignores changes", () => {
     expect(format("/def x = /echo $(/a%;  /b)%; /c\n")).toBe(lines("/def x = \\", "  /echo $(/a%;  /b)%;\\", "  /c"));
   });
 
-  it("only re-indents a body whose quotes leave a %; uncertain", () => {
-    expect(format("/def go = say don't%; /b\n")).toBe("/def go = say don't%; /b\n");
-    expect(format("/def go = \\\nsay don't%; /b\n")).toBe("/def go = \\\n  say don't%; /b\n");
+  it("splits text with an apostrophe in it, which tf reads as no quote", () => {
+    expect(format("/def go = say don't%; /b\n")).toBe(lines("/def go = \\", "  say don't%;\\", "  /b"));
+  });
+
+  it("only re-indents a body where a bracket in its text leaves a %; uncertain", () => {
+    expect(format("/def go = say :-(%; /b\n")).toBe("/def go = say :-(%; /b\n");
+    expect(format("/def go = \\\nsay :-(%; /b\n")).toBe("/def go = \\\n  say :-(%; /b\n");
   });
 
   it("doesn't split %%; or %|", () => {

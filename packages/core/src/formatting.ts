@@ -28,7 +28,7 @@ import { macroBodyStart, parseLayout, type Layout, type StructureIssue } from ".
  *    stored without the blanks) and a `%%;` one level down (2026-10-16).
  *  - Not every `%;` separates: one inside a string or `(...)` of an expression (`/if ("a%; b")`,
  *    `$[strlen("a%;  b")]`) is text, and the blanks after it count. Only the separators that both
- *    tf's model (structure.ts) and a quote- and bracket-wary scan (topLevelSeparators()) agree on
+ *    tf's model (structure.ts) and a bracket-wary scan (topLevelSeparators()) agree on
  *    are touched, and only in the body itself: not inside a `$(...)` or a `/if list /then`
  *    condition list.
  *  - Dropping the blanks before a `%;` can glue it to what precedes: `50% %;` would become `50%%;`
@@ -100,11 +100,15 @@ export interface FormatResult {
 }
 
 /**
- * Offsets of the `%` of every `%;` separator in `s` that is outside quotes and brackets, and
- * not part of a longer run of `%`s: tf copies a run of two or more whole, so `%%;` and `%%%;` are
- * both text (proven, `separator-literal-forms`). Quotes don't actually protect a `%;` outside an
- * expression, and unbalanced text (an apostrophe in a line sent to the world, `:-(`) stops the
- * search early; both only ever mean fewer splits.
+ * Offsets of the `%` of every `%;` separator in `s` that is outside brackets, and not part of a
+ * longer run of `%`s: tf copies a run of two or more whole, so `%%;` and `%%%;` are both text
+ * (proven, `separator-literal-forms`). A quote only counts inside brackets: tf reads strings only
+ * in an expression (expr.c's stringliteral()), and the text of a statement, `/test`'s and a nested
+ * `-t"..."` option's included, is cut at each `%;` before anything parses it (expand.c's
+ * expand() has no case for a quote). Real tf split `say don't%; say it's ok` in two, and
+ * `/def -t"zz%; ..." x` in a body at the `%;`, but kept `/if ("it's%; x" =~ ...)` and
+ * `$[strlen("a'%;b")]` whole (2026-10-16). Any bracket counts, so a `:-(` in text only ever means
+ * fewer splits.
  */
 export function topLevelSeparators(s: string): number[] {
   const out: number[] = [];
@@ -128,8 +132,9 @@ export function topLevelSeparators(s: string): number[] {
       i += n - 1;
       continue;
     }
-    if (ch === '"' || ch === "'" || ch === "`") quote = ch;
-    else if ("([{".includes(ch)) depth += 1;
+    if (ch === '"' || ch === "'" || ch === "`") {
+      if (depth > 0) quote = ch;
+    } else if ("([{".includes(ch)) depth += 1;
     else if (")]}".includes(ch)) depth = Math.max(0, depth - 1);
   }
   return out;
@@ -236,7 +241,7 @@ function splitPlan(entry: LogicalEntry, body: number, layout: Layout, authorBrea
   const zones: [number, number][] = [];
   const safe = new Set(topLevelSeparators(j));
   const own = layout.separators.filter((sep) => sep.char === ";" && layout.lists[sep.list]?.kind === "body");
-  // Where the two disagree (an apostrophe in text sent to the world, `:-(`), the body is only
+  // Where the two disagree (a `:-(` in text sent to the world), the body is only
   // re-indented: a layout split at some of its statements and not others would mislead.
   if (own.some((sep) => !safe.has(sep.at + body))) return undefined;
 

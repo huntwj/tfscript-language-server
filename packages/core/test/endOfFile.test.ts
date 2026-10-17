@@ -6,7 +6,7 @@ import { fileLineCount, splitLogicalEntries, splitRawLines } from "../src/logica
 import { getDocumentSymbols } from "../src/symbols";
 
 const ALL = { start: { line: 0, character: 0 }, end: { line: 9999, character: 0 } };
-const FORMAT = { indent: "    ", splitStatements: true };
+const FORMAT = { indentWidth: 4, splitStatements: true };
 const shape = (text: string) => splitLogicalEntries(text).map((e) => `${e.startLine}-${e.endLine}${e.incomplete ? " incomplete" : ""}`);
 
 /**

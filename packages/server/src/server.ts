@@ -401,17 +401,12 @@ connection.languages.semanticTokens.on((params: SemanticTokensParams): SemanticT
   return { data: document ? encodeSemanticTokens(getSemanticTokens(document.getText(), contextFor(document))) : [] };
 });
 
-async function formatting(params: DocumentFormattingParams | DocumentRangeFormattingParams): Promise<TextEdit[]> {
+function formatting(params: DocumentFormattingParams | DocumentRangeFormattingParams): TextEdit[] {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  let splitStatements = true;
-  if (hasConfiguration) {
-    const raw = (await connection.workspace.getConfiguration({ scopeUri: document.uri, section: "tfscript" })) as RawSettings | null;
-    splitStatements = raw?.format?.splitStatements ?? true;
-  }
-  const indent = params.options.insertSpaces ? " ".repeat(params.options.tabSize) : "\t";
+  // The style is the formatter's own (DEFAULT_FORMAT_OPTIONS), whatever the editor's tab size.
   const range = "range" in params ? params.range : undefined;
-  return formatText(document.getText(), { indent, splitStatements }, range);
+  return formatText(document.getText(), {}, range);
 }
 
 connection.onDocumentFormatting(formatting);

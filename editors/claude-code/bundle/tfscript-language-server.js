@@ -10837,6 +10837,12 @@ function parseUnits(body) {
   parser.run();
   return { units: parser.units, lists: parser.lists, complete: !parser.stopped && !parser.issues.some((i) => i.kind === "too-deep") };
 }
+function parseLayout(text, mode) {
+  const parser = new Parser(text, mode);
+  parser.run();
+  const { units, lists, separators, partStarts, blocks, issues, stopped } = parser;
+  return { units, lists, separators, partStarts, blocks, issues, stopped };
+}
 function entryStatements(entry) {
   const statements = parseStatements(entry.text, "top");
   const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(entry.text) : -1;
@@ -15240,740 +15246,338 @@ function keywordBefore(s, p) {
   return s[q - 1] === "/" ? q - 1 : p;
 }
 
-// packages/core/src/data/commandDescriptions.ts
-var COMMAND_DESCRIPTIONS = {
-  // control-flow keywords (tinyfugue/src/expand.c)
-  // Like every keyword, each of these is only read as one at the start of a statement.
-  "break": "Leaves the innermost `/while` loop, or the *n* innermost with `/break n`. Outside a loop it ends the macro. Inside a `$(...)` it can only end loops inside that `$(...)`.",
-  "do": "Ends a `/while` condition list and starts the loop's commands: `/while /test i < 3%; /do ...%; /done`. Only after a condition list: after a `(condition)` tf rejects it.",
-  "done": "Ends a `/while` loop. It only counts at the start of a statement, so it needs a `%;` before it, and anything after it needs another `%;`.",
-  "else": "Starts the commands an `/if` runs when none of its conditions was true: `/if (x) ...%; /else ...%; /endif`. It only counts at the start of a statement, after a `%;`.",
-  "elseif": "Another condition in an `/if`, tried when the ones before it were false: `/elseif (y) ...`. It only counts at the start of a statement, after a `%;`.",
-  "endif": "Ends an `/if`. It only counts at the start of a statement, so it needs a `%;` before it, and anything after it needs another `%;`.",
-  "exit": "Stops loading the current file, or the *n* innermost nested `/load`s with `/exit n`, and abandons the rest of the command it is in. Outside a `/load` it does nothing. (A reserved word, but tf runs it as an ordinary built-in command.)",
-  "if": "Runs commands when a condition is true: `/if (x) ...%; /elseif (y) ...%; /else ...%; /endif`. Like any block, the whole `/if` has to be one command, and in a file a command ends at the end of its line unless the line ends in `\\`.",
-  "let": "Sets a variable local to the running macro: `/let name=value`. The value runs to the next `%;`.",
-  "result": "Ends the macro with the value of an expression, like `/return`, and also prints the value when the macro was run as a command rather than called from an expression. Not allowed inside `$(...)`.",
-  "return": "Ends the macro with the value of an expression: `/return x + 1`. Not allowed inside `$(...)`.",
-  "set": "Sets a global variable: `/set name=value`. The value runs to the next `%;`.",
-  "setenv": "Sets a global variable and exports it to the environment, so programs tf starts see it too: `/setenv name=value`. The value runs to the next `%;`.",
-  "test": "Evaluates an expression and makes its value the result, without ending the macro: `/test i += 1`. The expression runs to the next `%;`.",
-  "then": "Ends an `/if` or `/elseif` condition list and starts its commands: `/if /test x%; /then ...`. Only after a condition list: after a `(condition)` tf rejects it.",
-  "while": "Repeats commands while a condition is true: `/while (i < 3) ...%; /done`, or with a condition list, `/while /test x%; /do ...%; /done`. Like any block, the whole `/while` has to be one command, and in a file a command ends at the end of its line unless the line ends in `\\`.",
-  // built-in commands (tinyfugue/src/cmdlist.h)
-  "beep": "",
-  "bind": "",
-  "calllua": "",
-  "connect": "",
-  "core": "",
-  "dc": "",
-  "def": "",
-  "dokey": "",
-  "edit": "",
-  "eval": "",
-  "export": "",
-  "features": "",
-  "fg": "",
-  "gag": "",
-  "help": "",
-  "hilite": "",
-  "histsize": "",
-  "hook": "",
-  "input": "",
-  "kill": "",
-  "lcd": "",
-  "limit": "",
-  "list": "",
-  "listsockets": "",
-  "liststreams": "",
-  "listvar": "",
-  "listworlds": "",
-  "load": "",
-  "loadlua": "",
-  "localecho": "",
-  "log": "",
-  "ps": "",
-  "purge": "",
-  "purgelua": "",
-  "python": "",
-  "python_call": "",
-  "python_call_unsafe": "",
-  "python_kill": "",
-  "python_load": "",
-  "quit": "",
-  "quote": "",
-  "recall": "",
-  "recordline": "",
-  "relimit": "",
-  "repeat": "",
-  "restrict": "",
-  "save": "",
-  "saveworld": "",
-  "sh": "",
-  "shift": "",
-  "status_add": "",
-  "status_clear": "",
-  "status_edit": "",
-  "status_rm": "",
-  "suspend": "",
-  "trigger": "",
-  "trigpc": "",
-  "unbind": "",
-  "undef": "",
-  "undefn": "",
-  "unlimit": "",
-  "unset": "",
-  "unworld": "",
-  "version": "",
-  "watchdog": "",
-  "watchname": "",
-  // stdlib.tf macros (always loaded)
-  ":": "",
-  "_echo": "",
-  "_paste": "",
-  "act": "",
-  "adddiku": "",
-  "addlp": "",
-  "addlpp": "",
-  "addtelnet": "",
-  "addtiny": "",
-  "addworld": "",
-  "background": "",
-  "bamf": "",
-  "bg": "",
-  "borg": "",
-  "cat": "",
-  "cd": "",
-  "cleardone": "",
-  "clearfull": "",
-  "echo": "",
-  "escape": "",
-  "expr": "",
-  "false": "",
-  "first": "",
-  "for": "",
-  "gpri": "",
-  "grab": "",
-  "hilite_page": "",
-  "hilite_whisper": "",
-  "hpri": "",
-  "insert": "",
-  "isize": "",
-  "ismacro": "",
-  "isvar": "",
-  "kecho": "",
-  "last": "",
-  "listbind": "",
-  "listdef": "",
-  "listfullhilite": "",
-  "listgag": "",
-  "listhilite": "",
-  "listhook": "",
-  "listpartial": "",
-  "listtrig": "",
-  "loaded": "",
-  "loadhist": "",
-  "login": "",
-  "lp": "",
-  "lpquote": "",
-  "man": "",
-  "mecho": "",
-  "more": "",
-  "nogag": "",
-  "nohilite": "",
-  "nohilite_page": "",
-  "nohilite_whisper": "",
-  "nolog": "",
-  "nologin": "",
-  "noquiet": "",
-  "not": "",
-  "nowrap": "",
-  "nth": "",
-  "partial": "",
-  "paste": "",
-  "prompt": "",
-  "proxy_command": "",
-  "proxy_connect": "",
-  "proxy_hook": "",
-  "ptime": "",
-  "purgebind": "",
-  "purgedef": "",
-  "purgedeft": "",
-  "purgegag": "",
-  "purgehilite": "",
-  "purgehook": "",
-  "purgetrig": "",
-  "purgeworld": "",
-  "pwd": "",
-  "qecho": "",
-  "quiet": "",
-  "quitdone": "",
-  "rand": "",
-  "redef": "",
-  "replace": "",
-  "reply": "",
-  "require": "",
-  "rest": "",
-  "retry": "",
-  "retry_off": "",
-  "runtime": "",
-  "savehilite": "",
-  "send": "",
-  "send_help": "",
-  "shpause": "",
-  "signal": "",
-  "sockmload": "",
-  "split": "",
-  "sub": "",
-  "substitute": "",
-  "sys": "",
-  "telnet": "",
-  "time": "",
-  "toggle": "",
-  "trig": "",
-  "trigc": "",
-  "trigp": "",
-  "true": "",
-  "undeft": "",
-  "unhook": "",
-  "untrig": "",
-  "ver": "",
-  "vercmp": "",
-  "visual": "",
-  "world": "",
-  "wrap": "",
-  "wrapspace": "",
-  "~con_hook_telnet": "",
-  "~def_file_command": "",
-  "~default_login_hook": "",
-  "~detect_worldtype_hook": "",
-  "~do_prefix": "",
-  "~gagloadfail": "",
-  "~login_hook_lp": "",
-  "~login_hook_lpp": "",
-  "~login_hook_telnet": "",
-  "~login_hook_tiny": "",
-  "~send": "",
-  "~telnet_passwd": "",
-  "~world_hook_lp": "",
-  "~world_hook_lpp": "",
-  "~world_hook_prompt": "",
-  "~world_hook_telnet": "",
-  "~world_hook_tiny": ""
-};
-
-// packages/core/src/data/commandUsages.generated.ts
-var COMMAND_USAGES = {
-  "_echo": [
-    "/_echo text"
-  ],
-  "addworld": [
-    "/addworld [-pxe] [-Ttype] [-ssrchost] name [char pass] host port [file]",
-    "/addworld [-Ttype] [-ssrchost] name",
-    "/addworld [-Ttype] DEFAULT [char pass [file]]"
-  ],
-  "alias": [
-    "/alias [name [command]]"
-  ],
-  "at": [
-    "/at [-v] [date] time commands"
-  ],
-  "bamf": [
-    "/bamf [OFF|ON|OLD]"
-  ],
-  "beep": [
-    "/beep [number|ON|OFF]"
-  ],
-  "bg": [
-    "/bg"
-  ],
-  "bind": [
-    "/bind sequence = command"
-  ],
-  "break": [
-    "/break [n]"
-  ],
-  "cat": [
-    "/cat [%]"
-  ],
-  "cd": [
-    "/cd [dir]"
-  ],
-  "changes": [
-    "/changes [version]"
-  ],
-  "complete": [
-    "/complete [type]"
-  ],
-  "connect": [
-    "/connect [-lqxbf] [world]",
-    "/connect host port"
-  ],
-  "dc": [
-    "/dc [world|-ALL]"
-  ],
-  "def": [
-    "/def [options] [name] [= body]"
-  ],
-  "dokey": [
-    "/dokey name"
-  ],
-  "dopath": [
-    "/dopath path"
-  ],
-  "echo": [
-    "/echo [-peA] [-aattrs] [-w[world]] text"
-  ],
-  "edit": [
-    "/edit [options] [name] [= body]"
-  ],
-  "endpaste": [
-    "/endpaste"
-  ],
-  "escape": [
-    "/escape metacharacters string"
-  ],
-  "eval": [
-    "/eval [-slevel] text"
-  ],
-  "exit": [
-    "/exit [n]"
-  ],
-  "export": [
-    "/export variable"
-  ],
-  "expr": [
-    "/expr expression"
-  ],
-  "false": [
-    "/false"
-  ],
-  "features": [
-    "/features [name]"
-  ],
-  "fg": [
-    "/fg [-nsq<>l] [-cN] [world]"
-  ],
-  "finger": [
-    "/finger [user][@host]"
-  ],
-  "first": [
-    "/first text"
-  ],
-  "for": [
-    "/for variable start end commands"
-  ],
-  "gag": [
-    "/gag [pattern [=response]]"
-  ],
-  "getfile_lp": [
-    "/getfile_lp file [remote-file]"
-  ],
-  "getfile_muck": [
-    "/getfile_muck file [remote-file]"
-  ],
-  "getfile_unix": [
-    "/getfile_unix file [remote-file]"
-  ],
-  "grab": [
-    "/grab text"
-  ],
-  "help": [
-    "/help [topic]"
-  ],
-  "hilite": [
-    "/hilite [pattern [= response]]"
-  ],
-  "histsize": [
-    "/histsize [-lig] [-w[world]] [size]"
-  ],
-  "hook": [
-    "/hook event[ pattern] [= body]",
-    "/hook [OFF|ON]"
-  ],
-  "if": [
-    "/if (expr) list [ /ELSEIF (expr) list ]... [ /ELSE list ] /ENDIF",
-    "/if list /THEN list [ /ELSEIF list /THEN list ]... [ /ELSE list ] /ENDIF"
-  ],
-  "input": [
-    "/input text"
-  ],
-  "ismacro": [
-    "/ismacro macro-options"
-  ],
-  "isvar": [
-    "/isvar name"
-  ],
-  "kill": [
-    "/kill pid..."
-  ],
-  "last": [
-    "/last text"
-  ],
-  "lcd": [
-    "/lcd [dir]"
-  ],
-  "let": [
-    "/let name=value",
-    "/let name value"
-  ],
-  "limit": [
-    "/limit [-v] [-a] [-mstyle] n] [-Bn] [-Cn] --> [pattern]"
-  ],
-  "list": [
-    "/list [-s] [macro-options] [name] [= body]"
-  ],
-  "listsockets": [
-    "/listsockets [-sn] [-mstyle] [-Sfield] [-Ttype] [name]"
-  ],
-  "liststreams": [
-    "/liststreams"
-  ],
-  "listvar": [
-    "/listvar [-mmatching] [-gxsv] [name [value]]"
-  ],
-  "listworlds": [
-    "/listworlds [-cus] [-mstyle] [-Sfield] [-Ttype] [name]"
-  ],
-  "load": [
-    "/load [-q] file"
-  ],
-  "loaded": [
-    "/loaded token"
-  ],
-  "localecho": [
-    "/localecho [ON|OFF]"
-  ],
-  "log": [
-    "/log [-ligw[world]] [OFF|ON|file]"
-  ],
-  "map": [
-    "/map"
-  ],
-  "mark": [
-    "/mark dir"
-  ],
-  "more": [
-    "/more [OFF|ON]"
-  ],
-  "nogag": [
-    "/nogag [pattern]"
-  ],
-  "nohilite": [
-    "/nohilite [pattern]"
-  ],
-  "not": [
-    "/not [-slevel] text"
-  ],
-  "nth": [
-    "/nth n text"
-  ],
-  "partial": [
-    "/partial regexp"
-  ],
-  "paste": [
-    "/paste [-pnx] [prefix]"
-  ],
-  "path": [
-    "/path"
-  ],
-  "prompt": [
-    "/prompt [-aattrs] [-p] text"
-  ],
-  "ps": [
-    "/ps [-srq] [-wworld] [pid]"
-  ],
-  "purge": [
-    "/purge [macro-options] [name] [= body]"
-  ],
-  "purgeworld": [
-    "/purgeworld [-mstyle] [-Ttype] [name]"
-  ],
-  "putfile_lp": [
-    "/putfile_lp file [remote-file]"
-  ],
-  "putfile_muck": [
-    "/putfile_muck file [remote-file]"
-  ],
-  "putfile_unix": [
-    "/putfile_unix file [remote-file]"
-  ],
-  "pwd": [
-    "/pwd"
-  ],
-  "python": [
-    "/python [command]",
-    "/python import glob",
-    '/python tf.out( "Logfiles: " + ", ".join(glob.glob("*.log")) )'
-  ],
-  "python_load": [
-    "/python_load urlwatch",
-    "/python_load mymodule"
-  ],
-  "quit": [
-    "/quit [-y]"
-  ],
-  "quote": [
-    `/quote [options] [pre] '"file"[suf]`,
-    '/quote [options] [pre] #"recall_args"[suf]',
-    '/quote [options] [pre] !"shell_cmd"[suf]',
-    '/quote [options] [pre] `"TF_cmd"[suf]'
-  ],
-  "recall": [
-    "/recall [-wworld] [-ligv] [-t[format]] [-aattrs] [-mstyle] [-An] [-Bn] [-Cn] [#]range [pattern]"
-  ],
-  "recordline": [
-    "/recordline [-lig] [-w[world]] [-ttime] text"
-  ],
-  "relimit": [
-    "/relimit"
-  ],
-  "repeat": [
-    "/repeat [-w[world]] [-n] {[-time]|-S|-P} count command"
-  ],
-  "replace": [
-    "/replace old new string"
-  ],
-  "require": [
-    "/require [-q] file"
-  ],
-  "restrict": [
-    "/restrict [SHELL|FILE|WORLD]"
-  ],
-  "result": [
-    "/result [expression]"
-  ],
-  "return": [
-    "/return [expression]"
-  ],
-  "runtime": [
-    "/runtime command"
-  ],
-  "rwho": [
-    "/rwho",
-    "/rwho name=player",
-    "/rwho mud=mud"
-  ],
-  "save": [
-    "/save [-a] file [list-options]"
-  ],
-  "savepath": [
-    "/savepath name"
-  ],
-  "saveworld": [
-    "/saveworld [-a] [file]"
-  ],
-  "send": [
-    "/send [-W] [-Ttype] [-w[world]] [-n] [-b | -q] [-Fpolicy] text"
-  ],
-  "set": [
-    "/set name=value",
-    "/set [name [value]]"
-  ],
-  "setenv": [
-    "/setenv [name [value]]",
-    "/setenv name=value"
-  ],
-  "sh": [
-    "/sh [-q] [command]"
-  ],
-  "shift": [
-    "/shift [n]"
-  ],
-  "signal": [
-    "/signal [sig]"
-  ],
-  "spell_line": [
-    "/spell_line"
-  ],
-  "split": [
-    "/split args"
-  ],
-  "sub": [
-    "/sub [OFF|ON|FULL]"
-  ],
-  "substitute": [
-    "/substitute [-aattrs] [-p] text"
-  ],
-  "suspend": [
-    "/suspend"
-  ],
-  "sys": [
-    "/sys shell-command"
-  ],
-  "telnet": [
-    "/telnet host [port]"
-  ],
-  "test": [
-    "/test expression"
-  ],
-  "tick": [
-    "/tick"
-  ],
-  "tickoff": [
-    "/tickoff"
-  ],
-  "tickon": [
-    "/tickon"
-  ],
-  "tickset": [
-    "/tickset"
-  ],
-  "ticksize": [
-    "/ticksize n"
-  ],
-  "time": [
-    "/time [format]"
-  ],
-  "toggle": [
-    "/toggle variable"
-  ],
-  "tr": [
-    "/tr domain range string"
-  ],
-  "trig": [
-    "/trig pattern = body"
-  ],
-  "trigc": [
-    "/trigc chance pattern = body"
-  ],
-  "trigger": [
-    "/trigger [-ln] [-g] [-w[world]] [-h[event]] text"
-  ],
-  "trigp": [
-    "/trigp priority pattern = body"
-  ],
-  "trigpc": [
-    "/trigpc priority chance pattern = body"
-  ],
-  "true": [
-    "/true"
-  ],
-  "unalias": [
-    "/unalias name"
-  ],
-  "unbind": [
-    "/unbind sequence"
-  ],
-  "undef": [
-    "/undef name..."
-  ],
-  "undefn": [
-    "/undefn number ..."
-  ],
-  "undeft": [
-    "/undeft trigger"
-  ],
-  "unhook": [
-    "/unhook event [pattern]"
-  ],
-  "unlimit": [
-    "/unlimit"
-  ],
-  "unmark": [
-    "/unmark"
-  ],
-  "unpath": [
-    "/unpath"
-  ],
-  "unset": [
-    "/unset name"
-  ],
-  "untrig": [
-    "/untrig [-aattrs] trigger"
-  ],
-  "unworld": [
-    "/unworld name..."
-  ],
-  "ver": [
-    "/ver"
-  ],
-  "version": [
-    "/version"
-  ],
-  "watchdog": [
-    "/watchdog [OFF|ON]",
-    "/watchdog n1 [n2]"
-  ],
-  "watchname": [
-    "/watchname [OFF|ON]",
-    "/watchname n1 [n2]"
-  ],
-  "while": [
-    "/while (expr) list /DONE",
-    "/while list /DO list /DONE"
-  ],
-  "world": [
-    "/world [-lqnxfb] [world]",
-    "/world host port"
-  ]
-};
-
-// packages/core/src/expressionHover.ts
-function functionHelpEntry(name, help) {
-  const entry = help?.get(`${name.toLowerCase()}()`);
-  return entry && !entry.usage[0]?.startsWith("/") ? entry : void 0;
-}
-function escapeMarkdown(text) {
-  return text.replace(/[\\`*_{}[\]<>#|]/g, "\\$&");
-}
-function code2(lines) {
-  return "```tf\n" + lines.join("\n") + "\n```";
-}
-function variableHover(v, help) {
-  const entry = help?.get(`%${v.name.toLowerCase()}`);
-  const parts = [code2(entry?.usage.length ? entry.usage : [`${v.name}${v.default !== void 0 ? `=${v.default}` : ""}`])];
-  if (entry?.summary) parts.push(escapeMarkdown(entry.summary));
-  const facts = [`tf ${v.type} variable`];
-  if (v.values) facts.push(`values: ${v.values.map((x) => `\`${x}\``).join(", ")}`);
-  if (v.requires) facts.push(`only with ${v.requires}`);
-  parts.push(`*${facts.join(" — ")}*`);
-  return parts.join("\n\n");
-}
-var WORD_RE = /[A-Za-z0-9_#*?-]/;
-function getExpressionHover(text, pos, help) {
-  const line = splitRawLines(text)[pos.line] ?? "";
-  if (isCommentLine(line)) return void 0;
-  let start = pos.character;
-  let end = pos.character;
-  while (start > 0 && WORD_RE.test(line[start - 1])) start -= 1;
-  while (end < line.length && WORD_RE.test(line[end])) end += 1;
-  const word = line.slice(start, end);
-  if (!word) return void 0;
-  const range = { start: { line: pos.line, character: start }, end: { line: pos.line, character: end } };
-  const percent = /(?<!%)(?:%%)*%\{?$/.test(line.slice(0, start));
-  if (percent) {
-    const selector = SELECTORS.find((s) => s.label === word) ?? (/^P\d+$/.test(word) ? SELECTORS.find((s) => s.label === "P0") : void 0) ?? (/^-?L\d+$/.test(word) ? SELECTORS.find((s) => s.label === (word.startsWith("-") ? "-L" : "L")) : void 0) ?? (/^-?\d+$/.test(word) ? SELECTORS.find((s) => s.label === (word.startsWith("-") ? "-1" : "1")) : void 0);
-    if (selector) return { markdown: `${code2([`%{${word}}`])}
-
-${selector.detail}`, range };
-    const v2 = SPECIAL_VARIABLES.find((s) => s.name === word);
-    return v2 ? { markdown: variableHover(v2, help), range } : void 0;
+// packages/core/src/formatting.ts
+var DEFAULT_FORMAT_OPTIONS = { indentWidth: 2, splitStatements: true };
+function topLevelSeparators(s) {
+  const out = [];
+  let quote = "";
+  let depth = 0;
+  for (let i = 0; i < s.length; i += 1) {
+    const ch = s[i];
+    if (quote) {
+      if (ch === "\\") i += 1;
+      else if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === "\\") {
+      i += 1;
+      continue;
+    }
+    if (ch === "%") {
+      let n = 1;
+      while (s[i + n] === "%") n += 1;
+      if (n === 1 && s[i + n] === ";" && depth === 0) out.push(i);
+      i += n - 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+    else if ("([{".includes(ch)) depth += 1;
+    else if (")]}".includes(ch)) depth = Math.max(0, depth - 1);
   }
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(word)) return void 0;
-  const before2 = textBefore(text, { line: pos.line, character: start });
-  const kind = before2 === void 0 ? "none" : cursorContext(before2).kind;
-  if (kind === "variable-name") {
-    const v2 = SPECIAL_VARIABLES.find((s) => s.name === word);
-    return v2 ? { markdown: variableHover(v2, help), range } : void 0;
+  return out;
+}
+var GLUES = /* @__PURE__ */ new Set(["%", "\\", "$", "/"]);
+function normalise(joined2, body) {
+  if (body < 0) return joined2;
+  const seps = topLevelSeparators(joined2).filter((s) => s >= body);
+  let out = "";
+  let from = 0;
+  for (const s of seps) {
+    const before2 = joined2.slice(from, s);
+    const trimmed = before2.replace(/[ \t\f\v]+$/, "");
+    out += (trimmed.length < before2.length && GLUES.has(trimmed[trimmed.length - 1] ?? "") ? before2 : trimmed) + "%;";
+    from = s + 2;
+    while (/[ \t\f\v]/.test(joined2[from] ?? "")) from += 1;
   }
-  if (kind !== "expression") return void 0;
-  if (/^\s*\(/.test(line.slice(end))) {
-    const f = FUNCTIONS.find((fn) => fn.name === word.toLowerCase());
-    if (!f) return void 0;
-    const entry = functionHelpEntry(f.name, help);
-    const parts = [code2(entry?.usage.length ? entry.usage : functionSynopses(f))];
-    if (entry?.summary) parts.push(escapeMarkdown(entry.summary));
-    const counts2 = f.max === null ? `${f.min} or more arguments` : f.min === f.max ? `${f.min} argument${f.min === 1 ? "" : "s"}` : `${f.min} to ${f.max} arguments`;
-    parts.push(`*tf function, ${counts2}${f.requires ? `, only with ${f.requires}` : ""}*`);
-    return { markdown: parts.join("\n\n"), range };
+  return out + joined2.slice(from);
+}
+function rejoin(lines) {
+  return splitLogicalEntries(lines.join("\n"))[0]?.text ?? "";
+}
+function hasInnerTab(lines) {
+  return lines.some((l) => !isCommentLine(l) && /\S[^\t]*\t/.test(l));
+}
+var harmless = (issue) => issue.kind === "operand";
+var parsedCleanly = (layout) => !layout.stopped && layout.issues.every(harmless);
+var MID_KEYWORD_RE = /\s\/@?(?:if|elseif|else|endif|while|do|done|then)(?![\w@])/i;
+function keywordMidStatement2(text, layout) {
+  return layout.units.some((u) => !u.block && MID_KEYWORD_RE.test(text.slice(u.start, u.end)));
+}
+function statementStarts(text, layout, base) {
+  const out = /* @__PURE__ */ new Set();
+  for (const u of layout.units) out.add(u.start + base);
+  for (const p of layout.partStarts) out.add(p + base);
+  for (const s of layout.separators) {
+    let q = s.at + base + 2;
+    while (isTfSpace(text[q])) q += 1;
+    out.add(q);
   }
-  const v = SPECIAL_VARIABLES.find((s) => s.name === word);
-  return v ? { markdown: variableHover(v, help), range } : void 0;
+  return out;
+}
+function depthAt(layout, base, o) {
+  return layout.blocks.filter((b) => b.parts.some((p) => p.start + base <= o && o < p.end + base)).length;
+}
+function statementTexts(text, layout) {
+  return layout.units.filter((u) => !u.block).map((u) => `${u.word}:${text.slice(u.start, u.end).replace(/^[ \t]+|[ \t]+$/g, "")}`);
+}
+function splitPlan(entry, body, layout, authorBreaks, multiLine) {
+  const j = entry.text;
+  const cuts = /* @__PURE__ */ new Set();
+  const removed = /* @__PURE__ */ new Set();
+  const spaced = /* @__PURE__ */ new Set();
+  const zones = [];
+  const safe = new Set(topLevelSeparators(j));
+  const own = layout.separators.filter((sep) => sep.char === ";" && layout.lists[sep.list]?.kind === "body");
+  if (own.some((sep) => !safe.has(sep.at + body))) return void 0;
+  for (const sep of own) {
+    const at2 = sep.at + body;
+    let q = at2 + 2;
+    while (isTfSpace(j[q])) q += 1;
+    let r = at2;
+    while (r > body && isTfSpace(j[r - 1])) r -= 1;
+    if (r < at2 && r > body && !GLUES.has(j[r - 1])) for (let k = r; k < at2; k += 1) removed.add(k);
+    for (let k = at2 + 2; k < q; k += 1) removed.add(k);
+    zones.push([r, q]);
+    if (q < j.length) cuts.add(q);
+  }
+  for (const p0 of layout.partStarts) {
+    const p = p0 + body;
+    if (p >= j.length || !isTfSpace(j[p - 1]) || /^%[;|]/.test(j.slice(p))) continue;
+    cuts.add(p);
+    zones.push([p, p]);
+  }
+  let first = body;
+  while (isTfSpace(j[first])) first += 1;
+  if (first < j.length && (cuts.size > 0 || multiLine)) {
+    cuts.add(first);
+    zones.push([body, first]);
+    if (first === body && entry.isDefBody) spaced.add(first);
+  }
+  for (const b of authorBreaks) if (!zones.some(([r, q]) => r <= b && b <= q)) cuts.add(b);
+  return { cuts, removed, spaced };
+}
+function cutLines(j, plan4) {
+  const contents = [];
+  const starts = [0];
+  let line = "";
+  for (let o = 0; o <= j.length; o += 1) {
+    if (plan4.spaced.has(o)) line += " ";
+    if (plan4.cuts.has(o) && o > 0 && o < j.length) {
+      contents.push(line);
+      starts.push(o);
+      line = "";
+    }
+    if (o < j.length && !plan4.removed.has(o)) line += j[o];
+  }
+  contents.push(line);
+  return { contents, starts };
+}
+function expectedText(j, plan4) {
+  let out = "";
+  for (let o = 0; o < j.length; o += 1) {
+    if (plan4.spaced.has(o)) out += " ";
+    if (!plan4.removed.has(o)) out += j[o];
+  }
+  return out;
+}
+function tabMoves(original, entry, body) {
+  if (hasInnerTab(original.slice(1))) return true;
+  const firstLine = original[0] ?? "";
+  const lead = leadingWhitespaceLength(firstLine);
+  const tab = firstLine.indexOf("	", lead);
+  return tab >= 0 && (body < 0 || tab - lead >= body);
+}
+function layoutEntry(entry, original, indent, split) {
+  if (entry.incomplete) return "incomplete";
+  if (original.some((l, i) => i > 0 && isCommentLine(l))) return "comment";
+  if (original.some((l, i) => i > 0 && isBlankLine(l))) return "blank-line";
+  if (original.some((l) => l.includes("%\\"))) return "percent-backslash";
+  if (original.some((l) => /\\[ \t\f\v]+$/.test(l))) return "space-after-backslash";
+  const j = entry.text;
+  const macro = entry.isDefBody || entry.isOtherMacroBody;
+  const body = macro ? macroBodyStart(j) : -1;
+  if (tabMoves(original, entry, body)) return "tab";
+  const top = parseLayout(j, "top");
+  if (!parsedCleanly(top)) return "structure";
+  const inner2 = body >= 0 ? parseLayout(j.slice(body), "body") : void 0;
+  if (inner2 && !parsedCleanly(inner2)) return "structure";
+  if (inner2 ? keywordMidStatement2(j.slice(body), inner2) : keywordMidStatement2(j, top)) return "keyword-mid-statement";
+  const authorBreaks = [];
+  let offset = 0;
+  for (const part of entry.parts.slice(0, -1)) {
+    offset += part.text.length;
+    authorBreaks.push(offset);
+  }
+  const plan4 = (inner2 && split ? splitPlan(entry, body, inner2, authorBreaks, original.length > 1) : void 0) ?? {
+    cuts: new Set(authorBreaks),
+    removed: /* @__PURE__ */ new Set(),
+    spaced: /* @__PURE__ */ new Set()
+  };
+  const { contents, starts } = cutLines(j, plan4);
+  const layout = inner2 ?? top;
+  const base = inner2 ? body : 0;
+  const stmtStarts = statementStarts(j, layout, base);
+  if (inner2) {
+    let first = body;
+    while (isTfSpace(j[first])) first += 1;
+    stmtStarts.add(first);
+  }
+  const firstIndent = (original[0] ?? "").slice(0, leadingWhitespaceLength(original[0] ?? ""));
+  const lines = contents.map((content, i) => {
+    const end = i < contents.length - 1 ? "\\" : "";
+    if (i === 0) return `${firstIndent}${content}${end}`;
+    const o = starts[i];
+    const level = inner2 && o < body ? 2 : (inner2 ? 1 : 0) + depthAt(layout, base, o) + (stmtStarts.has(o) ? 0 : 1);
+    return `${indent.repeat(level)}${content}${end}`;
+  });
+  if (lines.some((l, i) => i > 0 && (isBlankLine(l) || isCommentLine(l)))) return "unverified";
+  if (lines.some((l, i) => i < lines.length - 1 !== continuesToNextLine(l))) return "unverified";
+  const joined2 = rejoin(lines);
+  if (joined2 !== expectedText(j, plan4)) return "unverified";
+  if (inner2) {
+    const again = parseLayout(joined2.slice(body), "body");
+    if (!parsedCleanly(again)) return "unverified";
+    if (again.separators.length !== inner2.separators.length || again.blocks.length !== inner2.blocks.length) return "unverified";
+    if (statementTexts(joined2.slice(body), again).join("\n") !== statementTexts(j.slice(body), inner2).join("\n")) return "unverified";
+  }
+  return lines;
+}
+function splitEntry(entry, original, indent, _opts = {}) {
+  if (!(entry.isDefBody || entry.isOtherMacroBody)) return void 0;
+  const laid = layoutEntry(entry, original, indent, true);
+  if (typeof laid === "string" || laid.length === original.length) return void 0;
+  return laid;
+}
+function errorLines(text) {
+  const out = /* @__PURE__ */ new Set();
+  for (const d of getDiagnostics(text, { joinFixes: false })) {
+    if (d.severity !== "error") continue;
+    for (let l = d.range.start.line; l <= d.range.end.line; l += 1) out.add(l);
+  }
+  return out;
+}
+function formatDocument(text, options = {}, range) {
+  const opts = { ...DEFAULT_FORMAT_OPTIONS, ...options };
+  if (text.includes("\r")) return { edits: [], entries: [], crlf: true };
+  const indent = " ".repeat(opts.indentWidth);
+  const lines = splitRawLines(text);
+  const errors = errorLines(text);
+  const edits = [];
+  const entries = [];
+  for (const entry of splitLogicalEntries(text)) {
+    if (range && (entry.endLine < range.start.line || entry.startLine > range.end.line)) continue;
+    const at2 = { startLine: entry.startLine, endLine: entry.endLine };
+    const original = lines.slice(entry.startLine, entry.endLine + 1);
+    let hasError = false;
+    for (let l = entry.startLine; l <= entry.endLine; l += 1) if (errors.has(l)) hasError = true;
+    const laid = hasError ? "error" : layoutEntry(entry, original, indent, opts.splitStatements);
+    if (typeof laid === "string") {
+      entries.push({ ...at2, changed: false, refused: laid });
+      continue;
+    }
+    const changed = laid.join("\n") !== original.join("\n");
+    entries.push({ ...at2, changed });
+    if (!changed) continue;
+    const last = original[original.length - 1] ?? "";
+    edits.push({
+      range: { start: { line: entry.startLine, character: 0 }, end: { line: entry.endLine, character: last.length } },
+      newText: laid.join("\n")
+    });
+  }
+  return { edits, entries, crlf: false };
+}
+function formatText(text, options = {}, range) {
+  return formatDocument(text, options, range).edits;
 }
 
-// packages/core/src/variableNavigation.ts
-var import_node_path = require("node:path");
+// packages/core/src/bodyLayout.ts
+var DEFAULT_INDENT = "    ";
+function detectIndent(text) {
+  let best;
+  const lines = splitRawLines(text);
+  for (const entry of splitLogicalEntries(text)) {
+    if (entry.parts.length < 2) continue;
+    for (const part of entry.parts.slice(1)) {
+      const line = lines[part.line] ?? "";
+      const lead = line.slice(0, leadingWhitespaceLength(line)).replace(/\r/g, "");
+      if (lead === "" || isCommentLine(line)) continue;
+      if (lead.startsWith("	")) return "	";
+      if (best === void 0 || lead.length < best.length) best = lead;
+    }
+  }
+  return best ?? DEFAULT_INDENT;
+}
+function joinedLine(entry, firstLine) {
+  const body = macroBodyStart(entry.text);
+  if (body < 0) return void 0;
+  const text = normalise(entry.text, body);
+  const seps = topLevelSeparators(text).filter((s) => s >= body && s + 2 < text.length);
+  let out = "";
+  let from = 0;
+  for (const s of seps) {
+    out += `${text.slice(from, s + 2)} `;
+    from = s + 2;
+  }
+  out += text.slice(from);
+  return firstLine.slice(0, leadingWhitespaceLength(firstLine)) + out;
+}
+function sameProgram(a, b) {
+  const bodyA = macroBodyStart(a);
+  const bodyB = macroBodyStart(b);
+  if (bodyA < 0 || bodyB < 0) return false;
+  if (a.slice(0, bodyA) !== b.slice(0, bodyB)) return false;
+  if (normalise(a, bodyA) !== normalise(b, bodyB)) return false;
+  const statements = (t, body) => parseStatements(t.slice(body), "body").map((st) => `${st.level}:${st.conditional}:${t.slice(body + st.start, body + st.end).trim()}`);
+  if (statements(a, bodyA).join("\n") !== statements(b, bodyB).join("\n")) return false;
+  const issues = (t, body) => checkStructure(t.slice(body), "body").map((i) => `${i.kind}:${i.message}`).join("\n");
+  return issues(a, bodyA) === issues(b, bodyB);
+}
+function tabMoves2(entry, original, body) {
+  const first = original[0] ?? "";
+  const firstPart = entry.parts[0]?.text ?? "";
+  const headEnd = body <= firstPart.length ? leadingWhitespaceLength(first) + body : first.length;
+  if (first.slice(headEnd).includes("	")) return true;
+  return hasInnerTab(original.slice(1));
+}
+function overlapsLines(entry, range) {
+  return entry.startLine <= range.end.line && entry.endLine >= range.start.line;
+}
+function wholeLines(entry, original, newText) {
+  const last = original[original.length - 1] ?? "";
+  return { range: { start: { line: entry.startLine, character: 0 }, end: { line: entry.endLine, character: last.length } }, newText };
+}
+var UNNAMED = { def: "this macro's", alias: "this alias's", trig: "this trigger's", hook: "this hook's", bind: "this key binding's" };
+function owner(symbol) {
+  if (!symbol) return "the";
+  return symbol.kind === "def" || symbol.kind === "alias" ? `/${symbol.name}'s` : UNNAMED[symbol.kind];
+}
+function getRefactorActions(text, range, indent = detectIndent(text)) {
+  const lines = splitRawLines(text);
+  const actions = [];
+  const symbols = new Map(getDocumentSymbols(text).map((s) => [s.range.start.line, s]));
+  for (const entry of splitLogicalEntries(text)) {
+    if (!overlapsLines(entry, range)) continue;
+    if (entry.incomplete || !(entry.isDefBody || entry.isOtherMacroBody)) continue;
+    const original = lines.slice(entry.startLine, entry.endLine + 1);
+    if (original.some((l) => l.includes("\r")) || tabMoves2(entry, original, macroBodyStart(entry.text))) continue;
+    if (entry.parts.length === 1) {
+      const split = splitEntry(entry, original, indent, { headTabs: true });
+      if (!split || split.length < 2) continue;
+      const joinedBack = splitLogicalEntries(split.join("\n"))[0];
+      const back = joinedBack && joinedLine(joinedBack, split[0] ?? "");
+      if (!sameProgram(entry.text, rejoin(split)) || back === void 0 || !sameProgram(entry.text, rejoin([back]))) continue;
+      actions.push({ title: `Split ${owner(symbols.get(entry.startLine))} body onto separate lines`, edits: [wholeLines(entry, original, split.join("\n"))] });
+      continue;
+    }
+    if (!entry.parts.every((p, i) => p.line === entry.startLine + i)) continue;
+    const line = joinedLine(entry, original[0] ?? "");
+    if (line === void 0 || !sameProgram(entry.text, rejoin([line]))) continue;
+    const reread = splitLogicalEntries(line);
+    if (reread.length !== 1 || reread[0]?.parts.length !== 1) continue;
+    actions.push({ title: `Join ${owner(symbols.get(entry.startLine))} body onto one line`, edits: [wholeLines(entry, original, line)] });
+  }
+  return actions;
+}
 
 // packages/core/src/variables.ts
 var SPECIAL_VARIABLE_NAMES = new Set(SPECIAL_VARIABLES.map((v) => v.name));
@@ -16580,734 +16184,6 @@ function findMacroCalls(text) {
 }
 function findFunctionCalls(text) {
   return scan(text).functionCalls;
-}
-
-// packages/core/src/variableNavigation.ts
-function contains(range, pos) {
-  const afterStart = pos.line > range.start.line || pos.line === range.start.line && pos.character >= range.start.character;
-  const beforeEnd = pos.line < range.end.line || pos.line === range.end.line && pos.character <= range.end.character;
-  return afterStart && beforeEnd;
-}
-function variableAt(text, pos) {
-  const all = findVariables(text).filter((v) => contains(v.range, pos));
-  return all.find((v) => v.range.end.line !== pos.line || v.range.end.character !== pos.character) ?? all[0];
-}
-var DEFINES = /* @__PURE__ */ new Set(["set", "setenv", "let", "getopts"]);
-function occurrencesOf(target, text, self, files) {
-  const pick = (uri, fileText) => findVariables(fileText).filter((v) => v.name === target.name && v.scope === target.scope).map((v) => ({ ...v, uri }));
-  const here = pick(self, text);
-  return target.scope === "global" ? [...here, ...files.flatMap((f) => pick(f.uri, f.text))] : here;
-}
-var toLocation = (v) => ({ uri: v.uri, range: v.range });
-function variableDefinition(text, pos, ctx) {
-  const target = variableAt(text, pos);
-  if (!target) return void 0;
-  const all = occurrencesOf(target, text, ctx?.uri ?? "", [...ctx?.files ?? [], ...ctx?.libraryFiles ?? []]);
-  const sets = all.filter((v) => DEFINES.has(v.access));
-  return (sets.length > 0 ? sets : all.filter((v) => v.access === "assign")).map(toLocation);
-}
-function variableReferences(text, pos, includeDeclaration, ctx) {
-  const target = variableAt(text, pos);
-  if (!target) return void 0;
-  return occurrencesOf(target, text, ctx?.uri ?? "", ctx?.files ?? []).filter((v) => includeDeclaration || !DEFINES.has(v.access)).map(toLocation);
-}
-function variableHighlights(text, pos) {
-  const target = variableAt(text, pos);
-  if (!target) return void 0;
-  return occurrencesOf(target, text, "", []).map((v) => ({ range: v.range, kind: v.access === "read" ? "read" : "write" }));
-}
-function renameCheck(text, pos, ctx) {
-  const target = variableAt(text, pos);
-  if (!target) return void 0;
-  if (target.scope === "global" && SPECIAL_VARIABLE_NAMES.has(target.name)) {
-    return { ok: false, reason: `${target.name} is one of tf's special variables, so it can't be renamed.` };
-  }
-  if (findVariables(text).some((v) => v.access === "getopts" && v.name === target.name && v.scope === target.scope)) {
-    return { ok: false, reason: `${target.name} is set by getopts(), which names it after its option letter, so it can't be renamed.` };
-  }
-  if (target.scope === "global") {
-    for (const f of ctx?.libraryFiles ?? []) {
-      if (findVariables(f.text).some((v) => v.name === target.name && v.scope === "global")) {
-        return { ok: false, reason: `${target.name} is used by tf's library, which a rename here can't change, so it can't be renamed.` };
-      }
-    }
-  }
-  const passed = passedOn(target, text, ctx);
-  if (passed) return { ok: false, reason: passed };
-  return { ok: true, target };
-}
-var WRITES = /* @__PURE__ */ new Set(["set", "setenv", "assign"]);
-function passedOn(target, text, ctx) {
-  const name = target.name;
-  const self = ctx?.uri ?? "";
-  const files = [
-    { uri: self, text, library: false },
-    ...(ctx?.files ?? []).map((f) => ({ ...f, library: false })),
-    ...(ctx?.libraryFiles ?? []).map((f) => ({ ...f, library: true }))
-  ];
-  const all = files.flatMap(
-    (f) => findVariables(f.text).filter((v) => v.name === name).map((v) => ({ ...v, uri: f.uri, library: f.library }))
-  );
-  if (all.some((v) => v.scope === "global" && WRITES.has(v.access))) return void 0;
-  const where2 = (v) => {
-    const at2 = `line ${v.range.start.line + 1}, column ${v.range.start.character + 1}`;
-    return v.uri === self ? at2 : `${fileLabel(v.uri, self, v.library)} ${at2}`;
-  };
-  const advice = "Rename both by hand if they are the same variable.";
-  if (target.scope !== "global") {
-    const reads = all.filter((v) => v.scope === "global" && v.access === "read");
-    const elsewhere = reads.find((v) => v.uri !== self || v.entry !== target.entry);
-    if (elsewhere) {
-      return `${name} is also read on ${where2(elsewhere)}, outside this one's scope, and nothing sets a global ${name}, so tf's dynamic scoping probably hands it this one. ${advice}`;
-    }
-    const here = reads[0];
-    if (here) {
-      return `This macro also reads ${name} on ${where2(here)}, where this one doesn't reach, and nothing sets a global ${name}, so that read gets whatever a macro calling this one has. ${advice}`;
-    }
-    return void 0;
-  }
-  const bound = all.find((v) => v.access === "let" || v.access === "getopts");
-  if (!bound) return void 0;
-  const kind = bound.access === "getopts" ? "getopts() option" : bound.form === "loop-variable" ? `/for ${name} loop variable` : `/let ${name}`;
-  return `Nothing sets a global ${name}, so its reads probably get the ${kind} on ${where2(bound)} through tf's dynamic scoping. ${advice}`;
-}
-function fileLabel(uri, self, library) {
-  const filePath = (u) => {
-    try {
-      return decodeURIComponent(new URL(u).pathname);
-    } catch {
-      return u;
-    }
-  };
-  const other = filePath(uri);
-  if (library || !self) return import_node_path.posix.basename(other);
-  return import_node_path.posix.relative(import_node_path.posix.dirname(filePath(self)), other);
-}
-function collision(target, newName2, text, ctx) {
-  const old = target.name;
-  const everywhere = [{ uri: ctx?.uri ?? "", text }, ...ctx?.files ?? [], ...ctx?.libraryFiles ?? []];
-  const globalNamed = everywhere.some((f) => findVariables(f.text).some((v) => v.name === newName2 && v.scope === "global"));
-  if (target.scope === "global") {
-    if (globalNamed) {
-      return `${newName2} is already a variable on this file's load path, so renaming ${old} to it would merge the two. Pick a name that isn't used yet.`;
-    }
-    for (const f of everywhere) {
-      const all = findVariables(f.text);
-      const uses = new Set(all.filter((v) => v.name === old && v.scope === "global").map((v) => v.entry));
-      if (all.some((v) => v.name === newName2 && v.scope !== "global" && uses.has(v.entry))) {
-        return `A macro that uses ${old} has its own /let ${newName2}, which would take over ${old} there after the rename. Pick another name.`;
-      }
-    }
-    return void 0;
-  }
-  if (findVariables(text).some((v) => v.name === newName2 && v.entry === target.entry)) {
-    return `This macro body already uses ${newName2}, so renaming ${old} to it would merge the two. Pick another name.`;
-  }
-  if (globalNamed) {
-    return `${newName2} is already a global variable on this file's load path, and a /let ${newName2} would hide it from this macro and any macro it calls. Pick another name.`;
-  }
-  return void 0;
-}
-function prepareVariableRename(text, pos, ctx) {
-  const check5 = renameCheck(text, pos, ctx);
-  if (!check5) return void 0;
-  return check5.ok ? { range: check5.target.range, placeholder: check5.target.name } : { error: check5.reason };
-}
-function badName(name) {
-  if (!isVariableName(name)) {
-    return `"${name}" can't be a variable name: use letters, digits and _, not starting with a digit.`;
-  }
-  if (readSelector(name, 0)?.name !== name || readSelector(`{${name}}`, 0)?.name !== name) {
-    return `"${name}" can't be a variable name here: tf reads %${name} as a positional or special substitution, not a variable.`;
-  }
-  if (SPECIAL_VARIABLE_NAMES.has(name)) {
-    return `"${name}" is one of tf's special variables: pick another name.`;
-  }
-  return void 0;
-}
-function variableRenameEdits(text, pos, newName2, ctx) {
-  const check5 = renameCheck(text, pos, ctx);
-  if (!check5) return void 0;
-  if (!check5.ok) return { error: check5.reason };
-  const bad = badName(newName2);
-  if (bad) return { error: bad };
-  if (newName2 !== check5.target.name) {
-    const taken = collision(check5.target, newName2, text, ctx);
-    if (taken) return { error: taken };
-  }
-  return occurrencesOf(check5.target, text, ctx?.uri ?? "", ctx?.files ?? []).map((v) => ({ uri: v.uri, range: v.range, newText: newName2 }));
-}
-
-// packages/core/src/navigation.ts
-var NAME = "[^\\s%;=()\\[\\]{}\"'`$\\\\]+";
-var CALL_RE2 = new RegExp(`(^|[\\s;|(])\\/(@?)(!?)(${NAME})`, "g");
-var BRACED_SUBST_RE = /(?<!\$)\$\{([^}\s]+)\}/g;
-var BARE_SUBST_RE = /(?<!\$)\$([A-Za-z_][A-Za-z0-9_]*)/g;
-function findUsages(text) {
-  const usages = [];
-  splitRawLines(text).forEach((line, lineNo) => {
-    if (isCommentLine(line)) return;
-    const push2 = (name, kind, start, bare = false) => {
-      usages.push({
-        name,
-        kind,
-        range: { start: { line: lineNo, character: start }, end: { line: lineNo, character: start + name.length } },
-        ...bare ? { bare } : {}
-      });
-    };
-    for (const m of line.matchAll(CALL_RE2)) {
-      const at2 = m[2];
-      const bang = m[3];
-      const name = m[4];
-      const start = (m.index ?? 0) + m[1].length + 1 + at2.length + bang.length;
-      push2(name, at2 ? "builtin-call" : "call", start);
-    }
-    for (const m of line.matchAll(BRACED_SUBST_RE)) push2(m[1], "substitution", (m.index ?? 0) + 2);
-    for (const m of line.matchAll(BARE_SUBST_RE)) push2(m[1], "substitution", (m.index ?? 0) + 1, true);
-  });
-  return usages;
-}
-function macroUsages(text) {
-  const calls = findFunctionCalls(text).map((c) => ({ name: c.name, kind: "function-call", range: c.range }));
-  return [...findUsages(text), ...calls];
-}
-function contains2(range, pos) {
-  const afterStart = pos.line > range.start.line || pos.line === range.start.line && pos.character >= range.start.character;
-  const beforeEnd = pos.line < range.end.line || pos.line === range.end.line && pos.character <= range.end.character;
-  return afterStart && beforeEnd;
-}
-var same = (a, b) => a.toLowerCase() === b.toLowerCase();
-function definitionsOf(name, text, symbols, ctx) {
-  if (RESERVED_MACRO_NAMES.has(name.toLowerCase())) return [];
-  const lines = splitRawLines(text);
-  const local = symbols.filter((s) => s.kind === "def" && same(s.name, name)).map((symbol) => ({ uri: ctx?.uri ?? "", symbol, lines, library: false, loaded: true }));
-  const external = (ctx?.macros ?? []).filter((m) => same(m.symbol.name, name)).map((m) => ({ uri: m.uri, label: m.label, symbol: m.symbol, lines: m.lines, library: m.library, loaded: m.loaded }));
-  return [...local, ...external];
-}
-function targetAt(text, pos, symbols) {
-  const usage = macroUsages(text).find((u) => contains2(u.range, pos));
-  if (usage) return { name: usage.name, usage, range: usage.range };
-  const def = symbols.find((s) => s.kind === "def" && contains2(s.selectionRange, pos));
-  return def && { name: def.name, range: def.selectionRange };
-}
-var COMMANDS = new Map(ALL_COMMANDS.map((c) => [c.name.toLowerCase(), c.source]));
-var SOURCE_LABEL = {
-  keyword: "tf control-flow keyword",
-  builtin: "tf built-in command",
-  stdlib: "stdlib.tf macro (always loaded)"
-};
-function commandHover(name, help) {
-  const key2 = name.toLowerCase();
-  const source = COMMANDS.get(key2);
-  const entry = help?.get(`/${key2}`);
-  if (!source && !entry) return void 0;
-  const usages = entry && entry.usage.length > 0 ? entry.usage : COMMAND_USAGES[key2];
-  const synopsis = usages ? "```tf\n" + usages.join("\n") + "\n```\n\n" : "";
-  const description = COMMAND_DESCRIPTIONS[key2] || entry?.summary && escapeMarkdown2(entry.summary);
-  const parts = [synopsis.trimEnd(), description ?? "", source ? `*${SOURCE_LABEL[source]}*` : ""].filter(Boolean);
-  return parts.length > 0 ? parts.join("\n\n") : void 0;
-}
-function escapeMarkdown2(text) {
-  return text.replace(/[\\`*_{}[\]<>#|]/g, "\\$&");
-}
-var DOC_COMMENT_RE = /^\s*;;;(.*)$/;
-function docCommentAbove(lines, defLine) {
-  const doc = [];
-  for (let i = defLine - 1; i >= 0; i -= 1) {
-    const m = DOC_COMMENT_RE.exec(lines[i] ?? "");
-    if (!m) break;
-    doc.unshift(m[1].replace(/^ /, "").replace(/\s+$/, ""));
-  }
-  return doc.length > 0 ? doc.join("\n") : void 0;
-}
-function where(def) {
-  const line = def.symbol.range.start.line + 1;
-  if (!def.label) return `this file, line ${line}`;
-  return `\`${def.label}\`${def.library ? " (tf library)" : ""} line ${line}`;
-}
-function describeDefs(defs) {
-  const code3 = "```tf\n" + defs.map((d) => `${d.symbol.detail} ${d.symbol.name}`).join("\n") + "\n```\n\n";
-  const docs = defs.map((d) => docCommentAbove(d.lines, d.symbol.range.start.line)).filter((d) => d !== void 0).map((d) => d.split("\n").map(escapeMarkdown2).join("  \n"));
-  return code3 + (docs.length > 0 ? `${docs.join("\n\n")}
-
-` : "") + `defined in ${defs.map(where).join("; ")}`;
-}
-function getHover(text, pos, ctx) {
-  const symbols = getDocumentSymbols(text);
-  const target = targetAt(text, pos, symbols);
-  if (!target) return getExpressionHover(text, pos, ctx?.help);
-  const key2 = target.name.toLowerCase();
-  const source = COMMANDS.get(key2);
-  if (target.usage?.kind === "builtin-call") {
-    if (source !== "builtin" && source !== "keyword") return void 0;
-    const doc = commandHover(target.name, ctx?.help);
-    return doc ? { markdown: `${doc}
-
-\`/@\` calls the built-in even if a macro has the same name.`, range: target.range } : void 0;
-  }
-  const all = definitionsOf(target.name, text, symbols, ctx);
-  const userDefs = all.filter((d) => d.loaded && !d.library);
-  const libraryDefs = all.filter((d) => d.loaded && d.library);
-  const unloaded = all.filter((d) => !d.loaded);
-  if (userDefs.length > 0) {
-    let note = "";
-    if (source === "builtin") {
-      note = `
-
-Shadows the built-in \`/${key2}\`; \`/@${key2}\` calls the built-in.`;
-    } else if (source === "stdlib" || libraryDefs.length > 0) {
-      const from = libraryDefs[0]?.label ?? "stdlib.tf";
-      note = `
-
-Redefines \`/${key2}\` from \`${from}\`.`;
-    }
-    return { markdown: describeDefs(userDefs) + note, range: target.range };
-  }
-  const command2 = commandHover(target.name, ctx?.help);
-  const withCommand = (rest) => command2 ? `${command2}
-
-${rest}` : rest;
-  if (libraryDefs.length > 0) {
-    return { markdown: withCommand(describeDefs(libraryDefs)), range: target.range };
-  }
-  if (unloaded.length > 0 && !source) {
-    const first = unloaded[0];
-    return {
-      markdown: withCommand(describeDefs(unloaded)) + `
-
-Not loaded on this file's load path — \`/require ${first.label ?? ""}\` first.`,
-      range: target.range
-    };
-  }
-  return command2 && target.usage?.kind === "call" ? { markdown: command2, range: target.range } : void 0;
-}
-function getDefinition(text, pos, ctx) {
-  const variable = variableDefinition(text, pos, ctx);
-  if (variable) return variable;
-  const symbols = getDocumentSymbols(text);
-  const target = targetAt(text, pos, symbols);
-  if (!target || target.usage?.kind === "builtin-call") return [];
-  const all = definitionsOf(target.name, text, symbols, ctx);
-  const loaded = all.filter((d) => d.loaded);
-  return (loaded.length > 0 ? loaded : all).map((d) => ({ uri: d.uri, range: d.symbol.selectionRange }));
-}
-function getReferences(text, pos, includeDeclaration, ctx) {
-  const variable = variableReferences(text, pos, includeDeclaration, ctx);
-  if (variable) return sortLocations(variable);
-  const symbols = getDocumentSymbols(text);
-  const target = targetAt(text, pos, symbols);
-  if (!target || target.usage?.kind === "builtin-call") return [];
-  const uses = (uri, fileText) => macroUsages(fileText).filter((u) => u.kind !== "builtin-call" && same(u.name, target.name)).map((u) => ({ uri, range: u.range }));
-  const decls = includeDeclaration ? definitionsOf(target.name, text, symbols, ctx).filter((d) => d.loaded).map((d) => ({ uri: d.uri, range: d.symbol.selectionRange })) : [];
-  return sortLocations([...decls, ...uses(ctx?.uri ?? "", text), ...(ctx?.files ?? []).flatMap((f) => uses(f.uri, f.text))]);
-}
-function sortLocations(all) {
-  return all.sort(
-    (a, b) => a.uri.localeCompare(b.uri) || a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character
-  );
-}
-function renameTarget(text, pos, ctx) {
-  const symbols = getDocumentSymbols(text);
-  const target = targetAt(text, pos, symbols);
-  if (!target) return { ok: false, reason: "Put the cursor on a macro or variable name to rename it." };
-  if (target.usage?.kind === "builtin-call") {
-    return { ok: false, reason: `/@${target.name} always calls the built-in, which can't be renamed.` };
-  }
-  const defs = definitionsOf(target.name, text, symbols, ctx).filter((d) => d.loaded);
-  const library = defs.find((d) => d.library);
-  if (library) {
-    return { ok: false, reason: `/${target.name} is defined in tf's library (${library.label ?? "stdlib.tf"}), which isn't yours to rename.` };
-  }
-  if (defs.length === 0) {
-    const builtin = COMMANDS.has(target.name.toLowerCase());
-    return {
-      ok: false,
-      reason: builtin ? `/${target.name} is a tf command, not a macro defined in your scripts.` : `No /def of ${target.name} on this file's load path, so there is nothing to rename it consistently with.`
-    };
-  }
-  return { ok: true, target, defs, symbols };
-}
-var NEW_NAME_RE = new RegExp(`^${NAME}$`);
-var FUNCTION_NAMES2 = new Set(FUNCTIONS.map((f) => f.name));
-var IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-function prepareRename(text, pos, ctx) {
-  const variable = prepareVariableRename(text, pos, ctx);
-  if (variable) return variable;
-  const r = renameTarget(text, pos, ctx);
-  return r.ok ? { range: r.target.range, placeholder: r.target.name } : { error: r.reason };
-}
-function getRenameEdits(text, pos, newName2, ctx) {
-  const variable = variableRenameEdits(text, pos, newName2, ctx);
-  if (variable) return variable;
-  const r = renameTarget(text, pos, ctx);
-  if (!r.ok) return { error: r.reason };
-  if (!NEW_NAME_RE.test(newName2)) {
-    return { error: `"${newName2}" can't be a macro name here: no spaces, and none of % ; = ( ) [ ] { } " ' \` $ \\.` };
-  }
-  const { target, defs } = r;
-  const self = ctx?.uri ?? "";
-  if (!same(newName2, target.name)) {
-    const taken = definitionsOf(newName2, text, r.symbols, ctx).find((d) => d.loaded);
-    if (taken) {
-      const where2 = taken.uri === self ? `line ${taken.symbol.selectionRange.start.line + 1}` : taken.label ?? taken.uri;
-      return { error: `There's already a macro /${taken.symbol.name} (${where2}), and tf ignores case in macro names, so one /def would replace the other: pick another name.` };
-    }
-  }
-  const edits = defs.map((d) => ({ uri: d.uri, range: d.symbol.selectionRange, newText: newName2 }));
-  const uses = [{ uri: self, text }, ...ctx?.files ?? []].flatMap(
-    (f) => macroUsages(f.text).filter((u) => u.kind !== "builtin-call" && same(u.name, target.name)).map((u) => ({ uri: f.uri, u }))
-  );
-  const fn = uses.find(({ u }) => u.kind === "function-call");
-  if (fn && !isVariableName(newName2)) {
-    return { error: `${target.name} is called as ${fn.u.name}(...) on line ${fn.u.range.start.line + 1}, and tf only reads letters, digits and _ as a function name there: pick a name like that.` };
-  }
-  if (fn && FUNCTION_NAMES2.has(newName2)) {
-    return { error: `${target.name} is called as ${fn.u.name}(...) on line ${fn.u.range.start.line + 1}, and ${newName2}(...) would call tf's builtin ${newName2}() instead: pick another name.` };
-  }
-  for (const { uri, u } of uses) {
-    if (u.bare && !IDENTIFIER_RE.test(newName2)) {
-      const start = { line: u.range.start.line, character: u.range.start.character - 1 };
-      edits.push({ uri, range: { start, end: u.range.end }, newText: `\${${newName2}}` });
-    } else {
-      edits.push({ uri, range: u.range, newText: newName2 });
-    }
-  }
-  return edits;
-}
-function getDocumentHighlights(text, pos) {
-  const variable = variableHighlights(text, pos);
-  if (variable) return variable;
-  const symbols = getDocumentSymbols(text);
-  const target = targetAt(text, pos, symbols);
-  if (!target || target.usage?.kind === "builtin-call") return [];
-  const defs = definitionsOf(target.name, text, symbols, void 0).map((d) => ({ range: d.symbol.selectionRange, kind: "write" }));
-  const uses = macroUsages(text).filter((u) => u.kind !== "builtin-call" && same(u.name, target.name)).map((u) => ({ range: u.range, kind: "read" }));
-  return [...defs, ...uses];
-}
-
-// packages/core/src/formatting.ts
-function topLevelSeparators(s) {
-  const out = [];
-  let quote = "";
-  let depth = 0;
-  for (let i = 0; i < s.length; i += 1) {
-    const ch = s[i];
-    if (quote) {
-      if (ch === "\\") i += 1;
-      else if (ch === quote) quote = "";
-      continue;
-    }
-    if (ch === "\\") {
-      i += 1;
-      continue;
-    }
-    if (ch === "%") {
-      let n = 1;
-      while (s[i + n] === "%") n += 1;
-      if (n === 1 && s[i + n] === ";" && depth === 0) out.push(i);
-      i += n - 1;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") quote = ch;
-    else if ("([{".includes(ch)) depth += 1;
-    else if (")]}".includes(ch)) depth = Math.max(0, depth - 1);
-  }
-  return out;
-}
-function closeParen(s, open) {
-  let depth = 0;
-  let quote = "";
-  for (let i = open; i < s.length; i += 1) {
-    const ch = s[i];
-    if (quote) {
-      if (ch === "\\") i += 1;
-      else if (ch === quote) quote = "";
-    } else if (ch === '"' || ch === "'") quote = ch;
-    else if (ch === "(") depth += 1;
-    else if (ch === ")" && --depth === 0) return i + 1;
-  }
-  return -1;
-}
-var COMMAND_START_RE = /(?:^\s*|=\s*|\)\s*|\/@?(?:if|then|else|elseif|while|do)\s+)$/i;
-var OPENERS = /* @__PURE__ */ new Set(["if", "while"]);
-var CLOSERS = /* @__PURE__ */ new Set(["endif", "done"]);
-var MIDDLES = /* @__PURE__ */ new Set(["else", "elseif"]);
-function keywordsIn(line) {
-  const found = [];
-  const cuts = [-2, ...topLevelSeparators(line), line.length];
-  for (let k = 0; k + 1 < cuts.length; k += 1) {
-    const seg = line.slice(cuts[k] + 2, cuts[k + 1]);
-    for (const m of seg.matchAll(CALL_RE2)) {
-      const slash = (m.index ?? 0) + m[1].length;
-      if (!COMMAND_START_RE.test(seg.slice(0, slash))) continue;
-      const name = m[4].toLowerCase();
-      if (OPENERS.has(name) || CLOSERS.has(name) || MIDDLES.has(name)) found.push(name);
-    }
-  }
-  return found;
-}
-var GLUES = /* @__PURE__ */ new Set(["%", "\\", "$", "/"]);
-function normalise(joined2, body) {
-  if (body < 0) return joined2;
-  const seps = topLevelSeparators(joined2).filter((s) => s >= body);
-  let out = "";
-  let from = 0;
-  for (const s of seps) {
-    const before2 = joined2.slice(from, s);
-    const trimmed = before2.replace(/[ \t\f\v]+$/, "");
-    out += (trimmed.length < before2.length && GLUES.has(trimmed[trimmed.length - 1] ?? "") ? before2 : trimmed) + "%;";
-    from = s + 2;
-    while (/[ \t\f\v]/.test(joined2[from] ?? "")) from += 1;
-  }
-  return out + joined2.slice(from);
-}
-function plannedLines(entry) {
-  const joined2 = entry.text;
-  const body = macroBodyStart(joined2);
-  if (body < 0) return void 0;
-  const text = normalise(joined2, body);
-  const seps = topLevelSeparators(text).filter((s) => s >= body);
-  const breaks = /* @__PURE__ */ new Set();
-  const starts = [body, ...seps.map((s) => s + 2)];
-  const stmtEnd = (k) => seps[k] ?? text.length;
-  const joinedSeps = /* @__PURE__ */ new Set();
-  let blocks = 0;
-  let inCondition = false;
-  starts.forEach((st, k) => {
-    let at2 = st;
-    while (/\s/.test(text[at2] ?? "")) at2 += 1;
-    if (k > 0 && st < text.length) (inCondition ? joinedSeps : breaks).add(st);
-    for (; ; ) {
-      const m = /^\/@?(if|elseif|while|else|then|do)\b/i.exec(text.slice(at2));
-      if (!m) break;
-      const kw = m[1].toLowerCase();
-      if (kw === "then" || kw === "do") inCondition = false;
-      else blocks += 1;
-      let after = at2 + m[0].length;
-      if (kw === "if" || kw === "elseif" || kw === "while") {
-        let p = after;
-        while (/\s/.test(text[p] ?? "")) p += 1;
-        if (text[p] !== "(") {
-          const rest = text.slice(p, stmtEnd(k));
-          const head = /(?:^|\s)(\/@?(?:then|do))\b/i.exec(rest);
-          if (!head) {
-            inCondition = true;
-            break;
-          }
-          at2 = p + (head.index ?? 0) + head[0].length - head[1].length;
-          continue;
-        }
-        after = closeParen(text, p);
-        if (after < 0) break;
-      }
-      let next = after;
-      while (/[ \t]/.test(text[next] ?? "")) next += 1;
-      if (next === after || next >= text.length || text.startsWith("%;", next)) break;
-      breaks.add(next);
-      at2 = next;
-    }
-  });
-  if (!seps.some((s) => s + 2 < text.length) && blocks === 0) return void 0;
-  let first = body;
-  while (/[ \t]/.test(text[first] ?? "")) first += 1;
-  if (first < text.length) breaks.add(first);
-  let offset = 0;
-  const own = [];
-  for (const part of entry.parts.slice(0, -1)) {
-    offset += part.text.length;
-    own.push(offset);
-  }
-  for (const o of own) {
-    const mapped = mapOffset(joined2, text, o);
-    if (mapped > 0) breaks.add(mapped);
-  }
-  const spaced = (a, b) => {
-    let out = "";
-    for (let i = a; i < b; i += 1) out += (joinedSeps.has(i) ? " " : "") + text[i];
-    return out;
-  };
-  const cuts = [...breaks].filter((b) => b > 0 && b <= text.length).sort((a, b) => a - b);
-  const lines = [];
-  let from = 0;
-  for (const c of cuts) {
-    lines.push(spaced(from, c));
-    from = c;
-  }
-  lines.push(spaced(from, text.length));
-  return lines.filter((l, i) => i === 0 || i === lines.length - 1 || l !== "");
-}
-function mapOffset(a, b, o) {
-  let i = 0;
-  let j = 0;
-  while (i < o && j <= b.length) {
-    if (a[i] === b[j]) j += 1;
-    i += 1;
-  }
-  return j;
-}
-function endsStatement(prev) {
-  const s = prev.replace(/\\$/, "").replace(/\s+$/, "");
-  if (/(?:^|[^%])(?:%%)*%;$/.test(s)) return true;
-  if (/\/@?(?:else|then|do)$/i.test(s)) return true;
-  return s.endsWith(")") && keywordsIn(s).some((k) => k === "if" || k === "elseif" || k === "while");
-}
-function indentLines(lines, firstIndent, macroBody, unit) {
-  const base = macroBody ? 1 : 0;
-  let depth = 0;
-  let prev = lines[0] ?? "";
-  return lines.map((line, i) => {
-    if (i > 0 && (isCommentLine(line) || isBlankLine(line))) return line;
-    const content = i === 0 ? line : line.slice(leadingWhitespaceLength(line));
-    const keywords = keywordsIn(content);
-    const lead = /^\/@?(\w+)/.exec(content)?.[1]?.toLowerCase() ?? "";
-    let level = depth;
-    if (CLOSERS.has(lead) || MIDDLES.has(lead)) level = Math.max(0, depth - 1);
-    for (const k of keywords) {
-      if (OPENERS.has(k)) depth += 1;
-      else if (CLOSERS.has(k)) depth = Math.max(0, depth - 1);
-    }
-    const startsBody = i === 1 && macroBody;
-    const hanging = i > 0 && !startsBody && !endsStatement(prev) ? 1 : 0;
-    prev = content;
-    if (i === 0) return firstIndent + content;
-    return unit.repeat(base + level + hanging) + content;
-  });
-}
-function rejoin(lines) {
-  return splitLogicalEntries(lines.join("\n"))[0]?.text ?? "";
-}
-function hasInnerTab(lines) {
-  return lines.some((l) => !isCommentLine(l) && /\S[^\t]*\t/.test(l));
-}
-function splitEntry(entry, original, indent, opts = {}) {
-  if (!(entry.isDefBody || entry.isOtherMacroBody) || !opts.headTabs && hasInnerTab(original)) return void 0;
-  if (!entry.parts.every((p, i) => p.line === entry.startLine + i)) return void 0;
-  const planned = plannedLines(entry);
-  if (!planned) return void 0;
-  const firstIndent = (original[0] ?? "").slice(0, leadingWhitespaceLength(original[0] ?? ""));
-  const withSlashes = planned.map((l, i) => i < planned.length - 1 ? `${l}\\` : l);
-  const rebuilt = indentLines(withSlashes, firstIndent, true, indent);
-  const body = macroBodyStart(entry.text);
-  if (rebuilt.some((l, i) => i > 0 && isCommentLine(l))) return void 0;
-  return normalise(rejoin(rebuilt), body) === normalise(entry.text, body) ? rebuilt : void 0;
-}
-function formatEntry(entry, original, options) {
-  const macroBody = entry.isDefBody || entry.isOtherMacroBody;
-  const firstIndent = (original[0] ?? "").slice(0, leadingWhitespaceLength(original[0] ?? ""));
-  if (hasInnerTab(original)) return original;
-  if (!macroBody && !keywordsIn(original[0] ?? "").some((k) => OPENERS.has(k))) return original;
-  if (options.splitStatements && macroBody) {
-    const rebuilt = splitEntry(entry, original, options.indent);
-    if (rebuilt) return rebuilt;
-  }
-  return indentLines(original, firstIndent, macroBody, options.indent);
-}
-function formatText(text, options, range) {
-  if (text.includes("\r")) return [];
-  const lines = splitRawLines(text);
-  const edits = [];
-  for (const entry of splitLogicalEntries(text)) {
-    if (entry.incomplete) continue;
-    if (range && (entry.endLine < range.start.line || entry.startLine > range.end.line)) continue;
-    const original = lines.slice(entry.startLine, entry.endLine + 1);
-    const formatted = formatEntry(entry, original, options);
-    if (formatted.join("\n") === original.join("\n")) continue;
-    const last = original[original.length - 1] ?? "";
-    edits.push({
-      range: { start: { line: entry.startLine, character: 0 }, end: { line: entry.endLine, character: last.length } },
-      newText: formatted.join("\n")
-    });
-  }
-  return edits;
-}
-
-// packages/core/src/bodyLayout.ts
-var DEFAULT_INDENT = "    ";
-function detectIndent(text) {
-  let best;
-  const lines = splitRawLines(text);
-  for (const entry of splitLogicalEntries(text)) {
-    if (entry.parts.length < 2) continue;
-    for (const part of entry.parts.slice(1)) {
-      const line = lines[part.line] ?? "";
-      const lead = line.slice(0, leadingWhitespaceLength(line)).replace(/\r/g, "");
-      if (lead === "" || isCommentLine(line)) continue;
-      if (lead.startsWith("	")) return "	";
-      if (best === void 0 || lead.length < best.length) best = lead;
-    }
-  }
-  return best ?? DEFAULT_INDENT;
-}
-function joinedLine(entry, firstLine) {
-  const body = macroBodyStart(entry.text);
-  if (body < 0) return void 0;
-  const text = normalise(entry.text, body);
-  const seps = topLevelSeparators(text).filter((s) => s >= body && s + 2 < text.length);
-  let out = "";
-  let from = 0;
-  for (const s of seps) {
-    out += `${text.slice(from, s + 2)} `;
-    from = s + 2;
-  }
-  out += text.slice(from);
-  return firstLine.slice(0, leadingWhitespaceLength(firstLine)) + out;
-}
-function sameProgram(a, b) {
-  const bodyA = macroBodyStart(a);
-  const bodyB = macroBodyStart(b);
-  if (bodyA < 0 || bodyB < 0) return false;
-  if (a.slice(0, bodyA) !== b.slice(0, bodyB)) return false;
-  if (normalise(a, bodyA) !== normalise(b, bodyB)) return false;
-  const statements = (t, body) => parseStatements(t.slice(body), "body").map((st) => `${st.level}:${st.conditional}:${t.slice(body + st.start, body + st.end).trim()}`);
-  if (statements(a, bodyA).join("\n") !== statements(b, bodyB).join("\n")) return false;
-  const issues = (t, body) => checkStructure(t.slice(body), "body").map((i) => `${i.kind}:${i.message}`).join("\n");
-  return issues(a, bodyA) === issues(b, bodyB);
-}
-function tabMoves(entry, original, body) {
-  const first = original[0] ?? "";
-  const firstPart = entry.parts[0]?.text ?? "";
-  const headEnd = body <= firstPart.length ? leadingWhitespaceLength(first) + body : first.length;
-  if (first.slice(headEnd).includes("	")) return true;
-  return hasInnerTab(original.slice(1));
-}
-function overlapsLines(entry, range) {
-  return entry.startLine <= range.end.line && entry.endLine >= range.start.line;
-}
-function wholeLines(entry, original, newText) {
-  const last = original[original.length - 1] ?? "";
-  return { range: { start: { line: entry.startLine, character: 0 }, end: { line: entry.endLine, character: last.length } }, newText };
-}
-var UNNAMED = { def: "this macro's", alias: "this alias's", trig: "this trigger's", hook: "this hook's", bind: "this key binding's" };
-function owner(symbol) {
-  if (!symbol) return "the";
-  return symbol.kind === "def" || symbol.kind === "alias" ? `/${symbol.name}'s` : UNNAMED[symbol.kind];
-}
-function getRefactorActions(text, range, indent = detectIndent(text)) {
-  const lines = splitRawLines(text);
-  const actions = [];
-  const symbols = new Map(getDocumentSymbols(text).map((s) => [s.range.start.line, s]));
-  for (const entry of splitLogicalEntries(text)) {
-    if (!overlapsLines(entry, range)) continue;
-    if (entry.incomplete || !(entry.isDefBody || entry.isOtherMacroBody)) continue;
-    const original = lines.slice(entry.startLine, entry.endLine + 1);
-    if (original.some((l) => l.includes("\r")) || tabMoves(entry, original, macroBodyStart(entry.text))) continue;
-    if (entry.parts.length === 1) {
-      const split = splitEntry(entry, original, indent, { headTabs: true });
-      if (!split || split.length < 2) continue;
-      const joinedBack = splitLogicalEntries(split.join("\n"))[0];
-      const back = joinedBack && joinedLine(joinedBack, split[0] ?? "");
-      if (!sameProgram(entry.text, rejoin(split)) || back === void 0 || !sameProgram(entry.text, rejoin([back]))) continue;
-      actions.push({ title: `Split ${owner(symbols.get(entry.startLine))} body onto separate lines`, edits: [wholeLines(entry, original, split.join("\n"))] });
-      continue;
-    }
-    if (!entry.parts.every((p, i) => p.line === entry.startLine + i)) continue;
-    const line = joinedLine(entry, original[0] ?? "");
-    if (line === void 0 || !sameProgram(entry.text, rejoin([line]))) continue;
-    const reread = splitLogicalEntries(line);
-    if (reread.length !== 1 || reread[0]?.parts.length !== 1) continue;
-    actions.push({ title: `Join ${owner(symbols.get(entry.startLine))} body onto one line`, edits: [wholeLines(entry, original, line)] });
-  }
-  return actions;
 }
 
 // packages/core/src/extractMacro.ts
@@ -18806,7 +17682,7 @@ function loadPathDiagnostics(file, text, graph, options, context = {}) {
 }
 
 // packages/core/src/inlineMacro.ts
-var CALL_RE3 = /^\/([@!]?)([^\s%$\\]+)(?:\s+(.*))?$/s;
+var CALL_RE2 = /^\/([@!]?)([^\s%$\\]+)(?:\s+(.*))?$/s;
 var CHANGES_DEFS_RE = /\/@?(?:undef|undefn|undeft|purge|purgedef|edit)\b/i;
 var PLAIN_DEF_HEAD_RE = /^\s*\/@?def(?:\s+-i)*\s+\S+\s*=\s*$/i;
 function compare2(a, b) {
@@ -18860,17 +17736,17 @@ function siteFor(entry, entryIndex, offset) {
   return { entry, entryIndex, bodyAt, unit, bodyText, units: parsed.units, lists: parsed.lists };
 }
 function calledName(site) {
-  const m = CALL_RE3.exec(site.bodyText.slice(site.unit.start, trimEnd2(site.bodyText, site.unit.start, site.unit.end)));
+  const m = CALL_RE2.exec(site.bodyText.slice(site.unit.start, trimEnd2(site.bodyText, site.unit.start, site.unit.end)));
   return m ? m[2].toLowerCase() : void 0;
 }
-function statementTexts(body) {
+function statementTexts2(body) {
   return parseStatements(body, "body").map((s) => body.slice(s.start, s.end).trim());
 }
 function plan3(text, entries, site, callee, options, checkDiagnostics = true) {
   const { entry, unit, bodyText, bodyAt } = site;
   const name = callee.name;
   const callEnd = trimEnd2(bodyText, unit.start, unit.end);
-  const m = CALL_RE3.exec(bodyText.slice(unit.start, callEnd));
+  const m = CALL_RE2.exec(bodyText.slice(unit.start, callEnd));
   if (!m || m[2].toLowerCase() !== name) return void 0;
   if (m[1] === "@") return void 0;
   if (m[1] === "!") return { disabled: `/!${name} negates the result of /${name}, which the inlined statements can't do: call it without the !.` };
@@ -18990,8 +17866,8 @@ function verified(text, entry, bodyAt, unit, callEnd, body, edits, checkDiagnost
   const newBody = after.text.slice(newBodyAt);
   if (!parseUnits(newBody).complete) return false;
   const old = entry.text.slice(bodyAt);
-  const expected = statementTexts(old.slice(0, unit.start) + body + old.slice(callEnd));
-  const got = statementTexts(newBody);
+  const expected = statementTexts2(old.slice(0, unit.start) + body + old.slice(callEnd));
+  const got = statementTexts2(newBody);
   if (expected.length !== got.length || expected.some((s, k) => s !== got[k])) return false;
   return !checkDiagnostics || !moreDiagnostics(text, out);
 }
@@ -19188,6 +18064,1142 @@ function routeCodeActions(text, request) {
     }
   }
   return out;
+}
+
+// packages/core/src/data/commandDescriptions.ts
+var COMMAND_DESCRIPTIONS = {
+  // control-flow keywords (tinyfugue/src/expand.c)
+  // Like every keyword, each of these is only read as one at the start of a statement.
+  "break": "Leaves the innermost `/while` loop, or the *n* innermost with `/break n`. Outside a loop it ends the macro. Inside a `$(...)` it can only end loops inside that `$(...)`.",
+  "do": "Ends a `/while` condition list and starts the loop's commands: `/while /test i < 3%; /do ...%; /done`. Only after a condition list: after a `(condition)` tf rejects it.",
+  "done": "Ends a `/while` loop. It only counts at the start of a statement, so it needs a `%;` before it, and anything after it needs another `%;`.",
+  "else": "Starts the commands an `/if` runs when none of its conditions was true: `/if (x) ...%; /else ...%; /endif`. It only counts at the start of a statement, after a `%;`.",
+  "elseif": "Another condition in an `/if`, tried when the ones before it were false: `/elseif (y) ...`. It only counts at the start of a statement, after a `%;`.",
+  "endif": "Ends an `/if`. It only counts at the start of a statement, so it needs a `%;` before it, and anything after it needs another `%;`.",
+  "exit": "Stops loading the current file, or the *n* innermost nested `/load`s with `/exit n`, and abandons the rest of the command it is in. Outside a `/load` it does nothing. (A reserved word, but tf runs it as an ordinary built-in command.)",
+  "if": "Runs commands when a condition is true: `/if (x) ...%; /elseif (y) ...%; /else ...%; /endif`. Like any block, the whole `/if` has to be one command, and in a file a command ends at the end of its line unless the line ends in `\\`.",
+  "let": "Sets a variable local to the running macro: `/let name=value`. The value runs to the next `%;`.",
+  "result": "Ends the macro with the value of an expression, like `/return`, and also prints the value when the macro was run as a command rather than called from an expression. Not allowed inside `$(...)`.",
+  "return": "Ends the macro with the value of an expression: `/return x + 1`. Not allowed inside `$(...)`.",
+  "set": "Sets a global variable: `/set name=value`. The value runs to the next `%;`.",
+  "setenv": "Sets a global variable and exports it to the environment, so programs tf starts see it too: `/setenv name=value`. The value runs to the next `%;`.",
+  "test": "Evaluates an expression and makes its value the result, without ending the macro: `/test i += 1`. The expression runs to the next `%;`.",
+  "then": "Ends an `/if` or `/elseif` condition list and starts its commands: `/if /test x%; /then ...`. Only after a condition list: after a `(condition)` tf rejects it.",
+  "while": "Repeats commands while a condition is true: `/while (i < 3) ...%; /done`, or with a condition list, `/while /test x%; /do ...%; /done`. Like any block, the whole `/while` has to be one command, and in a file a command ends at the end of its line unless the line ends in `\\`.",
+  // built-in commands (tinyfugue/src/cmdlist.h)
+  "beep": "",
+  "bind": "",
+  "calllua": "",
+  "connect": "",
+  "core": "",
+  "dc": "",
+  "def": "",
+  "dokey": "",
+  "edit": "",
+  "eval": "",
+  "export": "",
+  "features": "",
+  "fg": "",
+  "gag": "",
+  "help": "",
+  "hilite": "",
+  "histsize": "",
+  "hook": "",
+  "input": "",
+  "kill": "",
+  "lcd": "",
+  "limit": "",
+  "list": "",
+  "listsockets": "",
+  "liststreams": "",
+  "listvar": "",
+  "listworlds": "",
+  "load": "",
+  "loadlua": "",
+  "localecho": "",
+  "log": "",
+  "ps": "",
+  "purge": "",
+  "purgelua": "",
+  "python": "",
+  "python_call": "",
+  "python_call_unsafe": "",
+  "python_kill": "",
+  "python_load": "",
+  "quit": "",
+  "quote": "",
+  "recall": "",
+  "recordline": "",
+  "relimit": "",
+  "repeat": "",
+  "restrict": "",
+  "save": "",
+  "saveworld": "",
+  "sh": "",
+  "shift": "",
+  "status_add": "",
+  "status_clear": "",
+  "status_edit": "",
+  "status_rm": "",
+  "suspend": "",
+  "trigger": "",
+  "trigpc": "",
+  "unbind": "",
+  "undef": "",
+  "undefn": "",
+  "unlimit": "",
+  "unset": "",
+  "unworld": "",
+  "version": "",
+  "watchdog": "",
+  "watchname": "",
+  // stdlib.tf macros (always loaded)
+  ":": "",
+  "_echo": "",
+  "_paste": "",
+  "act": "",
+  "adddiku": "",
+  "addlp": "",
+  "addlpp": "",
+  "addtelnet": "",
+  "addtiny": "",
+  "addworld": "",
+  "background": "",
+  "bamf": "",
+  "bg": "",
+  "borg": "",
+  "cat": "",
+  "cd": "",
+  "cleardone": "",
+  "clearfull": "",
+  "echo": "",
+  "escape": "",
+  "expr": "",
+  "false": "",
+  "first": "",
+  "for": "",
+  "gpri": "",
+  "grab": "",
+  "hilite_page": "",
+  "hilite_whisper": "",
+  "hpri": "",
+  "insert": "",
+  "isize": "",
+  "ismacro": "",
+  "isvar": "",
+  "kecho": "",
+  "last": "",
+  "listbind": "",
+  "listdef": "",
+  "listfullhilite": "",
+  "listgag": "",
+  "listhilite": "",
+  "listhook": "",
+  "listpartial": "",
+  "listtrig": "",
+  "loaded": "",
+  "loadhist": "",
+  "login": "",
+  "lp": "",
+  "lpquote": "",
+  "man": "",
+  "mecho": "",
+  "more": "",
+  "nogag": "",
+  "nohilite": "",
+  "nohilite_page": "",
+  "nohilite_whisper": "",
+  "nolog": "",
+  "nologin": "",
+  "noquiet": "",
+  "not": "",
+  "nowrap": "",
+  "nth": "",
+  "partial": "",
+  "paste": "",
+  "prompt": "",
+  "proxy_command": "",
+  "proxy_connect": "",
+  "proxy_hook": "",
+  "ptime": "",
+  "purgebind": "",
+  "purgedef": "",
+  "purgedeft": "",
+  "purgegag": "",
+  "purgehilite": "",
+  "purgehook": "",
+  "purgetrig": "",
+  "purgeworld": "",
+  "pwd": "",
+  "qecho": "",
+  "quiet": "",
+  "quitdone": "",
+  "rand": "",
+  "redef": "",
+  "replace": "",
+  "reply": "",
+  "require": "",
+  "rest": "",
+  "retry": "",
+  "retry_off": "",
+  "runtime": "",
+  "savehilite": "",
+  "send": "",
+  "send_help": "",
+  "shpause": "",
+  "signal": "",
+  "sockmload": "",
+  "split": "",
+  "sub": "",
+  "substitute": "",
+  "sys": "",
+  "telnet": "",
+  "time": "",
+  "toggle": "",
+  "trig": "",
+  "trigc": "",
+  "trigp": "",
+  "true": "",
+  "undeft": "",
+  "unhook": "",
+  "untrig": "",
+  "ver": "",
+  "vercmp": "",
+  "visual": "",
+  "world": "",
+  "wrap": "",
+  "wrapspace": "",
+  "~con_hook_telnet": "",
+  "~def_file_command": "",
+  "~default_login_hook": "",
+  "~detect_worldtype_hook": "",
+  "~do_prefix": "",
+  "~gagloadfail": "",
+  "~login_hook_lp": "",
+  "~login_hook_lpp": "",
+  "~login_hook_telnet": "",
+  "~login_hook_tiny": "",
+  "~send": "",
+  "~telnet_passwd": "",
+  "~world_hook_lp": "",
+  "~world_hook_lpp": "",
+  "~world_hook_prompt": "",
+  "~world_hook_telnet": "",
+  "~world_hook_tiny": ""
+};
+
+// packages/core/src/data/commandUsages.generated.ts
+var COMMAND_USAGES = {
+  "_echo": [
+    "/_echo text"
+  ],
+  "addworld": [
+    "/addworld [-pxe] [-Ttype] [-ssrchost] name [char pass] host port [file]",
+    "/addworld [-Ttype] [-ssrchost] name",
+    "/addworld [-Ttype] DEFAULT [char pass [file]]"
+  ],
+  "alias": [
+    "/alias [name [command]]"
+  ],
+  "at": [
+    "/at [-v] [date] time commands"
+  ],
+  "bamf": [
+    "/bamf [OFF|ON|OLD]"
+  ],
+  "beep": [
+    "/beep [number|ON|OFF]"
+  ],
+  "bg": [
+    "/bg"
+  ],
+  "bind": [
+    "/bind sequence = command"
+  ],
+  "break": [
+    "/break [n]"
+  ],
+  "cat": [
+    "/cat [%]"
+  ],
+  "cd": [
+    "/cd [dir]"
+  ],
+  "changes": [
+    "/changes [version]"
+  ],
+  "complete": [
+    "/complete [type]"
+  ],
+  "connect": [
+    "/connect [-lqxbf] [world]",
+    "/connect host port"
+  ],
+  "dc": [
+    "/dc [world|-ALL]"
+  ],
+  "def": [
+    "/def [options] [name] [= body]"
+  ],
+  "dokey": [
+    "/dokey name"
+  ],
+  "dopath": [
+    "/dopath path"
+  ],
+  "echo": [
+    "/echo [-peA] [-aattrs] [-w[world]] text"
+  ],
+  "edit": [
+    "/edit [options] [name] [= body]"
+  ],
+  "endpaste": [
+    "/endpaste"
+  ],
+  "escape": [
+    "/escape metacharacters string"
+  ],
+  "eval": [
+    "/eval [-slevel] text"
+  ],
+  "exit": [
+    "/exit [n]"
+  ],
+  "export": [
+    "/export variable"
+  ],
+  "expr": [
+    "/expr expression"
+  ],
+  "false": [
+    "/false"
+  ],
+  "features": [
+    "/features [name]"
+  ],
+  "fg": [
+    "/fg [-nsq<>l] [-cN] [world]"
+  ],
+  "finger": [
+    "/finger [user][@host]"
+  ],
+  "first": [
+    "/first text"
+  ],
+  "for": [
+    "/for variable start end commands"
+  ],
+  "gag": [
+    "/gag [pattern [=response]]"
+  ],
+  "getfile_lp": [
+    "/getfile_lp file [remote-file]"
+  ],
+  "getfile_muck": [
+    "/getfile_muck file [remote-file]"
+  ],
+  "getfile_unix": [
+    "/getfile_unix file [remote-file]"
+  ],
+  "grab": [
+    "/grab text"
+  ],
+  "help": [
+    "/help [topic]"
+  ],
+  "hilite": [
+    "/hilite [pattern [= response]]"
+  ],
+  "histsize": [
+    "/histsize [-lig] [-w[world]] [size]"
+  ],
+  "hook": [
+    "/hook event[ pattern] [= body]",
+    "/hook [OFF|ON]"
+  ],
+  "if": [
+    "/if (expr) list [ /ELSEIF (expr) list ]... [ /ELSE list ] /ENDIF",
+    "/if list /THEN list [ /ELSEIF list /THEN list ]... [ /ELSE list ] /ENDIF"
+  ],
+  "input": [
+    "/input text"
+  ],
+  "ismacro": [
+    "/ismacro macro-options"
+  ],
+  "isvar": [
+    "/isvar name"
+  ],
+  "kill": [
+    "/kill pid..."
+  ],
+  "last": [
+    "/last text"
+  ],
+  "lcd": [
+    "/lcd [dir]"
+  ],
+  "let": [
+    "/let name=value",
+    "/let name value"
+  ],
+  "limit": [
+    "/limit [-v] [-a] [-mstyle] n] [-Bn] [-Cn] --> [pattern]"
+  ],
+  "list": [
+    "/list [-s] [macro-options] [name] [= body]"
+  ],
+  "listsockets": [
+    "/listsockets [-sn] [-mstyle] [-Sfield] [-Ttype] [name]"
+  ],
+  "liststreams": [
+    "/liststreams"
+  ],
+  "listvar": [
+    "/listvar [-mmatching] [-gxsv] [name [value]]"
+  ],
+  "listworlds": [
+    "/listworlds [-cus] [-mstyle] [-Sfield] [-Ttype] [name]"
+  ],
+  "load": [
+    "/load [-q] file"
+  ],
+  "loaded": [
+    "/loaded token"
+  ],
+  "localecho": [
+    "/localecho [ON|OFF]"
+  ],
+  "log": [
+    "/log [-ligw[world]] [OFF|ON|file]"
+  ],
+  "map": [
+    "/map"
+  ],
+  "mark": [
+    "/mark dir"
+  ],
+  "more": [
+    "/more [OFF|ON]"
+  ],
+  "nogag": [
+    "/nogag [pattern]"
+  ],
+  "nohilite": [
+    "/nohilite [pattern]"
+  ],
+  "not": [
+    "/not [-slevel] text"
+  ],
+  "nth": [
+    "/nth n text"
+  ],
+  "partial": [
+    "/partial regexp"
+  ],
+  "paste": [
+    "/paste [-pnx] [prefix]"
+  ],
+  "path": [
+    "/path"
+  ],
+  "prompt": [
+    "/prompt [-aattrs] [-p] text"
+  ],
+  "ps": [
+    "/ps [-srq] [-wworld] [pid]"
+  ],
+  "purge": [
+    "/purge [macro-options] [name] [= body]"
+  ],
+  "purgeworld": [
+    "/purgeworld [-mstyle] [-Ttype] [name]"
+  ],
+  "putfile_lp": [
+    "/putfile_lp file [remote-file]"
+  ],
+  "putfile_muck": [
+    "/putfile_muck file [remote-file]"
+  ],
+  "putfile_unix": [
+    "/putfile_unix file [remote-file]"
+  ],
+  "pwd": [
+    "/pwd"
+  ],
+  "python": [
+    "/python [command]",
+    "/python import glob",
+    '/python tf.out( "Logfiles: " + ", ".join(glob.glob("*.log")) )'
+  ],
+  "python_load": [
+    "/python_load urlwatch",
+    "/python_load mymodule"
+  ],
+  "quit": [
+    "/quit [-y]"
+  ],
+  "quote": [
+    `/quote [options] [pre] '"file"[suf]`,
+    '/quote [options] [pre] #"recall_args"[suf]',
+    '/quote [options] [pre] !"shell_cmd"[suf]',
+    '/quote [options] [pre] `"TF_cmd"[suf]'
+  ],
+  "recall": [
+    "/recall [-wworld] [-ligv] [-t[format]] [-aattrs] [-mstyle] [-An] [-Bn] [-Cn] [#]range [pattern]"
+  ],
+  "recordline": [
+    "/recordline [-lig] [-w[world]] [-ttime] text"
+  ],
+  "relimit": [
+    "/relimit"
+  ],
+  "repeat": [
+    "/repeat [-w[world]] [-n] {[-time]|-S|-P} count command"
+  ],
+  "replace": [
+    "/replace old new string"
+  ],
+  "require": [
+    "/require [-q] file"
+  ],
+  "restrict": [
+    "/restrict [SHELL|FILE|WORLD]"
+  ],
+  "result": [
+    "/result [expression]"
+  ],
+  "return": [
+    "/return [expression]"
+  ],
+  "runtime": [
+    "/runtime command"
+  ],
+  "rwho": [
+    "/rwho",
+    "/rwho name=player",
+    "/rwho mud=mud"
+  ],
+  "save": [
+    "/save [-a] file [list-options]"
+  ],
+  "savepath": [
+    "/savepath name"
+  ],
+  "saveworld": [
+    "/saveworld [-a] [file]"
+  ],
+  "send": [
+    "/send [-W] [-Ttype] [-w[world]] [-n] [-b | -q] [-Fpolicy] text"
+  ],
+  "set": [
+    "/set name=value",
+    "/set [name [value]]"
+  ],
+  "setenv": [
+    "/setenv [name [value]]",
+    "/setenv name=value"
+  ],
+  "sh": [
+    "/sh [-q] [command]"
+  ],
+  "shift": [
+    "/shift [n]"
+  ],
+  "signal": [
+    "/signal [sig]"
+  ],
+  "spell_line": [
+    "/spell_line"
+  ],
+  "split": [
+    "/split args"
+  ],
+  "sub": [
+    "/sub [OFF|ON|FULL]"
+  ],
+  "substitute": [
+    "/substitute [-aattrs] [-p] text"
+  ],
+  "suspend": [
+    "/suspend"
+  ],
+  "sys": [
+    "/sys shell-command"
+  ],
+  "telnet": [
+    "/telnet host [port]"
+  ],
+  "test": [
+    "/test expression"
+  ],
+  "tick": [
+    "/tick"
+  ],
+  "tickoff": [
+    "/tickoff"
+  ],
+  "tickon": [
+    "/tickon"
+  ],
+  "tickset": [
+    "/tickset"
+  ],
+  "ticksize": [
+    "/ticksize n"
+  ],
+  "time": [
+    "/time [format]"
+  ],
+  "toggle": [
+    "/toggle variable"
+  ],
+  "tr": [
+    "/tr domain range string"
+  ],
+  "trig": [
+    "/trig pattern = body"
+  ],
+  "trigc": [
+    "/trigc chance pattern = body"
+  ],
+  "trigger": [
+    "/trigger [-ln] [-g] [-w[world]] [-h[event]] text"
+  ],
+  "trigp": [
+    "/trigp priority pattern = body"
+  ],
+  "trigpc": [
+    "/trigpc priority chance pattern = body"
+  ],
+  "true": [
+    "/true"
+  ],
+  "unalias": [
+    "/unalias name"
+  ],
+  "unbind": [
+    "/unbind sequence"
+  ],
+  "undef": [
+    "/undef name..."
+  ],
+  "undefn": [
+    "/undefn number ..."
+  ],
+  "undeft": [
+    "/undeft trigger"
+  ],
+  "unhook": [
+    "/unhook event [pattern]"
+  ],
+  "unlimit": [
+    "/unlimit"
+  ],
+  "unmark": [
+    "/unmark"
+  ],
+  "unpath": [
+    "/unpath"
+  ],
+  "unset": [
+    "/unset name"
+  ],
+  "untrig": [
+    "/untrig [-aattrs] trigger"
+  ],
+  "unworld": [
+    "/unworld name..."
+  ],
+  "ver": [
+    "/ver"
+  ],
+  "version": [
+    "/version"
+  ],
+  "watchdog": [
+    "/watchdog [OFF|ON]",
+    "/watchdog n1 [n2]"
+  ],
+  "watchname": [
+    "/watchname [OFF|ON]",
+    "/watchname n1 [n2]"
+  ],
+  "while": [
+    "/while (expr) list /DONE",
+    "/while list /DO list /DONE"
+  ],
+  "world": [
+    "/world [-lqnxfb] [world]",
+    "/world host port"
+  ]
+};
+
+// packages/core/src/expressionHover.ts
+function functionHelpEntry(name, help) {
+  const entry = help?.get(`${name.toLowerCase()}()`);
+  return entry && !entry.usage[0]?.startsWith("/") ? entry : void 0;
+}
+function escapeMarkdown(text) {
+  return text.replace(/[\\`*_{}[\]<>#|]/g, "\\$&");
+}
+function code2(lines) {
+  return "```tf\n" + lines.join("\n") + "\n```";
+}
+function variableHover(v, help) {
+  const entry = help?.get(`%${v.name.toLowerCase()}`);
+  const parts = [code2(entry?.usage.length ? entry.usage : [`${v.name}${v.default !== void 0 ? `=${v.default}` : ""}`])];
+  if (entry?.summary) parts.push(escapeMarkdown(entry.summary));
+  const facts = [`tf ${v.type} variable`];
+  if (v.values) facts.push(`values: ${v.values.map((x) => `\`${x}\``).join(", ")}`);
+  if (v.requires) facts.push(`only with ${v.requires}`);
+  parts.push(`*${facts.join(" — ")}*`);
+  return parts.join("\n\n");
+}
+var WORD_RE = /[A-Za-z0-9_#*?-]/;
+function getExpressionHover(text, pos, help) {
+  const line = splitRawLines(text)[pos.line] ?? "";
+  if (isCommentLine(line)) return void 0;
+  let start = pos.character;
+  let end = pos.character;
+  while (start > 0 && WORD_RE.test(line[start - 1])) start -= 1;
+  while (end < line.length && WORD_RE.test(line[end])) end += 1;
+  const word = line.slice(start, end);
+  if (!word) return void 0;
+  const range = { start: { line: pos.line, character: start }, end: { line: pos.line, character: end } };
+  const percent = /(?<!%)(?:%%)*%\{?$/.test(line.slice(0, start));
+  if (percent) {
+    const selector = SELECTORS.find((s) => s.label === word) ?? (/^P\d+$/.test(word) ? SELECTORS.find((s) => s.label === "P0") : void 0) ?? (/^-?L\d+$/.test(word) ? SELECTORS.find((s) => s.label === (word.startsWith("-") ? "-L" : "L")) : void 0) ?? (/^-?\d+$/.test(word) ? SELECTORS.find((s) => s.label === (word.startsWith("-") ? "-1" : "1")) : void 0);
+    if (selector) return { markdown: `${code2([`%{${word}}`])}
+
+${selector.detail}`, range };
+    const v2 = SPECIAL_VARIABLES.find((s) => s.name === word);
+    return v2 ? { markdown: variableHover(v2, help), range } : void 0;
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(word)) return void 0;
+  const before2 = textBefore(text, { line: pos.line, character: start });
+  const kind = before2 === void 0 ? "none" : cursorContext(before2).kind;
+  if (kind === "variable-name") {
+    const v2 = SPECIAL_VARIABLES.find((s) => s.name === word);
+    return v2 ? { markdown: variableHover(v2, help), range } : void 0;
+  }
+  if (kind !== "expression") return void 0;
+  if (/^\s*\(/.test(line.slice(end))) {
+    const f = FUNCTIONS.find((fn) => fn.name === word.toLowerCase());
+    if (!f) return void 0;
+    const entry = functionHelpEntry(f.name, help);
+    const parts = [code2(entry?.usage.length ? entry.usage : functionSynopses(f))];
+    if (entry?.summary) parts.push(escapeMarkdown(entry.summary));
+    const counts2 = f.max === null ? `${f.min} or more arguments` : f.min === f.max ? `${f.min} argument${f.min === 1 ? "" : "s"}` : `${f.min} to ${f.max} arguments`;
+    parts.push(`*tf function, ${counts2}${f.requires ? `, only with ${f.requires}` : ""}*`);
+    return { markdown: parts.join("\n\n"), range };
+  }
+  const v = SPECIAL_VARIABLES.find((s) => s.name === word);
+  return v ? { markdown: variableHover(v, help), range } : void 0;
+}
+
+// packages/core/src/variableNavigation.ts
+var import_node_path = require("node:path");
+function contains(range, pos) {
+  const afterStart = pos.line > range.start.line || pos.line === range.start.line && pos.character >= range.start.character;
+  const beforeEnd = pos.line < range.end.line || pos.line === range.end.line && pos.character <= range.end.character;
+  return afterStart && beforeEnd;
+}
+function variableAt(text, pos) {
+  const all = findVariables(text).filter((v) => contains(v.range, pos));
+  return all.find((v) => v.range.end.line !== pos.line || v.range.end.character !== pos.character) ?? all[0];
+}
+var DEFINES = /* @__PURE__ */ new Set(["set", "setenv", "let", "getopts"]);
+function occurrencesOf(target, text, self, files) {
+  const pick = (uri, fileText) => findVariables(fileText).filter((v) => v.name === target.name && v.scope === target.scope).map((v) => ({ ...v, uri }));
+  const here = pick(self, text);
+  return target.scope === "global" ? [...here, ...files.flatMap((f) => pick(f.uri, f.text))] : here;
+}
+var toLocation = (v) => ({ uri: v.uri, range: v.range });
+function variableDefinition(text, pos, ctx) {
+  const target = variableAt(text, pos);
+  if (!target) return void 0;
+  const all = occurrencesOf(target, text, ctx?.uri ?? "", [...ctx?.files ?? [], ...ctx?.libraryFiles ?? []]);
+  const sets = all.filter((v) => DEFINES.has(v.access));
+  return (sets.length > 0 ? sets : all.filter((v) => v.access === "assign")).map(toLocation);
+}
+function variableReferences(text, pos, includeDeclaration, ctx) {
+  const target = variableAt(text, pos);
+  if (!target) return void 0;
+  return occurrencesOf(target, text, ctx?.uri ?? "", ctx?.files ?? []).filter((v) => includeDeclaration || !DEFINES.has(v.access)).map(toLocation);
+}
+function variableHighlights(text, pos) {
+  const target = variableAt(text, pos);
+  if (!target) return void 0;
+  return occurrencesOf(target, text, "", []).map((v) => ({ range: v.range, kind: v.access === "read" ? "read" : "write" }));
+}
+function renameCheck(text, pos, ctx) {
+  const target = variableAt(text, pos);
+  if (!target) return void 0;
+  if (target.scope === "global" && SPECIAL_VARIABLE_NAMES.has(target.name)) {
+    return { ok: false, reason: `${target.name} is one of tf's special variables, so it can't be renamed.` };
+  }
+  if (findVariables(text).some((v) => v.access === "getopts" && v.name === target.name && v.scope === target.scope)) {
+    return { ok: false, reason: `${target.name} is set by getopts(), which names it after its option letter, so it can't be renamed.` };
+  }
+  if (target.scope === "global") {
+    for (const f of ctx?.libraryFiles ?? []) {
+      if (findVariables(f.text).some((v) => v.name === target.name && v.scope === "global")) {
+        return { ok: false, reason: `${target.name} is used by tf's library, which a rename here can't change, so it can't be renamed.` };
+      }
+    }
+  }
+  const passed = passedOn(target, text, ctx);
+  if (passed) return { ok: false, reason: passed };
+  return { ok: true, target };
+}
+var WRITES = /* @__PURE__ */ new Set(["set", "setenv", "assign"]);
+function passedOn(target, text, ctx) {
+  const name = target.name;
+  const self = ctx?.uri ?? "";
+  const files = [
+    { uri: self, text, library: false },
+    ...(ctx?.files ?? []).map((f) => ({ ...f, library: false })),
+    ...(ctx?.libraryFiles ?? []).map((f) => ({ ...f, library: true }))
+  ];
+  const all = files.flatMap(
+    (f) => findVariables(f.text).filter((v) => v.name === name).map((v) => ({ ...v, uri: f.uri, library: f.library }))
+  );
+  if (all.some((v) => v.scope === "global" && WRITES.has(v.access))) return void 0;
+  const where2 = (v) => {
+    const at2 = `line ${v.range.start.line + 1}, column ${v.range.start.character + 1}`;
+    return v.uri === self ? at2 : `${fileLabel(v.uri, self, v.library)} ${at2}`;
+  };
+  const advice = "Rename both by hand if they are the same variable.";
+  if (target.scope !== "global") {
+    const reads = all.filter((v) => v.scope === "global" && v.access === "read");
+    const elsewhere = reads.find((v) => v.uri !== self || v.entry !== target.entry);
+    if (elsewhere) {
+      return `${name} is also read on ${where2(elsewhere)}, outside this one's scope, and nothing sets a global ${name}, so tf's dynamic scoping probably hands it this one. ${advice}`;
+    }
+    const here = reads[0];
+    if (here) {
+      return `This macro also reads ${name} on ${where2(here)}, where this one doesn't reach, and nothing sets a global ${name}, so that read gets whatever a macro calling this one has. ${advice}`;
+    }
+    return void 0;
+  }
+  const bound = all.find((v) => v.access === "let" || v.access === "getopts");
+  if (!bound) return void 0;
+  const kind = bound.access === "getopts" ? "getopts() option" : bound.form === "loop-variable" ? `/for ${name} loop variable` : `/let ${name}`;
+  return `Nothing sets a global ${name}, so its reads probably get the ${kind} on ${where2(bound)} through tf's dynamic scoping. ${advice}`;
+}
+function fileLabel(uri, self, library) {
+  const filePath = (u) => {
+    try {
+      return decodeURIComponent(new URL(u).pathname);
+    } catch {
+      return u;
+    }
+  };
+  const other = filePath(uri);
+  if (library || !self) return import_node_path.posix.basename(other);
+  return import_node_path.posix.relative(import_node_path.posix.dirname(filePath(self)), other);
+}
+function collision(target, newName2, text, ctx) {
+  const old = target.name;
+  const everywhere = [{ uri: ctx?.uri ?? "", text }, ...ctx?.files ?? [], ...ctx?.libraryFiles ?? []];
+  const globalNamed = everywhere.some((f) => findVariables(f.text).some((v) => v.name === newName2 && v.scope === "global"));
+  if (target.scope === "global") {
+    if (globalNamed) {
+      return `${newName2} is already a variable on this file's load path, so renaming ${old} to it would merge the two. Pick a name that isn't used yet.`;
+    }
+    for (const f of everywhere) {
+      const all = findVariables(f.text);
+      const uses = new Set(all.filter((v) => v.name === old && v.scope === "global").map((v) => v.entry));
+      if (all.some((v) => v.name === newName2 && v.scope !== "global" && uses.has(v.entry))) {
+        return `A macro that uses ${old} has its own /let ${newName2}, which would take over ${old} there after the rename. Pick another name.`;
+      }
+    }
+    return void 0;
+  }
+  if (findVariables(text).some((v) => v.name === newName2 && v.entry === target.entry)) {
+    return `This macro body already uses ${newName2}, so renaming ${old} to it would merge the two. Pick another name.`;
+  }
+  if (globalNamed) {
+    return `${newName2} is already a global variable on this file's load path, and a /let ${newName2} would hide it from this macro and any macro it calls. Pick another name.`;
+  }
+  return void 0;
+}
+function prepareVariableRename(text, pos, ctx) {
+  const check5 = renameCheck(text, pos, ctx);
+  if (!check5) return void 0;
+  return check5.ok ? { range: check5.target.range, placeholder: check5.target.name } : { error: check5.reason };
+}
+function badName(name) {
+  if (!isVariableName(name)) {
+    return `"${name}" can't be a variable name: use letters, digits and _, not starting with a digit.`;
+  }
+  if (readSelector(name, 0)?.name !== name || readSelector(`{${name}}`, 0)?.name !== name) {
+    return `"${name}" can't be a variable name here: tf reads %${name} as a positional or special substitution, not a variable.`;
+  }
+  if (SPECIAL_VARIABLE_NAMES.has(name)) {
+    return `"${name}" is one of tf's special variables: pick another name.`;
+  }
+  return void 0;
+}
+function variableRenameEdits(text, pos, newName2, ctx) {
+  const check5 = renameCheck(text, pos, ctx);
+  if (!check5) return void 0;
+  if (!check5.ok) return { error: check5.reason };
+  const bad = badName(newName2);
+  if (bad) return { error: bad };
+  if (newName2 !== check5.target.name) {
+    const taken = collision(check5.target, newName2, text, ctx);
+    if (taken) return { error: taken };
+  }
+  return occurrencesOf(check5.target, text, ctx?.uri ?? "", ctx?.files ?? []).map((v) => ({ uri: v.uri, range: v.range, newText: newName2 }));
+}
+
+// packages/core/src/navigation.ts
+var NAME = "[^\\s%;=()\\[\\]{}\"'`$\\\\]+";
+var CALL_RE3 = new RegExp(`(^|[\\s;|(])\\/(@?)(!?)(${NAME})`, "g");
+var BRACED_SUBST_RE = /(?<!\$)\$\{([^}\s]+)\}/g;
+var BARE_SUBST_RE = /(?<!\$)\$([A-Za-z_][A-Za-z0-9_]*)/g;
+function findUsages(text) {
+  const usages = [];
+  splitRawLines(text).forEach((line, lineNo) => {
+    if (isCommentLine(line)) return;
+    const push2 = (name, kind, start, bare = false) => {
+      usages.push({
+        name,
+        kind,
+        range: { start: { line: lineNo, character: start }, end: { line: lineNo, character: start + name.length } },
+        ...bare ? { bare } : {}
+      });
+    };
+    for (const m of line.matchAll(CALL_RE3)) {
+      const at2 = m[2];
+      const bang = m[3];
+      const name = m[4];
+      const start = (m.index ?? 0) + m[1].length + 1 + at2.length + bang.length;
+      push2(name, at2 ? "builtin-call" : "call", start);
+    }
+    for (const m of line.matchAll(BRACED_SUBST_RE)) push2(m[1], "substitution", (m.index ?? 0) + 2);
+    for (const m of line.matchAll(BARE_SUBST_RE)) push2(m[1], "substitution", (m.index ?? 0) + 1, true);
+  });
+  return usages;
+}
+function macroUsages(text) {
+  const calls = findFunctionCalls(text).map((c) => ({ name: c.name, kind: "function-call", range: c.range }));
+  return [...findUsages(text), ...calls];
+}
+function contains2(range, pos) {
+  const afterStart = pos.line > range.start.line || pos.line === range.start.line && pos.character >= range.start.character;
+  const beforeEnd = pos.line < range.end.line || pos.line === range.end.line && pos.character <= range.end.character;
+  return afterStart && beforeEnd;
+}
+var same = (a, b) => a.toLowerCase() === b.toLowerCase();
+function definitionsOf(name, text, symbols, ctx) {
+  if (RESERVED_MACRO_NAMES.has(name.toLowerCase())) return [];
+  const lines = splitRawLines(text);
+  const local = symbols.filter((s) => s.kind === "def" && same(s.name, name)).map((symbol) => ({ uri: ctx?.uri ?? "", symbol, lines, library: false, loaded: true }));
+  const external = (ctx?.macros ?? []).filter((m) => same(m.symbol.name, name)).map((m) => ({ uri: m.uri, label: m.label, symbol: m.symbol, lines: m.lines, library: m.library, loaded: m.loaded }));
+  return [...local, ...external];
+}
+function targetAt(text, pos, symbols) {
+  const usage = macroUsages(text).find((u) => contains2(u.range, pos));
+  if (usage) return { name: usage.name, usage, range: usage.range };
+  const def = symbols.find((s) => s.kind === "def" && contains2(s.selectionRange, pos));
+  return def && { name: def.name, range: def.selectionRange };
+}
+var COMMANDS = new Map(ALL_COMMANDS.map((c) => [c.name.toLowerCase(), c.source]));
+var SOURCE_LABEL = {
+  keyword: "tf control-flow keyword",
+  builtin: "tf built-in command",
+  stdlib: "stdlib.tf macro (always loaded)"
+};
+function commandHover(name, help) {
+  const key2 = name.toLowerCase();
+  const source = COMMANDS.get(key2);
+  const entry = help?.get(`/${key2}`);
+  if (!source && !entry) return void 0;
+  const usages = entry && entry.usage.length > 0 ? entry.usage : COMMAND_USAGES[key2];
+  const synopsis = usages ? "```tf\n" + usages.join("\n") + "\n```\n\n" : "";
+  const description = COMMAND_DESCRIPTIONS[key2] || entry?.summary && escapeMarkdown2(entry.summary);
+  const parts = [synopsis.trimEnd(), description ?? "", source ? `*${SOURCE_LABEL[source]}*` : ""].filter(Boolean);
+  return parts.length > 0 ? parts.join("\n\n") : void 0;
+}
+function escapeMarkdown2(text) {
+  return text.replace(/[\\`*_{}[\]<>#|]/g, "\\$&");
+}
+var DOC_COMMENT_RE = /^\s*;;;(.*)$/;
+function docCommentAbove(lines, defLine) {
+  const doc = [];
+  for (let i = defLine - 1; i >= 0; i -= 1) {
+    const m = DOC_COMMENT_RE.exec(lines[i] ?? "");
+    if (!m) break;
+    doc.unshift(m[1].replace(/^ /, "").replace(/\s+$/, ""));
+  }
+  return doc.length > 0 ? doc.join("\n") : void 0;
+}
+function where(def) {
+  const line = def.symbol.range.start.line + 1;
+  if (!def.label) return `this file, line ${line}`;
+  return `\`${def.label}\`${def.library ? " (tf library)" : ""} line ${line}`;
+}
+function describeDefs(defs) {
+  const code3 = "```tf\n" + defs.map((d) => `${d.symbol.detail} ${d.symbol.name}`).join("\n") + "\n```\n\n";
+  const docs = defs.map((d) => docCommentAbove(d.lines, d.symbol.range.start.line)).filter((d) => d !== void 0).map((d) => d.split("\n").map(escapeMarkdown2).join("  \n"));
+  return code3 + (docs.length > 0 ? `${docs.join("\n\n")}
+
+` : "") + `defined in ${defs.map(where).join("; ")}`;
+}
+function getHover(text, pos, ctx) {
+  const symbols = getDocumentSymbols(text);
+  const target = targetAt(text, pos, symbols);
+  if (!target) return getExpressionHover(text, pos, ctx?.help);
+  const key2 = target.name.toLowerCase();
+  const source = COMMANDS.get(key2);
+  if (target.usage?.kind === "builtin-call") {
+    if (source !== "builtin" && source !== "keyword") return void 0;
+    const doc = commandHover(target.name, ctx?.help);
+    return doc ? { markdown: `${doc}
+
+\`/@\` calls the built-in even if a macro has the same name.`, range: target.range } : void 0;
+  }
+  const all = definitionsOf(target.name, text, symbols, ctx);
+  const userDefs = all.filter((d) => d.loaded && !d.library);
+  const libraryDefs = all.filter((d) => d.loaded && d.library);
+  const unloaded = all.filter((d) => !d.loaded);
+  if (userDefs.length > 0) {
+    let note = "";
+    if (source === "builtin") {
+      note = `
+
+Shadows the built-in \`/${key2}\`; \`/@${key2}\` calls the built-in.`;
+    } else if (source === "stdlib" || libraryDefs.length > 0) {
+      const from = libraryDefs[0]?.label ?? "stdlib.tf";
+      note = `
+
+Redefines \`/${key2}\` from \`${from}\`.`;
+    }
+    return { markdown: describeDefs(userDefs) + note, range: target.range };
+  }
+  const command2 = commandHover(target.name, ctx?.help);
+  const withCommand = (rest) => command2 ? `${command2}
+
+${rest}` : rest;
+  if (libraryDefs.length > 0) {
+    return { markdown: withCommand(describeDefs(libraryDefs)), range: target.range };
+  }
+  if (unloaded.length > 0 && !source) {
+    const first = unloaded[0];
+    return {
+      markdown: withCommand(describeDefs(unloaded)) + `
+
+Not loaded on this file's load path — \`/require ${first.label ?? ""}\` first.`,
+      range: target.range
+    };
+  }
+  return command2 && target.usage?.kind === "call" ? { markdown: command2, range: target.range } : void 0;
+}
+function getDefinition(text, pos, ctx) {
+  const variable = variableDefinition(text, pos, ctx);
+  if (variable) return variable;
+  const symbols = getDocumentSymbols(text);
+  const target = targetAt(text, pos, symbols);
+  if (!target || target.usage?.kind === "builtin-call") return [];
+  const all = definitionsOf(target.name, text, symbols, ctx);
+  const loaded = all.filter((d) => d.loaded);
+  return (loaded.length > 0 ? loaded : all).map((d) => ({ uri: d.uri, range: d.symbol.selectionRange }));
+}
+function getReferences(text, pos, includeDeclaration, ctx) {
+  const variable = variableReferences(text, pos, includeDeclaration, ctx);
+  if (variable) return sortLocations(variable);
+  const symbols = getDocumentSymbols(text);
+  const target = targetAt(text, pos, symbols);
+  if (!target || target.usage?.kind === "builtin-call") return [];
+  const uses = (uri, fileText) => macroUsages(fileText).filter((u) => u.kind !== "builtin-call" && same(u.name, target.name)).map((u) => ({ uri, range: u.range }));
+  const decls = includeDeclaration ? definitionsOf(target.name, text, symbols, ctx).filter((d) => d.loaded).map((d) => ({ uri: d.uri, range: d.symbol.selectionRange })) : [];
+  return sortLocations([...decls, ...uses(ctx?.uri ?? "", text), ...(ctx?.files ?? []).flatMap((f) => uses(f.uri, f.text))]);
+}
+function sortLocations(all) {
+  return all.sort(
+    (a, b) => a.uri.localeCompare(b.uri) || a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character
+  );
+}
+function renameTarget(text, pos, ctx) {
+  const symbols = getDocumentSymbols(text);
+  const target = targetAt(text, pos, symbols);
+  if (!target) return { ok: false, reason: "Put the cursor on a macro or variable name to rename it." };
+  if (target.usage?.kind === "builtin-call") {
+    return { ok: false, reason: `/@${target.name} always calls the built-in, which can't be renamed.` };
+  }
+  const defs = definitionsOf(target.name, text, symbols, ctx).filter((d) => d.loaded);
+  const library = defs.find((d) => d.library);
+  if (library) {
+    return { ok: false, reason: `/${target.name} is defined in tf's library (${library.label ?? "stdlib.tf"}), which isn't yours to rename.` };
+  }
+  if (defs.length === 0) {
+    const builtin = COMMANDS.has(target.name.toLowerCase());
+    return {
+      ok: false,
+      reason: builtin ? `/${target.name} is a tf command, not a macro defined in your scripts.` : `No /def of ${target.name} on this file's load path, so there is nothing to rename it consistently with.`
+    };
+  }
+  return { ok: true, target, defs, symbols };
+}
+var NEW_NAME_RE = new RegExp(`^${NAME}$`);
+var FUNCTION_NAMES2 = new Set(FUNCTIONS.map((f) => f.name));
+var IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+function prepareRename(text, pos, ctx) {
+  const variable = prepareVariableRename(text, pos, ctx);
+  if (variable) return variable;
+  const r = renameTarget(text, pos, ctx);
+  return r.ok ? { range: r.target.range, placeholder: r.target.name } : { error: r.reason };
+}
+function getRenameEdits(text, pos, newName2, ctx) {
+  const variable = variableRenameEdits(text, pos, newName2, ctx);
+  if (variable) return variable;
+  const r = renameTarget(text, pos, ctx);
+  if (!r.ok) return { error: r.reason };
+  if (!NEW_NAME_RE.test(newName2)) {
+    return { error: `"${newName2}" can't be a macro name here: no spaces, and none of % ; = ( ) [ ] { } " ' \` $ \\.` };
+  }
+  const { target, defs } = r;
+  const self = ctx?.uri ?? "";
+  if (!same(newName2, target.name)) {
+    const taken = definitionsOf(newName2, text, r.symbols, ctx).find((d) => d.loaded);
+    if (taken) {
+      const where2 = taken.uri === self ? `line ${taken.symbol.selectionRange.start.line + 1}` : taken.label ?? taken.uri;
+      return { error: `There's already a macro /${taken.symbol.name} (${where2}), and tf ignores case in macro names, so one /def would replace the other: pick another name.` };
+    }
+  }
+  const edits = defs.map((d) => ({ uri: d.uri, range: d.symbol.selectionRange, newText: newName2 }));
+  const uses = [{ uri: self, text }, ...ctx?.files ?? []].flatMap(
+    (f) => macroUsages(f.text).filter((u) => u.kind !== "builtin-call" && same(u.name, target.name)).map((u) => ({ uri: f.uri, u }))
+  );
+  const fn = uses.find(({ u }) => u.kind === "function-call");
+  if (fn && !isVariableName(newName2)) {
+    return { error: `${target.name} is called as ${fn.u.name}(...) on line ${fn.u.range.start.line + 1}, and tf only reads letters, digits and _ as a function name there: pick a name like that.` };
+  }
+  if (fn && FUNCTION_NAMES2.has(newName2)) {
+    return { error: `${target.name} is called as ${fn.u.name}(...) on line ${fn.u.range.start.line + 1}, and ${newName2}(...) would call tf's builtin ${newName2}() instead: pick another name.` };
+  }
+  for (const { uri, u } of uses) {
+    if (u.bare && !IDENTIFIER_RE.test(newName2)) {
+      const start = { line: u.range.start.line, character: u.range.start.character - 1 };
+      edits.push({ uri, range: { start, end: u.range.end }, newText: `\${${newName2}}` });
+    } else {
+      edits.push({ uri, range: u.range, newText: newName2 });
+    }
+  }
+  return edits;
+}
+function getDocumentHighlights(text, pos) {
+  const variable = variableHighlights(text, pos);
+  if (variable) return variable;
+  const symbols = getDocumentSymbols(text);
+  const target = targetAt(text, pos, symbols);
+  if (!target || target.usage?.kind === "builtin-call") return [];
+  const defs = definitionsOf(target.name, text, symbols, void 0).map((d) => ({ range: d.symbol.selectionRange, kind: "write" }));
+  const uses = macroUsages(text).filter((u) => u.kind !== "builtin-call" && same(u.name, target.name)).map((u) => ({ range: u.range, kind: "read" }));
+  return [...defs, ...uses];
 }
 
 // packages/core/src/callHierarchy.ts
@@ -20044,7 +20056,7 @@ function activeParam(words2, params) {
   const overflow = Math.max(0, pos - positional.length);
   return { index: index2, overflow };
 }
-var COMMAND_START_RE2 = /(?:^\s*|=\s*|\)\s*|\/@?(?:if|then|else|elseif|while|do)\s+)$/i;
+var COMMAND_START_RE = /(?:^\s*|=\s*|\)\s*|\/@?(?:if|then|else|elseif|while|do)\s+)$/i;
 function commandAt(text, pos) {
   const lines = splitRawLines(text);
   if (isCommentLine(lines[pos.line] ?? "")) return void 0;
@@ -20055,9 +20067,9 @@ function commandAt(text, pos) {
   const segStart = Math.max(before2.lastIndexOf("%;"), before2.lastIndexOf("%|"));
   const seg = segStart >= 0 ? before2.slice(segStart + 2) : before2;
   let found;
-  for (const m of seg.matchAll(CALL_RE2)) {
+  for (const m of seg.matchAll(CALL_RE3)) {
     const slash = (m.index ?? 0) + m[1].length;
-    if (!COMMAND_START_RE2.test(seg.slice(0, slash))) continue;
+    if (!COMMAND_START_RE.test(seg.slice(0, slash))) continue;
     const nameEnd = slash + 1 + m[2].length + m[3].length + m[4].length;
     if (nameEnd >= seg.length) return found;
     found = { name: m[4], builtin: m[2] === "@", args: seg.slice(nameEnd) };
@@ -21323,17 +21335,11 @@ connection.languages.semanticTokens.on((params) => {
   const document = documents.get(params.textDocument.uri);
   return { data: document ? encodeSemanticTokens(getSemanticTokens(document.getText(), contextFor(document))) : [] };
 });
-async function formatting(params) {
+function formatting(params) {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  let splitStatements = true;
-  if (hasConfiguration) {
-    const raw = await connection.workspace.getConfiguration({ scopeUri: document.uri, section: "tfscript" });
-    splitStatements = raw?.format?.splitStatements ?? true;
-  }
-  const indent = params.options.insertSpaces ? " ".repeat(params.options.tabSize) : "	";
   const range = "range" in params ? params.range : void 0;
-  return formatText(document.getText(), { indent, splitStatements }, range);
+  return formatText(document.getText(), {}, range);
 }
 connection.onDocumentFormatting(formatting);
 connection.onDocumentRangeFormatting(formatting);

@@ -159,13 +159,20 @@ async function compareRuns(image, dirs, setup, numbers, library, report) {
   await Promise.all(Array.from({ length: 3 }, () => runBatches(image, dirs, setup, batches, library, report)));
 }
 
+/**
+ * A shell's complaints about a command the image doesn't have. spell.tf's /spell_line pipes into
+ * `spell`, which isn't installed: whether the shell's "not found" or echo's "Broken pipe" comes
+ * first is a race, the same either way the file is laid out.
+ */
+const notShellNoise = (l) => !/^(?:sh: \d+: \S+: not found|.*\bBroken pipe\b.*)$/i.test(l.trim());
+
 async function runBatches(image, dirs, setup, batches, library, report) {
   for (let batch = batches.shift(); batch; batch = batches.shift()) {
     const calls = [...setup, ...STUBS, ...batch.flatMap((n) => [`/@echo %% ORACLE-CALL ${n}`, `/#${n}`]), "/@echo %% ORACLE-END"];
     const [ra, rb] = await Promise.all([runTf(image, dirs.before, calls, library), runTf(image, dirs.after, calls, library)]);
     report.runs += batch.length;
-    const ca = between(ra, "ORACLE-CALL", "ORACLE-END").concat(ra.filter((l) => l.startsWith("SENT:")));
-    const cb = between(rb, "ORACLE-CALL", "ORACLE-END").concat(rb.filter((l) => l.startsWith("SENT:")));
+    const ca = between(ra, "ORACLE-CALL", "ORACLE-END").filter(notShellNoise).concat(ra.filter((l) => l.startsWith("SENT:")));
+    const cb = between(rb, "ORACLE-CALL", "ORACLE-END").filter(notShellNoise).concat(rb.filter((l) => l.startsWith("SENT:")));
     for (let i = 0; i < Math.max(ca.length, cb.length); i += 1) if (ca[i] !== cb[i]) report.runMismatches.push({ before: ca[i], after: cb[i] });
   }
 }

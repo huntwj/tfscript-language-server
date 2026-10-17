@@ -215,4 +215,12 @@ describe("formatText: options", () => {
     const edits = formatText(text, {}, { start: { line: 1, character: 0 }, end: { line: 1, character: 3 } });
     expect(applyFormatEdits(text, edits)).toBe(lines("/def a = /x%; /y", "/def b = \\", "  /x%;\\", "  /y"));
   });
+
+  it("leaves out the line a selection of whole lines ends at the start of", () => {
+    const text = lines("/def a = /x%; /y", "/def b = /x%; /y");
+    const edits = formatText(text, {}, { start: { line: 0, character: 0 }, end: { line: 1, character: 0 } });
+    expect(applyFormatEdits(text, edits)).toBe(lines("/def a = \\", "  /x%;\\", "  /y", "/def b = /x%; /y"));
+    // A selection that starts and ends on that line is still that line's.
+    expect(formatText(text, {}, { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } })).toHaveLength(1);
+  });
 });

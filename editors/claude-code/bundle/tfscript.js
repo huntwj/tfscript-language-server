@@ -8868,6 +8868,7 @@ function formatDocument(text, options = {}, range) {
   const entries = [];
   for (const entry of splitLogicalEntries(text)) {
     if (range && (entry.endLine < range.start.line || entry.startLine > range.end.line)) continue;
+    if (range && range.end.character === 0 && range.end.line > range.start.line && entry.startLine === range.end.line) continue;
     const at2 = { startLine: entry.startLine, endLine: entry.endLine };
     const original = lines.slice(entry.startLine, entry.endLine + 1);
     let hasError = false;

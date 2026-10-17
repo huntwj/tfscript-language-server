@@ -414,6 +414,8 @@ export function formatDocument(text: string, options: Partial<FormatOptions> = {
   const entries: EntryResult[] = [];
   for (const entry of splitLogicalEntries(text)) {
     if (range && (entry.endLine < range.start.line || entry.startLine > range.end.line)) continue;
+    // A selection of whole lines ends at the start of the line after them, which isn't selected.
+    if (range && range.end.character === 0 && range.end.line > range.start.line && entry.startLine === range.end.line) continue;
     const at = { startLine: entry.startLine, endLine: entry.endLine };
     const original = lines.slice(entry.startLine, entry.endLine + 1);
     let hasError = false;

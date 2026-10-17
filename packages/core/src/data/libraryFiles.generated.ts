@@ -47,6 +47,7 @@ export const LIBRARY_FILES: readonly string[] = [
   "tintin.tf",
   "tools.tf",
   "tr.tf",
+  "vbind.tf",
   "watch.tf",
   "world-q.tf"
 ];

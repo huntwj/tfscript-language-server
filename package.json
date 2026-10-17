@@ -24,7 +24,9 @@
     "test:format-live": "npm run build && node scripts/check-format-live.js",
     "docs:rules": "npm run build && node scripts/generate-rule-docs.js",
     "bundle:claude-code": "node scripts/bundle-claude-code.js",
-    "bundle:claude-code:check": "node scripts/bundle-claude-code.js --check"
+    "bundle:claude-code:check": "node scripts/bundle-claude-code.js --check",
+    "version:set": "node scripts/set-version.js",
+    "version:check": "node scripts/set-version.js --check"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",

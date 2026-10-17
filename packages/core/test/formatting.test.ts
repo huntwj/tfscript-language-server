@@ -25,6 +25,13 @@ describe("topLevelSeparators", () => {
     expect(topLevelSeparators('/echo "a%;b"%; c')).toEqual([8, 12]);
     expect(topLevelSeparators("say don't%; say it's ok%; /x")).toEqual([9, 23]);
   });
+
+  it("opens no bracket at a bare [ or { in text, only after a $ or %", () => {
+    // Real tf: `/echo [a%; /echo b]` is two /echos.
+    expect(topLevelSeparators("/echo [a%; /echo {b%; c")).toEqual([8, 19]);
+    expect(topLevelSeparators("/def -ib'^[x' = /k%; /y")).toEqual([18]);
+    expect(topLevelSeparators("/x ${a%;}%; %{b%;}%; $[c%;]%; /y")).toEqual([9, 18, 27]);
+  });
 });
 
 describe("normalise", () => {

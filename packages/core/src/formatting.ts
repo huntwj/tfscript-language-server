@@ -115,8 +115,10 @@ export interface FormatResult {
  * `-t"..."` option's included, is cut at each `%;` before anything parses it (expand.c's
  * expand() has no case for a quote). Real tf split `say don't%; say it's ok` in two, and
  * `/def -t"zz%; ..." x` in a body at the `%;`, but kept `/if ("it's%; x" =~ ...)` and
- * `$[strlen("a'%;b")]` whole (2026-10-16). Any bracket counts, so a `:-(` in text only ever means
- * fewer splits.
+ * `$[strlen("a'%;b")]` whole (2026-10-16). Likewise a `[` or `{` only opens anything after a `$`
+ * or `%` (`$[`, `${`, `%{`): `/echo [a%; /echo b]` and the `-b'^[x'` of a nested /def are cut at
+ * their `%;` (proven the same day). Every `(` counts, so a `:-(` in text only ever means fewer
+ * splits.
  */
 export function topLevelSeparators(s: string): number[] {
   const out: number[] = [];
@@ -142,7 +144,7 @@ export function topLevelSeparators(s: string): number[] {
     }
     if (ch === '"' || ch === "'" || ch === "`") {
       if (depth > 0) quote = ch;
-    } else if ("([{".includes(ch)) depth += 1;
+    } else if (ch === "(" || ("[{".includes(ch) && (depth > 0 || s[i - 1] === "$" || s[i - 1] === "%"))) depth += 1;
     else if (")]}".includes(ch)) depth = Math.max(0, depth - 1);
   }
   return out;

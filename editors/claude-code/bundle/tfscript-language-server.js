@@ -15275,7 +15275,7 @@ function topLevelSeparators(s) {
     }
     if (ch === '"' || ch === "'" || ch === "`") {
       if (depth > 0) quote = ch;
-    } else if ("([{".includes(ch)) depth += 1;
+    } else if (ch === "(" || "[{".includes(ch) && (depth > 0 || s[i - 1] === "$" || s[i - 1] === "%")) depth += 1;
     else if (")]}".includes(ch)) depth = Math.max(0, depth - 1);
   }
   return out;

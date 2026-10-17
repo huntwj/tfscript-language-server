@@ -82,7 +82,7 @@ export function terraformSign(file: string, host: GateHost): string | undefined 
   if (beside !== undefined) return `${beside} is in its folder`;
   const raw = host.readFile(file);
   if (raw === undefined) return undefined;
-  const text = raw.replace(/^﻿/, "");
+  const text = raw.replace(/^\uFEFF/, "");
   const match = HCL_BLOCK.exec(text);
   if (match) return `it has a Terraform block (${match[0].trim()})`;
   const first = firstSignificantLine(text);

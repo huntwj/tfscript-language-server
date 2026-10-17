@@ -341,7 +341,7 @@ function terraformSign(file, host) {
   if (beside !== void 0) return `${beside} is in its folder`;
   const raw = host.readFile(file);
   if (raw === void 0) return void 0;
-  const text = raw.replace(/^﻿/, "");
+  const text = raw.replace(/^\uFEFF/, "");
   const match = HCL_BLOCK.exec(text);
   if (match) return `it has a Terraform block (${match[0].trim()})`;
   const first = firstSignificantLine(text);

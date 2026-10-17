@@ -195,6 +195,35 @@ describe("formatText: long lines", () => {
     expect(widest(out)).toBeLessThanOrEqual(100);
   });
 
+  it("decides whether a body fits on its head's line by the line as laid out, so formatting again changes nothing", () => {
+    const a = "a".repeat(80);
+    // Wider than 100 only for blanks the layout drops: kept on one line, without them.
+    expect(format(`/def x =            /echo ${a}\n`)).toBe(`/def x = /echo ${a}\n`);
+    expect(format(`/def x = /echo ${a}         %;\n`)).toBe(`/def x = /echo ${a}%;\n`);
+  });
+
+  it("fits a line of exactly 100 columns, and breaks one of 101", () => {
+    const at = (n: number) => `/def x = /echo ${"w ".repeat(n)}end\n`;
+    const hundred = at((100 - "/def x = /echo end".length) / 2);
+    expect(hundred.length - 1).toBe(100);
+    expect(format(hundred)).toBe(hundred);
+    const over = hundred.replace("end", "endx");
+    expect(format(over).split("\n").length).toBeGreaterThan(2);
+    expect(widest(format(over))).toBeLessThanOrEqual(100);
+  });
+
+  it("doesn't cut a command off from one long word it can't break", () => {
+    const text = `/def x = /echo ${"a".repeat(95)}%; /y\n`;
+    expect(format(text)).toBe(lines("/def x = \\", `  /echo ${"a".repeat(95)}%;\\`, "  /y"));
+  });
+
+  it("hangs a line after a %| at the statement it starts, as wide as it was measured", () => {
+    const words = Array.from({ length: 17 }, (_, i) => `w${String(i).padStart(3, "0")}`).join(" ");
+    const out = format(`/def x = /echo ${words} %| w000 w001 w002 w003 w004%; /y\n`);
+    expect(widest(out)).toBeLessThanOrEqual(100);
+    expect(joined(out)).toEqual(joined(`/def x = /echo ${words} %| w000 w001 w002 w003 w004%;/y\n`));
+  });
+
   it("leaves a statement with nowhere to break long, and an entry with a comment line as its author broke it", () => {
     const set = "/def s = /set list=aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll mmmm nnnn oooo pppp qqqq rrrr%; /x\n";
     expect(format(set)).toBe(lines("/def s = \\", "  /set list=aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll mmmm nnnn oooo pppp qqqq rrrr%;\\", "  /x"));

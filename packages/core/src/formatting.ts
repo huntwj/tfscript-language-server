@@ -411,7 +411,7 @@ function breakPoints(j: string, from: number, to: number, head: boolean, removed
     for (;;) {
       let w = o;
       while (isTfSpace(j[w])) w += 1;
-      if (j[w] !== "-") break;
+      if (j[w] !== "-" || !/[A-Za-z]/.test(j[w + 1] ?? "")) break;
       o = w;
       while (o < to && !isTfSpace(j[o])) o += 1;
     }
@@ -459,11 +459,12 @@ function piece(j: string, plan: Plan, from: number, to: number): string {
 /**
  * Adds to `plan` the breaks that keep each line within `maxWidth`, where the line has places to
  * break (breakPoints()): as much on each line as fits, the rest hanging two levels past the
- * statement's own line. A line with no place that fits keeps the shortest overflow it can.
- * `widthOf(o, hang)` is the indentation of a line starting at `o`, `hang` for one that continues
- * the line before. `head` is where the head of a macro ends (-1 for none).
+ * statement's own line. A line with no place that fits keeps the shortest overflow it can, and no
+ * break is made that leaves the rest as long as it was (a command cut off from one long word).
+ * `widthOf(o)` is the indentation of a line starting at `o`. `head` is where the head of a macro
+ * ends (-1 for none).
  */
-function wrapLines(j: string, plan: Plan, maxWidth: number, head: number, widthOf: (o: number) => number, hangOf: (o: number) => number): void {
+function wrapLines(j: string, plan: Plan, maxWidth: number, head: number, widthOf: (o: number) => number): void {
   const starts = [...plan.cuts].filter((c) => c > 0 && c < j.length).sort((a, b) => a - b);
   const bounds = [0, ...starts, j.length];
   for (let k = 0; k + 1 < bounds.length; k += 1) {
@@ -479,10 +480,11 @@ function wrapLines(j: string, plan: Plan, maxWidth: number, head: number, widthO
       const fitting = (points: number[]) => points.filter((p) => p > at && fits(at, p, lead));
       const best = fitting(first).pop() ?? fitting(then).pop() ?? [...first, ...then].filter((p) => p > at).sort((a, b) => a - b)[0];
       if (best === undefined) break;
-      const cut = best;
-      plan.cuts.add(cut);
-      at = cut;
-      lead = hangOf(from);
+      // A break with nothing after it to break at, whose rest still doesn't fit, gains nothing.
+      if (!fits(best, to, widthOf(best)) && ![...first, ...then].some((p) => p > best)) break;
+      plan.cuts.add(best);
+      at = best;
+      lead = widthOf(best);
     }
   }
 }
@@ -616,7 +618,14 @@ export function layoutEntry(entry: LogicalEntry, original: string[], indent: str
   // /for lines read better as written than at one level. Only a top-level block is re-indented.
   if (!inner && top.blocks.length === 0) return original;
   const firstIndent = (original[0] ?? "").slice(0, leadingWhitespaceLength(original[0] ?? ""));
-  const split1 = inner && split ? splitPlan(entry, body, inner, firstIndent.length + j.length > maxWidth) : undefined;
+  let split1 = inner && split ? splitPlan(entry, body, inner, false) : undefined;
+  // A body of one statement moves to the line after its head only when the whole, laid out on one
+  // line (the blanks it drops gone, a /def's head ending ` = `), is wider than maxWidth; one that
+  // fits only that way stays on one line, laid out so, and so reads the same formatted again.
+  if (split1 && split1.cuts.size === 0 && firstIndent.length + expectedText(j, split1).length > maxWidth) {
+    const moved = splitPlan(entry, body, inner as Layout, true) as Plan;
+    split1 = firstIndent.length + expectedText(j, moved).length > maxWidth ? moved : { ...moved, cuts: new Set() };
+  }
   // Only a body laid out afresh is wrapped; one only re-indented keeps the author's breaks.
   const wrap = split1 !== undefined;
   const plan: Plan = split1 ?? {
@@ -646,7 +655,6 @@ export function layoutEntry(entry: LogicalEntry, original: string[], indent: str
       maxWidth,
       first,
       (o) => (o === 0 ? firstIndent.length : levelAt(o) * width),
-      (o) => (o < body ? 2 : statementLevel(o) + 2) * width,
     );
   }
   const { contents, starts } = cutLines(j, plan);

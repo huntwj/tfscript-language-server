@@ -6,6 +6,10 @@ import { findAbortEntry } from "./rules/notACommand";
 import { addJoinFixes } from "./joinFix";
 import { consolidateContinuations } from "./rules/missingContinuation";
 import { DEFAULT_TF_BUILD, type TfBuild } from "./tfBuild";
+import { ignoredByComment, LINT_RULES } from "./rules/lint";
+
+/** The lint tier's codes (rule table section L1): warnings about shapes tf runs without a word. */
+export const LINT_CODES: ReadonlySet<string> = new Set(LINT_RULES.map((r) => r.id));
 
 export interface Position {
   line: number;
@@ -112,11 +116,12 @@ export function onRuleError(report: (rule: string, error: unknown) => void): (ru
 /**
  * Whether `d` is on something tf runs without a word, perhaps not as meant: an information note
  * (a plain-line `%;` is text), or keyword-mid-statement's warning for a keyword a /let or /set value
- * took (`/if (1) /set a=1 /else /set b=2%; /endif` loads clean). Such a diagnostic doesn't make a
+ * took (`/if (1) /set a=1 /else /set b=2%; /endif` loads clean), or a lint warning (LINT_CODES) on a
+ * shape that may be deliberate. Such a diagnostic doesn't make a
  * file tf loads clean a problem, in the ground-truth test or the live corpus check.
  */
 export function quietInTf(d: TfDiagnostic): boolean {
-  return d.severity === "information" || (d.code === "keyword-mid-statement" && d.severity === "warning");
+  return d.severity === "information" || LINT_CODES.has(d.code) || (d.code === "keyword-mid-statement" && d.severity === "warning");
 }
 
 /**
@@ -184,9 +189,11 @@ export function getDiagnostics(text: string, { joinFixes = true, tfBuild = DEFAU
   // One missing \ makes the lines after a top-level /if or /while commands of their own: say so once.
   diagnostics = consolidateContinuations(text, entries, diagnostics);
   unjoinGluedKeywords(text, entries, diagnostics);
-  if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false }));
+  if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false, tfBuild }));
 
-  return diagnostics;
+  // A lint diagnostic the comment on the line before turns off (`; tflint:ignore-nextline`).
+  const rawLines = splitRawLines(text);
+  return diagnostics.filter((d) => !(LINT_CODES.has(d.code) && ignoredByComment(rawLines, d.range.start.line, d.code)));
 }
 
 /**

@@ -100,6 +100,12 @@ export function defHasInvalidOption(text: string, i: number): boolean {
   return skipDefOptions(text, i).invalid === true;
 }
 
+/** Whether a `/def`, with `i` just after `/def`, fires on something: a trigger (`-t`), a hook (`-h`) or a key (`-b`, `-B`). */
+export function defFiresOnEvent(text: string, i: number): boolean {
+  const o = skipDefOptions(text, i);
+  return o.trigger !== undefined || o.hook !== undefined || o.key !== undefined;
+}
+
 /** Whether a `/def`, with `i` just after `/def`, has the `-i` option. */
 export function defIsInvisible(text: string, i: number): boolean {
   return skipDefOptions(text, i).invisible === true;

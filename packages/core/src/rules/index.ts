@@ -14,6 +14,7 @@ import { emptyStatement } from "./emptyStatement";
 import { nestingTooDeep } from "./nestingTooDeep";
 import { incompleteContinuation } from "./incompleteContinuation";
 import { bodyContinuesWithoutBackslash } from "./bodyContinuesWithoutBackslash";
+import { LINT_RULES } from "./lint";
 import type { Rule } from "./types";
 
 // notACommand.ts is deliberately not in this list: it doesn't just report a
@@ -36,6 +37,7 @@ export const RULES: Rule[] = [
   nestingTooDeep,
   incompleteContinuation,
   bodyContinuesWithoutBackslash,
+  ...LINT_RULES,
 ];
 
 export type { EntryRule, FileRule, Rule, EntryMatch, LineMatch, LineSpan, Severity } from "./types";

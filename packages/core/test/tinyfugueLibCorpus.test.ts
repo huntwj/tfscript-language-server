@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getDiagnostics } from "../src/diagnostics";
+import { getDiagnostics, LINT_CODES } from "../src/diagnostics";
 
 /**
  * tinyfugue/lib/tf/*.tf are the scripts bundled with tf itself (stdlib.tf, color.tf, the
@@ -55,7 +55,10 @@ describeOrSkip("tinyfugue lib/tf corpus (read-only)", () => {
 
     it(`${file} has only its known problems`, () => {
       const text = readFileSync(join(CORPUS_DIR, file), "utf8");
-      const diags = getDiagnostics(text).map((d) => `${d.code}@${d.range.start.line + 1}`);
+      // The lint tier (L1) flags shapes tf runs without a word, which tf's library uses on purpose.
+      const diags = getDiagnostics(text)
+        .filter((d) => !LINT_CODES.has(d.code))
+        .map((d) => `${d.code}@${d.range.start.line + 1}`);
       const known = KNOWN[file] ?? [];
       expect(diags.filter((d) => !known.includes(d))).toEqual([]);
     });

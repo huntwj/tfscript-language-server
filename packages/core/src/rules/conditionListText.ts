@@ -12,9 +12,9 @@ export const conditionListText: EntryRule = {
   id: "condition-list-text",
   severity: "warning",
   scope: "entry",
-  check(entry): EntryMatch[] {
+  check(entry, file): EntryMatch[] {
     const matches: EntryMatch[] = [];
-    for (const issue of entryStructure(entry)) {
+    for (const issue of entryStructure(entry, file.tfBuild)) {
       if (issue.kind !== "condition-text") continue;
       const { kind: _kind, ...match } = issue;
       matches.push(match);

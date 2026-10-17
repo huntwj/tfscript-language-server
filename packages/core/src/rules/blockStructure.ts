@@ -12,8 +12,8 @@ export const blockStructure: EntryRule = {
   id: "block-structure",
   severity: "error",
   scope: "entry",
-  check(entry): EntryMatch[] {
-    return entryStructure(entry)
+  check(entry, file): EntryMatch[] {
+    return entryStructure(entry, file.tfBuild)
       .filter((i) => i.kind === "block")
       .map(({ kind: _kind, ...match }) => match);
   },

@@ -10,8 +10,8 @@ export const nestingTooDeep: EntryRule = {
   id: "nesting-too-deep",
   severity: "information",
   scope: "entry",
-  check(entry): EntryMatch[] {
-    return entryStructure(entry)
+  check(entry, file): EntryMatch[] {
+    return entryStructure(entry, file.tfBuild)
       .filter((i) => i.kind === "too-deep")
       .map(({ kind: _kind, ...match }) => match);
   },

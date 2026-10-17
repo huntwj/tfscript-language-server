@@ -1,5 +1,6 @@
 import { isTfSpace, type LogicalEntry } from "./logicalEntries";
 import { defOptionsEnd } from "./symbols";
+import type { TfBuild } from "./tfBuild";
 
 /**
  * A model of how tf compiles a command list (`list()`, `statement()`, `expand()` and the
@@ -524,7 +525,16 @@ class Parser {
   private lastSep: { at: number; char: string } | undefined;
   /** The block each open `$(...)` was in: tf's `block` is one global, which a `$(...)` doesn't reset. */
   private readonly cmdsubBlocks: Block[] = [];
-  constructor(private readonly s: string, private readonly mode: StructureMode) {}
+  /**
+   * `build`: which tf's rules for a /break leaving a $(...) (breakOutOfCmdsub()). Only the
+   * diagnostics say which tf runs the file; every other caller checks a layout or an edit, where the
+   * fork's stricter reading is the safe one.
+   */
+  constructor(
+    private readonly s: string,
+    private readonly mode: StructureMode,
+    private readonly build: TfBuild = "fork",
+  ) {}
 
   run(): void {
     try {
@@ -1297,6 +1307,31 @@ class Parser {
     const rule =
       `A ${code("/break")} inside ${code("$(...)")} can only end ${code("/while")} loops that are inside the same ` +
       `${code("$(...)")}: tf can't jump out of a command substitution part way through.`;
+    if ((outside || levels > loops.length) && this.build === "upstream") {
+      // Upstream tf has neither of the fork's checks (MAC-5, OBS-85): it compiles the macro, and
+      // running the /break leaves the $(...)'s frame on its value stack (the register's MAC-5 and
+      // OBS-85, the baseline run by hand: "expression stack underflow or dirty", "invalid frame").
+      const cmdsubStart = (this.cmdsubStarts[outside ? outside.cmdsub : this.cmdsubStarts.length - 1] as { at: number }).at;
+      this.issues.push({
+        kind: "block",
+        start,
+        end: Math.max(end, start + 1),
+        message:
+          "This /break would jump out of the $(...) around it, and tf stops the macro with an internal error when it " +
+          "runs: only break out of loops inside the $(...).",
+        label: "jumps out of the $(...)",
+        explanation:
+          `${rule} This one ${outside ? "would end a loop opened outside it" : `has ${loops.length === 0 ? "no loop" : "more levels than there are loops"} to end inside it`}. ` +
+          `tf compiles it, but running it stops the macro with "expression stack underflow or dirty" and "invalid frame". ` +
+          `Move the ${code("/break")} out of the ${code("$(...)")}, into the loop's own body. (A tf with the fork's fixes, ` +
+          `${code("tfscript.tfBuild")} set to ${code("fork")}, rejects the macro when it compiles it.)`,
+        related: [
+          { start: cmdsubStart, end: cmdsubStart + 2, message: "the $(...) it would jump out of" },
+          ...(outside ? [{ start: outside.start, end: outside.end, message: "the loop it would end" }] : []),
+        ],
+      });
+      return;
+    }
     if (outside) {
       // The $( it would jump out of: the outermost one the loop isn't inside.
       const cmdsubStart = (this.cmdsubStarts[outside.cmdsub] as { at: number }).at;
@@ -1349,7 +1384,7 @@ class Parser {
     this.expressions.push({ start, end: this.i, kind: "statement", level: levelOf(subs) });
     const text = this.s.slice(start, this.i);
     if (subs >= FULL ? /[%$\\]/.test(text) : subs >= NEWLINE && text.includes("%%")) return;
-    const sub = new Parser(text, this.mode);
+    const sub = new Parser(text, this.mode, this.build);
     try {
       sub.expression(undefined, 0, `/${keyword}`);
     } catch (e) {
@@ -1942,6 +1977,7 @@ class Trial {
     private readonly s: string,
     private readonly mode: StructureMode,
     private readonly baseNoise: number,
+    private readonly build: TfBuild = "fork",
   ) {}
 
   /**
@@ -1953,7 +1989,7 @@ class Trial {
     this.tries += 1;
     let t = this.s;
     for (const e of [...edits].sort((a, b) => b.start - a.start)) t = t.slice(0, e.start) + e.newText + t.slice(e.end);
-    const p = new Parser(t, this.mode);
+    const p = new Parser(t, this.mode, this.build);
     p.run();
     if (noise(p.issues) > this.baseNoise) return -1;
     const stop = firstStop(p.issues);
@@ -1983,12 +2019,12 @@ function strayNote(issue: StructureIssue): IssueNote {
  *    `/if` early.
  * No fix may bring in an empty statement or condition-list text tf warns about (NOISE).
  */
-function parseSettled(s: string, mode: StructureMode): { issues: StructureIssue[]; swallowed: Swallowed[] } {
-  const p = new Parser(s, mode);
+function parseSettled(s: string, mode: StructureMode, build: TfBuild = "fork"): { issues: StructureIssue[]; swallowed: Swallowed[] } {
+  const p = new Parser(s, mode, build);
   p.run();
   const issues = [...p.issues];
   const swallowed: Swallowed[] = [];
-  const trial = new Trial(s, mode, noise(issues));
+  const trial = new Trial(s, mode, noise(issues), build);
   const block = issues.find((i) => i.kind === "block");
   // Only a fix that leaves nothing for tf to stop at pairs: with a second stray /endif after it, or
   // a block it leaves open, it would only move the problem on (rev-s4b p03, p04, p16, p19, p25).
@@ -2161,16 +2197,18 @@ interface EntryModel {
   swallowed: Swallowed[];
 }
 
-const cache = new WeakMap<LogicalEntry, EntryModel>();
+const cache = new WeakMap<LogicalEntry, Map<TfBuild, EntryModel>>();
 
-function entryModel(entry: LogicalEntry): EntryModel {
-  let model = cache.get(entry);
+function entryModel(entry: LogicalEntry, build: TfBuild): EntryModel {
+  let byBuild = cache.get(entry);
+  if (!byBuild) cache.set(entry, (byBuild = new Map()));
+  let model = byBuild.get(build);
   if (!model) {
-    const top = parseSettled(entry.text, "top");
+    const top = parseSettled(entry.text, "top", build);
     model = { issues: top.issues, swallowed: [...top.swallowed] };
     const body = entry.isDefBody || entry.isOtherMacroBody ? macroBodyStart(entry.text) : -1;
     if (body >= 0) {
-      const parser = parseSettled(entry.text.slice(body), "body");
+      const parser = parseSettled(entry.text.slice(body), "body", build);
       for (const issue of parser.issues) model.issues.push(shiftIssue(issue, body));
       for (const w of parser.swallowed) {
         const edits = w.edits.map((e) => ({ ...e, start: e.start + body, end: e.end + body }));
@@ -2178,7 +2216,7 @@ function entryModel(entry: LogicalEntry): EntryModel {
         model.swallowed.push({ ...w, start: w.start + body, end: w.end + body, stmt: w.stmt + body, edits, ...(stray ? { stray } : {}) });
       }
     }
-    cache.set(entry, model);
+    byBuild.set(build, model);
   }
   return model;
 }
@@ -2187,11 +2225,11 @@ function entryModel(entry: LogicalEntry): EntryModel {
  * Structural problems in a top-level entry, with offsets into `entry.text`: the entry as tf reads
  * a top-level line, and, for a `/def`, `/bind`, `/hook`, `/trig*` or `/alias`, its macro body.
  */
-export function entryStructure(entry: LogicalEntry): StructureIssue[] {
-  return entryModel(entry).issues;
+export function entryStructure(entry: LogicalEntry, build: TfBuild = "fork"): StructureIssue[] {
+  return entryModel(entry, build).issues;
 }
 
 /** The /ifs and /endifs in `entry` that a /let or /set value swallows, offsets into `entry.text`. */
-export function entrySwallowed(entry: LogicalEntry): Swallowed[] {
-  return entryModel(entry).swallowed;
+export function entrySwallowed(entry: LogicalEntry, build: TfBuild = "fork"): Swallowed[] {
+  return entryModel(entry, build).swallowed;
 }

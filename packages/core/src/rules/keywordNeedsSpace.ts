@@ -21,7 +21,7 @@ export const keywordNeedsSpace: EntryRule = {
   scope: "entry",
   check(entry, file): EntryMatch[] {
     const matches: EntryMatch[] = [];
-    for (const issue of entryStructure(entry)) {
+    for (const issue of entryStructure(entry, file.tfBuild)) {
       if (issue.kind !== "glued" && issue.kind !== "glued-punct") continue;
       const { kind, ...match } = issue;
       if (kind === "glued-punct") {

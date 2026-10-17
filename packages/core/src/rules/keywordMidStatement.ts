@@ -22,9 +22,9 @@ export const keywordMidStatement: EntryRule = {
   id: "keyword-mid-statement",
   severity: "error",
   scope: "entry",
-  check(entry): EntryMatch[] {
+  check(entry, file): EntryMatch[] {
     const matches: EntryMatch[] = [];
-    for (const issue of entryStructure(entry)) {
+    for (const issue of entryStructure(entry, file.tfBuild)) {
       if (issue.kind !== "keyword" && issue.kind !== "keyword-warning") continue;
       const { kind, ...match } = issue;
       matches.push(kind === "keyword-warning" ? { ...match, severity: "warning" } : match);

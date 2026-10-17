@@ -24,8 +24,8 @@ export const missingContinuation: EntryRule = {
   id: "missing-continuation",
   severity: "error",
   scope: "entry",
-  check(entry): EntryMatch[] {
-    return entryStructure(entry)
+  check(entry, file): EntryMatch[] {
+    return entryStructure(entry, file.tfBuild)
       .filter((i) => i.kind === "continuation")
       .map(({ kind: _kind, ...match }) => match);
   },

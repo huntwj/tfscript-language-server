@@ -474,6 +474,28 @@ describe("substitution-in-expression", () => {
   });
 });
 
+describe("a /break leaving a $(...), by tfBuild (block-structure)", () => {
+  // The fork rejects the macro when it compiles it (tf_script_check, 2026-10-17); upstream compiles
+  // it and stops it with an internal error when it runs (the register's MAC-5 and OBS-85).
+  const out = "/def x = /while (1) /echo $(/break)%; /done%; /if (1) /echo y\n";
+  const none = "/def x = /echo pre $(/break) post\n";
+  const messages = (text: string, tfBuild: "upstream" | "fork") =>
+    getDiagnostics(text, { tfBuild }).filter((d) => d.code === "block-structure").map((d) => d.message);
+
+  it("says tf rejects the macro for the fork, and checks nothing after it", () => {
+    expect(messages(out, "fork")).toEqual(["This /break would jump out of the $(...) around it, so tf rejects the macro: end the loop outside the $(...)."]);
+    expect(messages(none, "fork")[0]).toMatch(/so tf rejects the macro/);
+  });
+
+  it("says tf stops the macro when it runs, for upstream, and goes on to what follows", () => {
+    const [first, ...rest] = messages(out, "upstream");
+    expect(first).toBe("This /break would jump out of the $(...) around it, and tf stops the macro with an internal error when it runs: only break out of loops inside the $(...).");
+    expect(rest.some((m) => /\/endif/.test(m))).toBe(true);
+    expect(messages(none, "upstream")[0]).toMatch(/internal error when it runs/);
+    expect(getDiagnostics(none).find((d) => d.code === "block-structure")?.message).toMatch(/internal error when it runs/);
+  });
+});
+
 describe("getDiagnostics ranges", () => {
   it("points at the offending token, not the whole line", () => {
     const text = '/if (x =~ "") /set x=1\n/endif\n';

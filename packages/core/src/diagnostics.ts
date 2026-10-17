@@ -5,6 +5,7 @@ import { definedMacro } from "./symbols";
 import { findAbortEntry } from "./rules/notACommand";
 import { addJoinFixes } from "./joinFix";
 import { consolidateContinuations } from "./rules/missingContinuation";
+import { DEFAULT_TF_BUILD, type TfBuild } from "./tfBuild";
 
 export interface Position {
   line: number;
@@ -122,7 +123,7 @@ export function quietInTf(d: TfDiagnostic): boolean {
  * Every diagnostic for `text`. `joinFixes: false` leaves out the line-joining fixes (joinFix.ts),
  * which try out candidate fixes with this function and so must not recurse into themselves.
  */
-export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?: boolean } = {}): TfDiagnostic[] {
+export function getDiagnostics(text: string, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD }: { joinFixes?: boolean; tfBuild?: TfBuild } = {}): TfDiagnostic[] {
   const entries = splitLogicalEntries(text);
   let diagnostics: TfDiagnostic[] = [];
 
@@ -147,7 +148,7 @@ export function getDiagnostics(text: string, { joinFixes = true }: { joinFixes?:
     const name = definedMacro(entry);
     if (name) macros.add(name.toLowerCase());
   }
-  const facts: FileFacts = { macros };
+  const facts: FileFacts = { macros, tfBuild };
 
   for (const rule of RULES) {
     // A rule that throws loses its own diagnostics, for that command, not every rule's for the file.

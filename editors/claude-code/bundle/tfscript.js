@@ -24,6 +24,13 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// packages/core/src/tfBuild.ts
+var TF_BUILDS = ["upstream", "fork"];
+var DEFAULT_TF_BUILD = "upstream";
+function asLoaded(text, build) {
+  return build === "fork" ? text.replace(/\r(?=\n|$)/g, "") : text;
+}
+
 // packages/cli/src/args.ts
 var UsageError = class extends Error {
 };
@@ -45,6 +52,7 @@ var OPTIONS = {
   "home-directory": "value",
   "path-mapping": "list",
   variable: "list",
+  "tf-build": "value",
   "no-unresolved-loads": "flag",
   "no-undefined-macros": "flag",
   "ignore-macro": "list"
@@ -129,6 +137,11 @@ function settingsOf(p) {
     }
     settings.variables = variables;
   }
+  const build = one("tf-build");
+  if (build !== void 0) {
+    if (!TF_BUILDS.includes(build)) throw new UsageError(`--tf-build ${build} isn't a tf build: give ${TF_BUILDS.join(" or ")}.`);
+    settings.tfBuild = build;
+  }
   const diagnostics = {};
   if (p.flags.has("no-unresolved-loads")) diagnostics.unresolvedLoads = false;
   if (p.flags.has("no-undefined-macros")) diagnostics.undefinedMacros = false;
@@ -195,6 +208,7 @@ var SETTING_SHAPES = {
   homeDirectory: "path",
   pathMappings: "pathMappings",
   variables: "variables",
+  tfBuild: "tfBuild",
   diagnostics: "diagnostics"
 };
 var DIAGNOSTIC_SHAPES = {
@@ -318,6 +332,11 @@ function parseConfig(text, file, label = file) {
           if (bad !== void 0) problems.push(`${label} sets the variable "${bad}", which isn't a tf variable name: use letters, digits and _, not starting with a digit.`);
           else settings.variables = value;
         }
+        break;
+      case "tfBuild":
+        if (typeof value !== "string" || !TF_BUILDS.includes(value)) {
+          wrong(key2, value, TF_BUILDS.map((b) => `"${b}"`).join(" or "), `"${key2}": "fork"`);
+        } else settings.tfBuild = value;
         break;
       case "diagnostics": {
         if (!isObject(value)) {
@@ -4305,7 +4324,8 @@ function resolveSettings(raw, folder, environment) {
     pathMappings,
     variables: Object.fromEntries(
       Object.entries(raw.variables ?? {}).filter(([name, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && typeof value === "string")
-    )
+    ),
+    tfBuild: TF_BUILDS.find((b) => b === raw.tfBuild) ?? DEFAULT_TF_BUILD
   };
 }
 
@@ -7415,7 +7435,21 @@ var WorkspaceIndex = class {
   }
   /** Files read from disk, until a watched file changes (filesChanged()) or, unwatched, until their modification time does. */
   disk = /* @__PURE__ */ new Map();
+  /** A file's text as tf reads it with `/load` (see asLoaded()): the editor's if it is open, else what is on disk. */
   read = (file) => {
+    const text = this.readAsIs(file);
+    return text === void 0 ? void 0 : asLoaded(text, this.tfBuildFor(file));
+  };
+  /**
+   * Which tf reads `file`: the tfBuild of the workspace folder it is in, or of the first folder
+   * for a file in none (tf's library, say), as one tf runs them all.
+   */
+  tfBuildFor(file) {
+    const inside = this.folders.some((f) => isInside(file, f));
+    const folder = inside ? this.folderFor(file) : this.folders[0];
+    return folder === void 0 ? DEFAULT_TF_BUILD : this.settingsFor(folder).tfBuild;
+  }
+  readAsIs(file) {
     const key2 = fileKey(file);
     const open = this.overlay.get(key2);
     if (open !== void 0) return open;
@@ -7425,7 +7459,7 @@ var WorkspaceIndex = class {
     const text = this.fs.readFile(file);
     this.disk.set(key2, { file, text, mtime: mtime2 });
     return text;
-  };
+  }
   /**
    * Forgets the disk text of every file no watcher covers whose modification time has changed
    * (or that appeared or went away), and the graphs built from it. Run before a graph is used.
@@ -8108,7 +8142,7 @@ function check5(request, host = nodeHost()) {
       problems.push(`${path7.relative(request.cwd, file) || file} can't be read: check that it is a file you may read.`);
       continue;
     }
-    checked.push({ file, text, diagnostics: documentDiagnostics(text, real, index) });
+    checked.push({ file, text, diagnostics: documentDiagnostics(asLoaded(text, index.tfBuildFor(real)), real, index) });
   }
   return { files: checked, problems };
 }
@@ -8125,7 +8159,7 @@ var RULE_SECTIONS = [
       "tf reads a file one physical line at a time and drops each line's leading blanks. A line whose first non-blank character is `;` or `#` is a comment and is skipped, also in the middle of a continuation. An empty or whitespace-only line runs no command of its own, but it does end a command that a `\\` was continuing: the line after it starts a new command.",
       "A line that ends in `\\` (and not in `%\\`) is joined to the next one. Otherwise the joined text is one complete command. This applies to every line of a file, inside a `/def` or not.",
       "So a block (`/if` ... `/endif`, `/while` ... `/done`) must be complete within one command. A multi-line `/if` with its lines left bare is rejected, because `/if` needs its `/endif` in the same command, and an indented second line draws `possibly missing trailing \\`.",
-      "Whitespace after a final `\\`, including the `\\r` of a CRLF file, draws `whitespace following final '\\'`, and the line is not continued.",
+      "Whitespace after a final `\\`, including the `\\r` of a CRLF file, draws `whitespace following final '\\'`, and the line is not continued. A tf that drops that `\\r` (`tfscript.tfBuild` set to `fork`) reads a CRLF file like an LF one.",
       'A command that doesn\'t start with `/` makes tf print "Invalid command. Aborting." and stop loading the file; it is never sent to a connected world. A byte order mark is not a blank, so a file that starts with one stops at its first line. tf treats such a line as an implicit `/addworld` only in the `~/.tinytalk` file it reads at start-up, never in a `/load`. Text in a `/def` body is different: it is sent when the macro runs.',
       'A file whose last command ends in `\\` draws `last command is incomplete because of trailing \\`, and that command is dropped. tf says it after every "Invalid command. Aborting." too, as the aborted command is still held.',
       "A macro body whose last line ends in `%;` but not `\\` ends there: an unindented command on the next line runs once, when the file loads, and tf says nothing.",
@@ -8186,7 +8220,7 @@ var RULE_SECTIONS = [
         code: "backslash-not-last",
         severity: "warning",
         summary: "This `\\` doesn't continue the line: whitespace or a CRLF line ending follows it, or a `%` comes before it. End the line with a `\\` that has no `%` before it and nothing after it, in a file saved with LF line endings.",
-        detail: "a final `\\` followed by whitespace (including a CRLF file's trailing `\\r`) — not a continuation, tf warns and runs the line as-is"
+        detail: "a final `\\` followed by whitespace (including a CRLF file's trailing `\\r`, unless `tfscript.tfBuild` is `fork`) — not a continuation, tf warns and runs the line as-is"
       },
       {
         code: "not-a-command",
@@ -8566,6 +8600,7 @@ var OPTION_FOR_SETTING = {
   homeDirectory: "--home-directory",
   pathMappings: "--path-mapping",
   variables: "--variable",
+  tfBuild: "--tf-build",
   "diagnostics.unresolvedLoads": "--no-unresolved-loads",
   "diagnostics.undefinedMacros": "--no-undefined-macros",
   "diagnostics.ignoreMacros": "--ignore-macro"
@@ -9090,6 +9125,7 @@ Where tf runs (each is named after the tfscript.* setting in brackets):
   --path-mapping <tf>=<local>   where tf's absolute path <tf> is here; repeat for more
                                 (pathMappings)
   --variable <name>=<value>     a variable set as tf starts; repeat for more (variables)
+  --tf-build upstream|fork      which tf runs the scripts (tfBuild; default: upstream)
 
 Which diagnostics:
   --no-unresolved-loads         leave out unresolved-load (diagnostics.unresolvedLoads)

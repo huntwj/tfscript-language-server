@@ -16964,7 +16964,7 @@ function plan2(text, entry, range, options) {
         return { disabled: `${n.name}() has the wrong number of arguments, which tf reports when the macro is compiled; in the /test it would only be reported when that runs: fix the call first.` };
       }
     }
-    if (n.kind === "conditional" && n.then) {
+    if (n.kind === "conditional" && n.then && options.tfBuild !== "fork") {
       return { disabled: "The selection has a ? : in it, which crashes tf when its condition is true and its value is used, as it would be in the /test: it can't be extracted." };
     }
   }
@@ -16992,7 +16992,7 @@ function plan2(text, entry, range, options) {
     if (!passes) break;
   }
   const substitutedBracket = root.kind === "bracket" && !regions.expressions.some((r) => r !== root && r.kind !== "statement" && r.start <= root.start && rEnd(root) <= rEnd(r));
-  if (substitutedBracket && nodes(tree).some((n) => n.kind === "binary" && n.op === ",")) {
+  if (substitutedBracket && options.tfBuild !== "fork" && nodes(tree).some((n) => n.kind === "binary" && n.op === ",")) {
     return { disabled: "tf mis-compiles the , in this $[...], losing the text before it, so rewriting it can't be checked: it can't be extracted." };
   }
   const within = regions.spans.find((sp) => sp.kind === "substitution" && sp.start < from && to <= sp.end && (s[sp.start] === "%" || s[sp.start] === "{" || s.startsWith("${", sp.start) || s.startsWith("$(", sp.start)));
@@ -17178,6 +17178,15 @@ var LIBRARY_FILES = [
 
 // packages/core/src/workspace/settings.ts
 var path = __toESM(require("node:path"));
+
+// packages/core/src/tfBuild.ts
+var TF_BUILDS = ["upstream", "fork"];
+var DEFAULT_TF_BUILD = "upstream";
+function asLoaded(text, build) {
+  return build === "fork" ? text.replace(/\r(?=\n|$)/g, "") : text;
+}
+
+// packages/core/src/workspace/settings.ts
 function toLocalPath(p, mappings) {
   if (mappings.length === 0 || /^[\\/]{2}/.test(p)) return p;
   const forward = path.posix.normalize(p.replace(/\\/g, "/"));
@@ -17238,7 +17247,8 @@ function resolveSettings(raw, folder, environment) {
     pathMappings,
     variables: Object.fromEntries(
       Object.entries(raw.variables ?? {}).filter(([name, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && typeof value === "string")
-    )
+    ),
+    tfBuild: TF_BUILDS.find((b) => b === raw.tfBuild) ?? DEFAULT_TF_BUILD
   };
 }
 
@@ -18092,7 +18102,10 @@ function routeCodeActions(text, request) {
       ...request.isTaken ? { isTaken: request.isTaken } : {},
       ...request.calledAsFunction ? { calledAsFunction: request.calledAsFunction } : {}
     };
-    const variable = request.mentionedOutside ? { mentionedOutside: request.mentionedOutside } : {};
+    const variable = {
+      ...request.mentionedOutside ? { mentionedOutside: request.mentionedOutside } : {},
+      ...request.tfBuild ? { tfBuild: request.tfBuild } : {}
+    };
     for (const a of [...getExtractActions(text, request.range, options), ...getExtractVariableActions(text, request.range, variable)]) {
       if (a.disabled === void 0) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: a.edits, ...a.rename ? { rename: a.rename } : {} });
       else if (request.disabledSupport) out.push({ title: a.title, kind: REFACTOR_EXTRACT, edits: [], disabled: a.disabled });
@@ -19349,7 +19362,7 @@ var RULE_SECTIONS = [
       "tf reads a file one physical line at a time and drops each line's leading blanks. A line whose first non-blank character is `;` or `#` is a comment and is skipped, also in the middle of a continuation. An empty or whitespace-only line runs no command of its own, but it does end a command that a `\\` was continuing: the line after it starts a new command.",
       "A line that ends in `\\` (and not in `%\\`) is joined to the next one. Otherwise the joined text is one complete command. This applies to every line of a file, inside a `/def` or not.",
       "So a block (`/if` ... `/endif`, `/while` ... `/done`) must be complete within one command. A multi-line `/if` with its lines left bare is rejected, because `/if` needs its `/endif` in the same command, and an indented second line draws `possibly missing trailing \\`.",
-      "Whitespace after a final `\\`, including the `\\r` of a CRLF file, draws `whitespace following final '\\'`, and the line is not continued.",
+      "Whitespace after a final `\\`, including the `\\r` of a CRLF file, draws `whitespace following final '\\'`, and the line is not continued. A tf that drops that `\\r` (`tfscript.tfBuild` set to `fork`) reads a CRLF file like an LF one.",
       'A command that doesn\'t start with `/` makes tf print "Invalid command. Aborting." and stop loading the file; it is never sent to a connected world. A byte order mark is not a blank, so a file that starts with one stops at its first line. tf treats such a line as an implicit `/addworld` only in the `~/.tinytalk` file it reads at start-up, never in a `/load`. Text in a `/def` body is different: it is sent when the macro runs.',
       'A file whose last command ends in `\\` draws `last command is incomplete because of trailing \\`, and that command is dropped. tf says it after every "Invalid command. Aborting." too, as the aborted command is still held.',
       "A macro body whose last line ends in `%;` but not `\\` ends there: an unindented command on the next line runs once, when the file loads, and tf says nothing.",
@@ -19410,7 +19423,7 @@ var RULE_SECTIONS = [
         code: "backslash-not-last",
         severity: "warning",
         summary: "This `\\` doesn't continue the line: whitespace or a CRLF line ending follows it, or a `%` comes before it. End the line with a `\\` that has no `%` before it and nothing after it, in a file saved with LF line endings.",
-        detail: "a final `\\` followed by whitespace (including a CRLF file's trailing `\\r`) — not a continuation, tf warns and runs the line as-is"
+        detail: "a final `\\` followed by whitespace (including a CRLF file's trailing `\\r`, unless `tfscript.tfBuild` is `fork`) — not a continuation, tf warns and runs the line as-is"
       },
       {
         code: "not-a-command",
@@ -20374,7 +20387,21 @@ var WorkspaceIndex = class {
   }
   /** Files read from disk, until a watched file changes (filesChanged()) or, unwatched, until their modification time does. */
   disk = /* @__PURE__ */ new Map();
+  /** A file's text as tf reads it with `/load` (see asLoaded()): the editor's if it is open, else what is on disk. */
   read = (file) => {
+    const text = this.readAsIs(file);
+    return text === void 0 ? void 0 : asLoaded(text, this.tfBuildFor(file));
+  };
+  /**
+   * Which tf reads `file`: the tfBuild of the workspace folder it is in, or of the first folder
+   * for a file in none (tf's library, say), as one tf runs them all.
+   */
+  tfBuildFor(file) {
+    const inside = this.folders.some((f) => isInside(file, f));
+    const folder = inside ? this.folderFor(file) : this.folders[0];
+    return folder === void 0 ? DEFAULT_TF_BUILD : this.settingsFor(folder).tfBuild;
+  }
+  readAsIs(file) {
     const key2 = fileKey(file);
     const open = this.overlay.get(key2);
     if (open !== void 0) return open;
@@ -20384,7 +20411,7 @@ var WorkspaceIndex = class {
     const text = this.fs.readFile(file);
     this.disk.set(key2, { file, text, mtime: mtime2 });
     return text;
-  };
+  }
   /**
    * Forgets the disk text of every file no watcher covers whose modification time has changed
    * (or that appeared or went away), and the graphs built from it. Run before a graph is used.
@@ -21161,6 +21188,10 @@ function toUri(file) {
   });
   return open?.uri ?? (0, import_node_url2.pathToFileURL)(file).href;
 }
+function loadedText(document) {
+  const file = toPath(document.uri);
+  return asLoaded(document.getText(), file === void 0 ? DEFAULT_TF_BUILD : index.tfBuildFor(file));
+}
 function contextFor(document) {
   const file = toPath(document.uri);
   return file === void 0 ? void 0 : index.navContext(file, toUri);
@@ -21302,7 +21333,7 @@ function toLspDiagnostic(d, uri) {
   };
 }
 function validate(document) {
-  const text = document.getText();
+  const text = loadedText(document);
   const file = toPath(document.uri);
   const all = documentDiagnostics(text, file, index);
   published.set(document.uri, { version: document.version, diagnostics: all });
@@ -21311,26 +21342,26 @@ function validate(document) {
 var published = /* @__PURE__ */ new Map();
 function diagnosticsFor(document) {
   const last = published.get(document.uri);
-  return last && last.version === document.version ? last.diagnostics : getDiagnostics(document.getText());
+  return last && last.version === document.version ? last.diagnostics : getDiagnostics(loadedText(document));
 }
 connection.onCompletion((params) => {
   const document = documents.get(params.textDocument.uri);
-  return document ? getCompletions(document.getText(), params.position, contextFor(document)) : [];
+  return document ? getCompletions(loadedText(document), params.position, contextFor(document)) : [];
 });
 connection.onDocumentSymbol((params) => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  return getDocumentSymbols(document.getText()).map(toDocumentSymbol);
+  return getDocumentSymbols(loadedText(document)).map(toDocumentSymbol);
 });
 connection.onFoldingRanges((params) => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  return getFoldingRanges(document.getText()).map(toFoldingRange);
+  return getFoldingRanges(loadedText(document)).map(toFoldingRange);
 });
 connection.onSelectionRanges((params) => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  return getSelectionRanges(document.getText(), params.positions);
+  return getSelectionRanges(loadedText(document), params.positions);
 });
 connection.onCodeAction((params) => {
   const document = documents.get(params.textDocument.uri);
@@ -21340,20 +21371,21 @@ connection.onCodeAction((params) => {
   if (params.context.triggerKind !== void 0) request.triggerKind = params.context.triggerKind;
   const file = toPath(document.uri);
   let taken;
-  if (file) request.isTaken = (name) => (taken ??= index.macroNameTaken(file, document.getText()))(name);
+  if (file) request.isTaken = (name) => (taken ??= index.macroNameTaken(file, loadedText(document)))(name);
   let outside;
   let mentioned;
   if (file) request.definedOutside = (name) => (outside ??= index.macroDefinedOutside(file))(name);
   if (file) request.mentionedOutside = (name) => (mentioned ??= index.macroMentionedOutside(file))(name);
   if (file && index.isLibraryFile(file)) request.library = true;
+  if (file) request.tfBuild = index.tfBuildFor(file);
   let functions;
-  if (file) request.calledAsFunction = (name) => (functions ??= index.macroCalledAsFunction(file, document.getText()))(name);
-  return routeCodeActions(document.getText(), request).map((action) => toLspCodeAction(action, document.uri, (d) => toLspDiagnostic(d, document.uri), renameCommand));
+  if (file) request.calledAsFunction = (name) => (functions ??= index.macroCalledAsFunction(file, loadedText(document)))(name);
+  return routeCodeActions(loadedText(document), request).map((action) => toLspCodeAction(action, document.uri, (d) => toLspDiagnostic(d, document.uri), renameCommand));
 });
 connection.onHover((params) => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return null;
-  const text = document.getText();
+  const text = loadedText(document);
   const explained = diagnosticsFor(document).filter((d) => rangeContains(d.range, params.position)).flatMap((d) => diagnosticHover(text, d) ?? []);
   const hover = getHover(text, params.position, contextFor(document));
   const parts = [...explained, ...hover ? [hover.markdown] : []];
@@ -21365,7 +21397,7 @@ connection.onHover((params) => {
 });
 connection.onSignatureHelp((params) => {
   const document = documents.get(params.textDocument.uri);
-  const help = document && getSignatureHelp(document.getText(), params.position, contextFor(document));
+  const help = document && getSignatureHelp(loadedText(document), params.position, contextFor(document));
   if (!help) return null;
   return {
     signatures: help.signatures.map((s) => ({
@@ -21380,7 +21412,7 @@ connection.onSignatureHelp((params) => {
 });
 connection.languages.semanticTokens.on((params) => {
   const document = documents.get(params.textDocument.uri);
-  return { data: document ? encodeSemanticTokens(getSemanticTokens(document.getText(), contextFor(document))) : [] };
+  return { data: document ? encodeSemanticTokens(getSemanticTokens(loadedText(document), contextFor(document))) : [] };
 });
 function formatting(params) {
   const document = documents.get(params.textDocument.uri);
@@ -21394,22 +21426,23 @@ connection.onDefinition((params) => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
   const ctx = contextFor(document);
-  return getDefinition(document.getText(), params.position, ctx).map((l) => ({ uri: l.uri || document.uri, range: l.range }));
+  return getDefinition(loadedText(document), params.position, ctx).map((l) => ({ uri: l.uri || document.uri, range: l.range }));
 });
 connection.onReferences((params) => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
   const ctx = contextFor(document);
-  return getReferences(document.getText(), params.position, params.context.includeDeclaration, ctx).map((l) => ({
+  return getReferences(loadedText(document), params.position, params.context.includeDeclaration, ctx).map((l) => ({
     uri: l.uri || document.uri,
     range: l.range
   }));
 });
 function textOf(uri) {
   const open = documents.get(uri);
-  if (open) return open.getText();
+  if (open) return loadedText(open);
   const file = toPath(uri);
-  return file === void 0 ? void 0 : readFile(file);
+  const text = file === void 0 ? void 0 : readFile(file);
+  return file === void 0 || text === void 0 ? void 0 : asLoaded(text, index.tfBuildFor(file));
 }
 function navContextOf(uri) {
   const file = toPath(uri);
@@ -21427,7 +21460,7 @@ function fromCallItem(item) {
 connection.languages.callHierarchy.onPrepare((params) => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return null;
-  const items = prepareCallHierarchy(document.getText(), params.position, contextFor(document));
+  const items = prepareCallHierarchy(loadedText(document), params.position, contextFor(document));
   return items.length > 0 ? items.map((i) => toCallItem({ ...i, uri: i.uri || document.uri })) : null;
 });
 connection.languages.callHierarchy.onIncomingCalls((params) => {
@@ -21457,13 +21490,13 @@ connection.onCodeLens((params) => {
   const document = documents.get(params.textDocument.uri);
   const file = document && toPath(document.uri);
   if (!showReferencesCommand || !document || file === void 0 || !index.referenceLenses(file)) return [];
-  return getDocumentSymbols(document.getText()).filter((s) => s.kind === "def").map((s) => ({ range: s.selectionRange, data: { uri: document.uri, position: s.selectionRange.start } }));
+  return getDocumentSymbols(loadedText(document)).filter((s) => s.kind === "def").map((s) => ({ range: s.selectionRange, data: { uri: document.uri, position: s.selectionRange.start } }));
 });
 connection.onCodeLensResolve((lens) => {
   const data = lens.data;
   const document = documents.get(data.uri);
   if (!document) return { ...lens, command: { title: "references", command: "" } };
-  const locations = getReferences(document.getText(), data.position, false, contextFor(document)).map((l) => ({
+  const locations = getReferences(loadedText(document), data.position, false, contextFor(document)).map((l) => ({
     uri: l.uri || document.uri,
     range: l.range
   }));
@@ -21480,7 +21513,7 @@ connection.onCodeLensResolve((lens) => {
 connection.onDocumentHighlight((params) => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  return getDocumentHighlights(document.getText(), params.position).map((h) => ({
+  return getDocumentHighlights(loadedText(document), params.position).map((h) => ({
     range: h.range,
     kind: h.kind === "write" ? import_node4.DocumentHighlightKind.Write : import_node4.DocumentHighlightKind.Read
   }));
@@ -21489,7 +21522,7 @@ connection.onDocumentLinks((params) => {
   const document = documents.get(params.textDocument.uri);
   const file = document && toPath(document.uri);
   if (!document || file === void 0) return [];
-  return index.documentLinks(file, document.getText()).map((link2) => ({
+  return index.documentLinks(file, loadedText(document)).map((link2) => ({
     range: link2.range,
     target: toUri(link2.target),
     tooltip: `Open ${link2.target}`
@@ -21510,14 +21543,14 @@ connection.onWorkspaceSymbol(
 connection.onPrepareRename((params) => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return null;
-  const result = prepareRename(document.getText(), params.position, contextFor(document));
+  const result = prepareRename(loadedText(document), params.position, contextFor(document));
   if ("error" in result) throw new import_node4.ResponseError(import_node4.ErrorCodes.InvalidRequest, result.error);
   return result;
 });
 connection.onRenameRequest((params) => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return null;
-  const result = getRenameEdits(document.getText(), params.position, params.newName, contextFor(document));
+  const result = getRenameEdits(loadedText(document), params.position, params.newName, contextFor(document));
   if ("error" in result) throw new import_node4.ResponseError(import_node4.ErrorCodes.InvalidRequest, result.error);
   const changes = {};
   for (const edit of result) {

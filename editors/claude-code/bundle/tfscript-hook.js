@@ -43,6 +43,11 @@ var path4 = __toESM(require("node:path"));
 
 // packages/core/src/workspace/configFile.ts
 var path = __toESM(require("node:path"));
+
+// packages/core/src/tfBuild.ts
+var TF_BUILDS = ["upstream", "fork"];
+
+// packages/core/src/workspace/configFile.ts
 var CONFIG_FILE = "tfscript.json";
 var SETTING_SHAPES = {
   entryFiles: "paths",
@@ -54,6 +59,7 @@ var SETTING_SHAPES = {
   homeDirectory: "path",
   pathMappings: "pathMappings",
   variables: "variables",
+  tfBuild: "tfBuild",
   diagnostics: "diagnostics"
 };
 var DIAGNOSTIC_SHAPES = {
@@ -178,6 +184,11 @@ function parseConfig(text, file, label = file) {
           else settings.variables = value;
         }
         break;
+      case "tfBuild":
+        if (typeof value !== "string" || !TF_BUILDS.includes(value)) {
+          wrong(key, value, TF_BUILDS.map((b) => `"${b}"`).join(" or "), `"${key}": "fork"`);
+        } else settings.tfBuild = value;
+        break;
       case "diagnostics": {
         if (!isObject(value)) {
           wrong(key, value, "an object", `"diagnostics": { "undefinedMacros": false }`);
@@ -232,6 +243,7 @@ var OPTION_FOR_SETTING = {
   homeDirectory: "--home-directory",
   pathMappings: "--path-mapping",
   variables: "--variable",
+  tfBuild: "--tf-build",
   "diagnostics.unresolvedLoads": "--no-unresolved-loads",
   "diagnostics.undefinedMacros": "--no-undefined-macros",
   "diagnostics.ignoreMacros": "--ignore-macro"

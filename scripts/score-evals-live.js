@@ -64,6 +64,19 @@ const CASES = {
   },
   "literal-percent": { file: "sale.tf", commands: ["/sale"], expect: ["Everything is 50%-off today"] },
   "multi-line-def": { file: "prep.tf", commands: ["/prep"], expect: ["SENT:[wield sword]", "SENT:[wear shield]", "SENT:[stand]"] },
+  "top-level-echo-var": { file: "start.tf", commands: [], expect: ["greeting is hello"] },
+  "macro-makes-trigger": {
+    file: "mktrig.tf",
+    commands: ["/mktrig dragon", "/trigger A dragon appears.", "/trigger Nothing here.", "/echo -- after"],
+    expect: ["saw: A dragon appears.", "after"],
+    once: ["saw: A dragon appears."],
+  },
+  "literal-separator": { file: "legend.tf", commands: ["/legend"], expect: ["Use %; to separate commands"] },
+  "nested-default": {
+    file: "greet.tf",
+    commands: ["/set defname=", "/greet bob", "/greet", "/set defname=sam", "/greet"],
+    expect: ["Hello, bob", "Hello, stranger", "Hello, sam"],
+  },
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

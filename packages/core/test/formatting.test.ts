@@ -186,6 +186,15 @@ describe("formatText: an entry with a comment or blank line among its lines", ()
     expect(format(lines("/def go = \\", ";   explained here", "    /a%;\\", "    /b"))).toBe(lines("/def go = \\", "  ;   explained here", "  /a%;\\", "  /b"));
   });
 
+  it("re-indents the comment lines of a body whose code is laid out already", () => {
+    expect(format(lines("/def qzf=\\", "  /echo -- F1%;\\", "# c \\", "  /echo -- F2"))).toBe(lines("/def qzf=\\", "  /echo -- F1%;\\", "  # c \\", "  /echo -- F2"));
+  });
+
+  it("leaves a plain top-level command's comment lines where they are", () => {
+    const text = lines("/set greeting=hello \\", "; why", "      there");
+    expect(format(text)).toBe(text);
+  });
+
   it("keeps a comment before /endif inside its /else branch (map-helper.tf)", () => {
     const text = lines("/def go = \\", "    /if (x) \\", ";        /echo Unknown%;\\", "        /test ++n%;\\", "    /else \\", ";        /echo Known.%;\\", "    /endif");
     expect(format(text)).toBe(

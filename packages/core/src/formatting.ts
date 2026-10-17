@@ -383,8 +383,10 @@ function reindentWithComments(entry: LogicalEntry, original: string[], indent: s
   if (!alone || alone.text !== entry.text || alone.incomplete) return "unverified";
   const laid = layoutEntry(alone, input, indent, false);
   if (typeof laid === "string") return laid;
-  // A plain top-level command keeps its author's indentation, comment lines included.
-  if (laid.join("\n") === input.join("\n")) return original;
+  // A plain top-level command keeps its author's indentation, comment lines included. (Code lines
+  // already laid out in a macro body or a block still have their comment lines re-indented.)
+  const macro = entry.isDefBody || entry.isOtherMacroBody;
+  if (!macro && parseLayout(entry.text, "top").blocks.length === 0) return original;
   if (laid.length !== input.length) return "unverified";
   if (endsOnBlank) laid[laid.length - 1] += "\\";
   const out: string[] = [];

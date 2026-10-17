@@ -8842,7 +8842,8 @@ function reindentWithComments(entry, original, indent) {
   if (!alone || alone.text !== entry.text || alone.incomplete) return "unverified";
   const laid = layoutEntry(alone, input, indent, false);
   if (typeof laid === "string") return laid;
-  if (laid.join("\n") === input.join("\n")) return original;
+  const macro = entry.isDefBody || entry.isOtherMacroBody;
+  if (!macro && parseLayout(entry.text, "top").blocks.length === 0) return original;
   if (laid.length !== input.length) return "unverified";
   if (endsOnBlank) laid[laid.length - 1] += "\\";
   const out = [];

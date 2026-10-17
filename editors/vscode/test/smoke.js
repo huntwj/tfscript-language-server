@@ -7,13 +7,27 @@
  * bundled server crashed with MODULE_NOT_FOUND the moment anything tried to run it outside
  * this repo (i.e. once actually packaged and installed, not run via F5 from a checkout).
  * `npm run build` alone never caught that, since tsc has nothing to say about a missing
- * node_modules folder at runtime — only actually running the bundled copy does.
+ * node_modules folder at runtime — only actually running the bundled copy does. It runs from a
+ * copy in a temporary folder outside this repo, as an installed extension's does: inside the
+ * checkout, Node would find a missing module in the repo's own node_modules and hide the gap.
  */
 const { spawn } = require("node:child_process");
+const { copyFileSync, mkdtempSync, rmSync } = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
-const serverPath = path.join(__dirname, "..", "server", "server.js");
+const alone = mkdtempSync(path.join(os.tmpdir(), "tfscript-vscode-smoke-"));
+const serverPath = path.join(alone, "server.js");
+copyFileSync(path.join(__dirname, "..", "server", "server.js"), serverPath);
 const proc = spawn("node", [serverPath], { stdio: ["pipe", "pipe", "pipe"] });
+process.on("exit", () => {
+  proc.kill();
+  try {
+    rmSync(alone, { recursive: true, force: true });
+  } catch {
+    // Windows may still hold the file for a moment; it is in the temporary folder.
+  }
+});
 
 let stderr = "";
 proc.stderr.on("data", (d) => (stderr += d.toString()));

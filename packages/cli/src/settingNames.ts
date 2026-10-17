@@ -13,6 +13,7 @@ export const OPTION_FOR_SETTING: Readonly<Record<string, string>> = {
   homeDirectory: "--home-directory",
   pathMappings: "--path-mapping",
   variables: "--variable",
+  tfBuild: "--tf-build",
   "diagnostics.unresolvedLoads": "--no-unresolved-loads",
   "diagnostics.undefinedMacros": "--no-undefined-macros",
   "diagnostics.ignoreMacros": "--ignore-macro",

@@ -36,6 +36,7 @@ Where tf runs (each is named after the tfscript.* setting in brackets):
   --path-mapping <tf>=<local>   where tf's absolute path <tf> is here; repeat for more
                                 (pathMappings)
   --variable <name>=<value>     a variable set as tf starts; repeat for more (variables)
+  --tf-build upstream|fork      which tf runs the scripts (tfBuild; default: upstream)
 
 Which diagnostics:
   --no-unresolved-loads         leave out unresolved-load (diagnostics.unresolvedLoads)

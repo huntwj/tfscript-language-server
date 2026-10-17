@@ -1,3 +1,4 @@
+import { TF_BUILDS } from "@tfscript/core/tfBuild";
 import type { RawSettings } from "@tfscript/core/workspace/settings";
 
 /** What the command line asked for. */
@@ -50,6 +51,7 @@ export const OPTIONS: Readonly<Record<string, Kind>> = {
   "home-directory": "value",
   "path-mapping": "list",
   variable: "list",
+  "tf-build": "value",
   "no-unresolved-loads": "flag",
   "no-undefined-macros": "flag",
   "ignore-macro": "list",
@@ -150,6 +152,11 @@ function settingsOf(p: Parsed): RawSettings {
       variables[name] = value;
     }
     settings.variables = variables;
+  }
+  const build = one("tf-build");
+  if (build !== undefined) {
+    if (!(TF_BUILDS as readonly string[]).includes(build)) throw new UsageError(`--tf-build ${build} isn't a tf build: give ${TF_BUILDS.join(" or ")}.`);
+    settings.tfBuild = build;
   }
   const diagnostics: NonNullable<RawSettings["diagnostics"]> = {};
   if (p.flags.has("no-unresolved-loads")) diagnostics.unresolvedLoads = false;

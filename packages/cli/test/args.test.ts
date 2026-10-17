@@ -112,6 +112,8 @@ describe("parseArgs", () => {
     expect(usageError(["check", "--variable", "1x=a", "a.tf"])).toBe(
       "--variable 1x=a names 1x, which isn't a tf variable name: use letters, digits and _, not starting with a digit.",
     );
+    expect(usageError(["check", "--tf-build", "dev", "a.tf"])).toBe("--tf-build dev isn't a tf build: give upstream or fork.");
+    expect(parseArgs(["check", "--tf-build", "fork", "a.tf"])).toMatchObject({ settings: { tfBuild: "fork" } });
     expect(usageError(["check", "--path-mapping", "wotmud=C:/w", "a.tf"])).toBe(
       "--path-mapping wotmud=C:/w maps wotmud, which isn't absolute: start tf's side with /, as in /wotmud=C:/wotmud.",
     );

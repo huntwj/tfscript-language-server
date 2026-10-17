@@ -1,6 +1,7 @@
 import { readdirSync, realpathSync, statSync } from "node:fs";
 import * as path from "node:path";
 import type { TfDiagnostic } from "@tfscript/core/diagnostics";
+import { asLoaded } from "@tfscript/core/tfBuild";
 import { CONFIG_FILE, overlaySettings, readConfig } from "@tfscript/core/workspace/configFile";
 import { documentDiagnostics } from "@tfscript/core/workspace/documentDiagnostics";
 import { fileKey } from "@tfscript/core/workspace/loadGraph";
@@ -175,7 +176,7 @@ export function check(request: CheckRequest, host: CheckHost = nodeHost()): Chec
       problems.push(`${path.relative(request.cwd, file) || file} can't be read: check that it is a file you may read.`);
       continue;
     }
-    checked.push({ file, text, diagnostics: documentDiagnostics(text, real, index) });
+    checked.push({ file, text, diagnostics: documentDiagnostics(asLoaded(text, index.tfBuildFor(real)), real, index) });
   }
   return { files: checked, problems };
 }

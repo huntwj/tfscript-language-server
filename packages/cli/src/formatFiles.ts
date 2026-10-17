@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { applyFormatEdits, formatDocument } from "@tfscript/core/formatting";
 import { expandPaths, type CheckHost } from "./check";
@@ -17,6 +18,8 @@ export interface FormatOutcome {
   changed: string[];
   /** Files left as they are because of their CRLF line endings. */
   crlf: string[];
+  /** Files left as they are because they aren't UTF-8. */
+  notUtf8: string[];
   /** Paths that couldn't be formatted: each a sentence saying why and what to do. */
   problems: string[];
 }
@@ -24,21 +27,38 @@ export interface FormatOutcome {
 /** Writes a file; throws when it can't. */
 export type WriteFile = (file: string, text: string) => void;
 
+/** Reads a file's bytes; throws when it can't. */
+export type ReadBytes = (file: string) => Uint8Array;
+
+// ignoreBOM keeps a byte order mark in the text, so writing it back keeps it in the file.
+const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
 /**
  * Formats each file `paths` name, the way the language server formats a document (core's
- * formatDocument(), in its one style), finding a folder's tf scripts as `tfscript check` does.
+ * formatDocument(), in its one style), finding a folder's tf scripts as `tfscript check` does. A
+ * file that isn't valid UTF-8 is left alone: decoding it would turn its other bytes into U+FFFD,
+ * and writing that back would lose them.
  */
-export function formatFiles(request: FormatRequest, host: CheckHost, write: WriteFile): FormatOutcome {
+export function formatFiles(request: FormatRequest, host: CheckHost, write: WriteFile, read: ReadBytes = (f) => readFileSync(f)): FormatOutcome {
   const problems: string[] = [];
-  const outcome: FormatOutcome = { files: [], changed: [], crlf: [], problems };
+  const outcome: FormatOutcome = { files: [], changed: [], crlf: [], notUtf8: [], problems };
   for (const { file, real } of expandPaths(request.paths, request.cwd, host, problems)) {
     const shown = path.relative(request.cwd, file) || file;
-    const text = host.fs.readFile(real);
-    if (text === undefined) {
+    let bytes: Uint8Array;
+    try {
+      bytes = read(real);
+    } catch {
       problems.push(`${shown} can't be read: check that it is a file you may read.`);
       continue;
     }
     outcome.files.push(file);
+    let text: string;
+    try {
+      text = UTF8.decode(bytes);
+    } catch {
+      outcome.notUtf8.push(file);
+      continue;
+    }
     const result = formatDocument(text);
     if (result.crlf) outcome.crlf.push(file);
     if (result.edits.length === 0) continue;

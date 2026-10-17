@@ -25,7 +25,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // packages/cli/src/main.ts
-var import_node_fs3 = require("node:fs");
+var import_node_fs4 = require("node:fs");
 
 // packages/cli/src/args.ts
 var UsageError = class extends Error {
@@ -8666,6 +8666,7 @@ function formatSummary(s) {
 }
 
 // packages/cli/src/formatFiles.ts
+var import_node_fs3 = require("node:fs");
 var path9 = __toESM(require("node:path"));
 
 // packages/core/src/formatting.ts
@@ -8934,17 +8935,27 @@ function applyFormatEdits(text, edits) {
 }
 
 // packages/cli/src/formatFiles.ts
-function formatFiles(request, host, write) {
+var UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+function formatFiles(request, host, write, read = (f) => (0, import_node_fs3.readFileSync)(f)) {
   const problems = [];
-  const outcome = { files: [], changed: [], crlf: [], problems };
+  const outcome = { files: [], changed: [], crlf: [], notUtf8: [], problems };
   for (const { file, real } of expandPaths(request.paths, request.cwd, host, problems)) {
     const shown = path9.relative(request.cwd, file) || file;
-    const text = host.fs.readFile(real);
-    if (text === void 0) {
+    let bytes;
+    try {
+      bytes = read(real);
+    } catch {
       problems.push(`${shown} can't be read: check that it is a file you may read.`);
       continue;
     }
     outcome.files.push(file);
+    let text;
+    try {
+      text = UTF8.decode(bytes);
+    } catch {
+      outcome.notUtf8.push(file);
+      continue;
+    }
     const result = formatDocument(text);
     if (result.crlf) outcome.crlf.push(file);
     if (result.edits.length === 0) continue;
@@ -9040,7 +9051,7 @@ written.
 var EXIT_OK = 0;
 var EXIT_PROBLEMS = 1;
 var EXIT_USAGE = 2;
-function main(argv, io, host = nodeHost(), write = (f, t) => (0, import_node_fs3.writeFileSync)(f, t)) {
+function main(argv, io, host = nodeHost(), write = (f, t) => (0, import_node_fs4.writeFileSync)(f, t)) {
   let command2;
   try {
     command2 = parseArgs(argv);
@@ -9094,6 +9105,10 @@ function format(paths, checkOnly, io, host, write) {
 `);
   for (const name of names(outcome.crlf)) {
     io.err(`tfscript: ${name} has CRLF line endings, where tf doesn't join a line ending in \\ to the next, so it was left as it is: convert it to LF to format it.
+`);
+  }
+  for (const name of names(outcome.notUtf8)) {
+    io.err(`tfscript: ${name} isn't UTF-8, so it was left as it is, as formatting it would lose the bytes that aren't: convert it to UTF-8 to format it.
 `);
   }
   for (const problem of outcome.problems) io.err(`tfscript: ${problem}

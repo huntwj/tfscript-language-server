@@ -78,6 +78,22 @@ describe("tfscript format", () => {
     expect(read("crlf.tf")).toBe("/def go = /echo a%; /echo b\r\n");
   });
 
+  it("leaves a file that isn't UTF-8 alone, byte for byte, saying why", () => {
+    // Latin-1 "café": decoded leniently, the é would be written back as U+FFFD (ef bf bd).
+    const latin1 = Buffer.from("/def go = /echo caf\xe9%; /echo b\n", "latin1");
+    writeFileSync(path.join(dir, "latin1.tf"), latin1);
+    const { code, out, err } = run(["format", "latin1.tf"]);
+    expect({ code, out }).toEqual({ code: EXIT_OK, out: "" });
+    expect(err).toBe("tfscript: latin1.tf isn't UTF-8, so it was left as it is, as formatting it would lose the bytes that aren't: convert it to UTF-8 to format it.\n");
+    expect(readFileSync(path.join(dir, "latin1.tf")).equals(latin1)).toBe(true);
+  });
+
+  it("keeps a UTF-8 file's byte order mark and its other characters", () => {
+    writeFileSync(path.join(dir, "bom.tf"), "﻿;; café\n/def go = /echo café%; /echo b\n");
+    expect(run(["format", "bom.tf"]).code).toBe(EXIT_OK);
+    expect(read("bom.tf")).toBe("﻿;; café\n/def go = \\\n  /echo café%;\\\n  /echo b\n");
+  });
+
   it("exits 2 on a path it can't read or write", () => {
     expect(run(["format", "missing.tf"])).toEqual({ code: EXIT_USAGE, out: "", err: "tfscript: missing.tf doesn't exist: check the path.\n" });
     let err = "";

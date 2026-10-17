@@ -77,6 +77,9 @@ function format(paths: string[], checkOnly: boolean, io: Io, host: CheckHost, wr
   for (const name of names(outcome.crlf)) {
     io.err(`tfscript: ${name} has CRLF line endings, where tf doesn't join a line ending in \\ to the next, so it was left as it is: convert it to LF to format it.\n`);
   }
+  for (const name of names(outcome.notUtf8)) {
+    io.err(`tfscript: ${name} isn't UTF-8, so it was left as it is, as formatting it would lose the bytes that aren't: convert it to UTF-8 to format it.\n`);
+  }
   for (const problem of outcome.problems) io.err(`tfscript: ${problem}\n`);
   const of = `${outcome.changed.length} of ${plural(outcome.files.length, "file", "files")}`;
   if (checkOnly && outcome.changed.length > 0) io.err(`${of} would be reformatted: run tfscript format on ${outcome.changed.length === 1 ? "it" : "them"}.\n`);

@@ -754,8 +754,9 @@ diagnostic, and formatting it twice changes nothing more.
 formatted version into real tf, with the formatted library as `TFLIBDIR` so tf starts from it,
 and compares every macro `/list` shows and what each changed macro prints and sends to a world.
 Over tf's library, the WoTMUD scripts and the tf-* repos (71 files, 2194 entries, 338 of them
-changed) every macro was the same or the same but for blanks beside `%;`, and the 118 of those
-that it ran printed and sent the same; the WoTMUD scripts were already in this style.
+changed) every macro was the same or the same but for blanks beside `%;`, the 118 definitions
+that differed printed and sent the same when run, and the loads printed the same messages but
+for the line numbers they name; the WoTMUD scripts were already in this style.
 
 ### Splitting and joining a body
 

@@ -8729,8 +8729,9 @@ function hasInnerTab(lines) {
 var harmless = (issue) => issue.kind === "operand";
 var parsedCleanly = (layout) => !layout.stopped && layout.issues.every(harmless);
 var MID_KEYWORD_RE = /\s\/@?(?:if|elseif|else|endif|while|do|done|then)(?![\w@])/i;
+var NESTED_COMMANDS = /^(?:def|edit|bind|hook|trig|trigc|trigp|trigpc|alias|gag|hilite|eval|repeat|quote|at|for)$/;
 function keywordMidStatement2(text, layout) {
-  return layout.units.some((u) => !u.block && MID_KEYWORD_RE.test(text.slice(u.start, u.end)));
+  return layout.units.some((u) => !u.block && !NESTED_COMMANDS.test(u.word) && MID_KEYWORD_RE.test(text.slice(u.start, u.end)));
 }
 function statementStarts(text, layout, base) {
   const out = /* @__PURE__ */ new Set();
@@ -8839,6 +8840,7 @@ function layoutEntry(entry, original, indent, split) {
   const inner2 = body >= 0 ? parseLayout(j.slice(body), "body") : void 0;
   if (inner2 && !parsedCleanly(inner2)) return "structure";
   if (inner2 ? keywordMidStatement2(j.slice(body), inner2) : keywordMidStatement2(j, top)) return "keyword-mid-statement";
+  if (!inner2 && top.blocks.length === 0) return original;
   const authorBreaks = [];
   let offset = 0;
   for (const part of entry.parts.slice(0, -1)) {

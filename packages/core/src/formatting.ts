@@ -10,8 +10,8 @@ import { macroBodyStart, parseLayout, type Layout, type StructureIssue } from ".
  * after its head, which ends `= \`; each statement goes on a line of its own ending `%;\`, the last
  * with no `%;`; `/if`, `/elseif`, `/while` and `/else` start a block whose children sit one level
  * deeper, and `/endif` and `/done` line up with the keyword that opened them. A line that continues
- * a statement (a break the author made) hangs one level deeper still. Top-level commands that
- * aren't macro definitions only have their continuation lines re-indented.
+ * a statement (a break the author made) hangs one level deeper still. A top-level `/if` or
+ * `/while` block is re-indented the same way; other top-level commands are left as written.
  *
  * What makes that safe, each proven against real tf or its source (tinyfugue/src):
  *  - tf strips the leading whitespace of every line it reads, continuation lines included, and a
@@ -199,13 +199,17 @@ const parsedCleanly = (layout: Layout): boolean => !layout.stopped && layout.iss
 
 const MID_KEYWORD_RE = /\s\/@?(?:if|elseif|else|endif|while|do|done|then)(?![\w@])/i;
 
+/** Commands whose text is itself commands, run later or at another level, where a keyword is at home. */
+const NESTED_COMMANDS = /^(?:def|edit|bind|hook|trig|trigc|trigp|trigpc|alias|gag|hilite|eval|repeat|quote|at|for)$/;
+
 /**
- * Whether a statement has a block keyword in the middle of its text (`/echo a /else /echo b`,
- * `/def inner = /if ...`), which tf reads as text: right, perhaps, but too easy to misread once
- * laid out, so such entries are left as written.
+ * Whether a statement has a block keyword in the middle of its text (`/echo a /else /echo b`),
+ * which tf reads as text: right, perhaps, but too easy to misread once laid out, so such entries
+ * are left as written. Not in a command whose text holds commands (`/eval /if ...`, `/def x = /if
+ * ...`), where the keyword starts a statement of the inner level.
  */
 function keywordMidStatement(text: string, layout: Layout): boolean {
-  return layout.units.some((u) => !u.block && MID_KEYWORD_RE.test(text.slice(u.start, u.end)));
+  return layout.units.some((u) => !u.block && !NESTED_COMMANDS.test(u.word) && MID_KEYWORD_RE.test(text.slice(u.start, u.end)));
 }
 
 /** Where the statements of `layout` (offsets shifted by `base`) start, after any blanks. */
@@ -360,6 +364,9 @@ export function layoutEntry(entry: LogicalEntry, original: string[], indent: str
   const inner = body >= 0 ? parseLayout(j.slice(body), "body") : undefined;
   if (inner && !parsedCleanly(inner)) return "structure";
   if (inner ? keywordMidStatement(j.slice(body), inner) : keywordMidStatement(j, top)) return "keyword-mid-statement";
+  // A plain top-level command (`/set x=\`, `/for i 0 2 \`) keeps the author's indentation: nested
+  // /for lines read better as written than at one level. Only a top-level block is re-indented.
+  if (!inner && top.blocks.length === 0) return original;
 
   const authorBreaks: number[] = [];
   let offset = 0;

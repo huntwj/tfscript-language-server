@@ -158,8 +158,11 @@ describe("formatText: top-level commands", () => {
     expect(format(text)).toBe(lines("/if (1) \\", "  /echo a%;\\", "  /echo b%;\\", "/endif", "/let v=cd %; /echo x"));
   });
 
-  it("re-indents a plain command's continuation lines, changing nothing else", () => {
-    expect(format(lines("/set greeting=hello \\", "      there"))).toBe(lines("/set greeting=hello \\", "  there"));
+  it("leaves a plain command's continuation lines as the author indented them", () => {
+    expect(format(lines("/set greeting=hello \\", "      there"))).toBe(lines("/set greeting=hello \\", "      there"));
+    // Nested /for lines (tf's color.tf) read better as written than flattened to one level.
+    const text = lines("/for i 0 2 \\", "\t/set a%%%{i}=\\", "\t\tx%%%; \\", "/set b%%%{i}=y");
+    expect(format(text)).toBe(text);
   });
 });
 
@@ -210,11 +213,12 @@ describe("formatText: what it leaves exactly as written", () => {
     expect(formatDocument("/def go = /a%; /b\r\n").crlf).toBe(true);
   });
 
-  it("comment lines, and a top-level command's text", () => {
+  it("comment lines", () => {
     expect(format(";; /def go = /a%; /b\n")).toBe(";; /def go = /a%; /b\n");
-    // Only the continuation lines move (tabs as indentation are stripped all the same).
-    const text = lines("/for i 0 2 \\", "\t/set a%%%{i}=\\", "\t\tx%%%; \\", "/set b%%%{i}=y");
-    expect(format(text)).toBe(lines("/for i 0 2 \\", "  /set a%%%{i}=\\", "  x%%%; \\", "  /set b%%%{i}=y"));
+  });
+
+  it("but a keyword is at home in a command whose text is commands", () => {
+    expect(format("/def go = /eval /if (1) /echo a%%; /endif%; /echo b\n")).toBe(lines("/def go = \\", "  /eval /if (1) /echo a%%; /endif%;\\", "  /echo b"));
   });
 });
 

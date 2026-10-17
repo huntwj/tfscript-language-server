@@ -440,7 +440,8 @@ packages/server/          tfscript-language-server: the LSP server, built on cor
     publishedDiagnostics.test.ts  the built server's diagnostics over stdio, on the shared
                           fixture workspace
 packages/cli/             @tfscript/cli: `tfscript check`, the server's diagnostics from the
-                          command line, built on core (see "Command line" below)
+                          command line, and `tfscript format`, its formatting, built on core
+                          (see "Command line" below)
   src/
     cli.ts               the bin; main.ts runs a command line and gives its exit status
     args.ts              the options, as tfscript.* settings
@@ -448,6 +449,7 @@ packages/cli/             @tfscript/cli: `tfscript check`, the server's diagnost
     format.ts            the human and JSON output
     hook/                the Claude Code plugin's PostToolUse hook: which files it checks, the
                           Terraform gate (terraform.ts), the root (root.ts), the report (report.ts)
+    formatFiles.ts       tfscript format: core's formatting, written back to each file
   test/
     bin.test.ts          the built bin, end to end
     serverParity.test.ts  the built CLI and server report the same diagnostics and fixes
@@ -464,6 +466,8 @@ schemas/                  tfscript.schema.json, the JSON schema of tfscript.json
 scripts/
   bundle-claude-code.js  builds the plugin's bundles (npm run bundle:claude-code; --check in CI)
   check-corpus-live.js  slow, Docker-backed: cross-checks this engine against real tf
+  check-format-live.js  slow, Docker-backed: loads each corpus file and its formatted
+                          version into real tf and compares the macros and what they do
                         (tf-script-check) for each configured corpus. Not part of `npm test`.
   extract-command-tables.js  regenerates packages/core/src/data/*.generated.ts from tinyfugue/; run by
                         hand after a tinyfugue update.
@@ -546,6 +550,14 @@ node packages/cli/dist/cli.js check --format json scripts/   # one JSON report, 
 The settings can also be kept in a `tfscript.json` (the `tfscript.*` settings without the prefix,
 paths relative to its folder), which `tfscript check` reads from the root or from `--config`; the
 options go over it. Its JSON schema is `schemas/tfscript.schema.json`.
+
+`tfscript format <files or folders>` formats them in place, as the server's Format Document
+would, and names each file it changed; `tfscript format --check` changes nothing, names the
+files that would change and exits 1 if there are any (2 when a path can't be read or written).
+
+```sh
+node packages/cli/dist/cli.js format --check scripts/   # in CI: fail when a file isn't formatted
+```
 
 The options, the settings file, the exit status and the JSON shape are in `packages/cli/README.md`.
 The package is private for now; it isn't published to npm.
@@ -684,29 +696,66 @@ default-library functions; `${name}` as a macro; tf's positional selectors (`%1`
 
 ### Formatting
 
-Formatting only changes whitespace that tf provably ignores, and checks itself:
+Formatting (Format Document, Format Selection, and `tfscript format` on the command line) lays a
+file out in one style, with no settings: a macro body (`/def`, `/bind`, `/hook`, `/trig*`,
+`/alias`) on the lines after its head, which ends `= \`; one statement per line ending `%;\`,
+the last with no `%;`; and each `/if`, `/elseif`, `/else` and `/while` block's contents two
+spaces further in, with `/endif` and `/done` lined up with the keyword that opened them.
 
-- tf strips every line's leading whitespace before joining a `\` continuation, so
-  continuation lines can be re-indented, and a `\` line break can be inserted after
-  whitespace or a `%;` without changing the joined command.
-- Inside a macro body, whitespace on either side of a `%;` separator is dropped when the body
-  runs (`/let v=ab %;` sets `ab`, not `ab `). At the top level `%;` is not a separator at all,
-  so top-level lines are never split.
-- tf turns each tab into spaces as it reads the file, out to the next tab stop of the physical
-  line, so a tab after a line's indentation would change width if the line moved. Entries
-  containing one are left exactly as written.
+```
+/def do_kill = \
+  /set target=%{1-%{target}}%;\
+  /if (target =~ "") \
+    /echo No target set (yet)%;\
+    /return%;\
+  /endif%;\
+  kill %{target}
+```
 
-In a `/def`, `/bind`, `/hook` or `/trig*` body with more than one statement, each statement
-goes on its own line ending `%;\`, and `/if (...)`, `/elseif (...)`, `/while (...)`, `/else`,
-`/then` and `/do` start a block whose children are indented one more level; the condition of
-`/if list /then` and `/while list /do` stays on one line. Your own line breaks are kept, a line
-that continues a statement hangs one level deeper, and `/else`, `/endif` and `/done` line up
-with their `/if` or `/while`. A top-level `/if (x) \` block's children are indented one level;
-other top-level entries, an entry's first line, comment lines and CRLF files are left alone.
-Every rebuilt entry is joined again the way tf does and compared with the original; if anything
-but the whitespace beside a `%;` differs, the entry is only re-indented. Formatting tf's own
-library and the WoTMUD scripts this way and loading both versions into real tf gave the same
-1448 macro definitions.
+A body with one statement stays on its line. The condition of `/if list /then` and `/while list
+/do` stays on one line, and so does anything inside a `$(...)`. Your own line breaks inside a
+statement are kept, the line after one hanging a level deeper. A top-level command that isn't a
+macro definition only has its continuation lines re-indented; an entry's first line never moves
+(an indented one is what tf's "possibly missing trailing \" warning is about).
+
+It only changes whitespace tf ignores, each fact proven against real tf or its source:
+
+- tf strips every line's leading whitespace, continuation lines included, and a trailing `\`
+  joins the next line, removing only the `\` (`load_file()`). So indentation is free, and a
+  break after a blank (`/if (x) \`) or after a `%;` joins back to the same text.
+- In a macro body, the blanks after a `%;` that separates statements are skipped before the next
+  statement is read, and those before it are cut from the statement (`expand.c`). Bodies written
+  `x   %;   y` and `x%;y` ran the same for `/echo`, text sent to the world, `/set`, `/let`,
+  `/setenv`, `/test`, `/return`, `/result`, `/if`, `/elseif`, `/else`, `/while`, `/break`, nested
+  `/if` bodies, a nested `/def` and a `%%;` one level down. The blanks before a `%;` stay after a
+  `%`, `\`, `$` or `/`, which they keep from gluing on: `/echo 50% %;` would become `50%%;`, text.
+- Not every `%;` separates: one inside a string or the brackets of an expression
+  (`/if ("a%; b" =~ x)`, `$[strlen("a%;  b")]`) is text, whose blanks count. A `%;` is only
+  touched where tf's model of the body (`structure.ts`) and a scan wary of quotes and brackets
+  both say it separates; a body where they disagree (an apostrophe in text, say) is only
+  re-indented.
+- tf turns a tab into spaces out to the next tab stop of its physical line, so a tab after a
+  line's indentation changes width if its line moves.
+
+So what tf stores is the same definition, but for blanks beside a separating `%;`. Anything that
+reads a body back as text (`/list`, `$(/list)`, `/edit`, `%mecho`) sees that difference; nothing
+else does.
+
+Left exactly as written: a file with CRLF line endings (tf doesn't join a line ending in `\`
+before a `\r`); a command the file ends in the middle of; one with a comment or blank line among
+its lines, a `%\`, a `\` followed by blanks, or a tab after a line's indentation; one tf would
+reject, or with a problem the checks find (an unbalanced `/if`, an empty statement, an error
+diagnostic); and one with a block keyword in the middle of a statement, which tf reads as text
+(`/echo a /else /echo b`). Every layout is joined again the way tf joins it and parsed again,
+and must give the same statements, or the entry is left alone. Formatting a file adds no
+diagnostic, and formatting it twice changes nothing more.
+
+`npm run test:format-live` (`scripts/check-format-live.js`) loads each corpus file and its
+formatted version into real tf, with the formatted library as `TFLIBDIR` so tf starts from it,
+and compares every macro `/list` shows and what each changed macro prints and sends to a world.
+Over tf's library, the WoTMUD scripts and the tf-* repos (71 files, 2194 entries, 338 of them
+changed) every macro was the same or the same but for blanks beside `%;`, and the 118 of those
+that it ran printed and sent the same; the WoTMUD scripts were already in this style.
 
 ### Splitting and joining a body
 

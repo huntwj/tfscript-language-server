@@ -11,9 +11,13 @@ an editor setting (`set tfscript.workingDirectory`) it names the option instead
 It is for hooks (an editor or agent checking each file it edits), CI and checking by hand. It
 never changes a file; there is no `--fix`.
 
+`tfscript format` lays scripts out the way the server's formatting does (see
+[`tfscript format`](#tfscript-format) below).
+
 ```sh
 npm install && npm run build                    # from the repo root
 node packages/cli/dist/cli.js check tfrc scripts/
+node packages/cli/dist/cli.js format --check scripts/
 ```
 
 ## Usage
@@ -113,6 +117,33 @@ Output and exit status:
   never reads as "errors found".
 
 Problems with the command line or a path go to stderr as `tfscript: <what is wrong>: <how to fix it>`.
+
+## tfscript format
+
+```
+tfscript format [--check] <file or folder>...
+```
+
+Formats each file in place, in the one style the server's Format Document uses: a macro body on
+the lines after its head, which ends `= \`, one statement per line ending `%;\` (the last with no
+`%;`), and each `/if`, `/elseif`, `/else` and `/while` block's contents two spaces further in.
+Only whitespace tf ignores changes, so a file loads and runs the same; what is left as it is, and
+why, is in the main README's "Formatting" section. Folders are searched as `check` searches them.
+The style has no options.
+
+Each file that changes is named on stdout, then a count goes to stderr. A file with CRLF line
+endings is left as it is, with a note on stderr: tf doesn't join a line ending in `\` before a
+`\r`, so its layout can't be changed safely.
+
+| Option | Meaning |
+|---|---|
+| `--check` | change nothing: name the files that would change, and exit 1 if there are any |
+
+- **0**: every file is formatted (with `--check`: no file would change).
+- **1**: with `--check`, at least one file would change.
+- **2**: the command line is wrong (an option `check` takes, nothing to format), or a path can't
+  be formatted (it doesn't exist, can't be read or written, or is a folder with no tf scripts).
+  The other paths are still formatted.
 
 ## JSON output
 

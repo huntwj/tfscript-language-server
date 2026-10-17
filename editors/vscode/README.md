@@ -38,6 +38,15 @@ source). Node and npm are only needed to *build* this extension from source.
   `tfscript.codeLens.references`), Go to Symbol in Workspace (Ctrl+T), Format Document, and
   refactorings (Ctrl+Shift+R) that split or join a macro body and extract selected statements to
   a new macro, via the LSP server, same as any other client.
+- Format Document (Shift+Alt+F) and Format Selection lay a tf file out in one style: a macro
+  body on the lines after its `= \`, one statement per line ending `%;\`, and each `/if` and
+  `/while` block's contents two spaces further in. Only whitespace tf ignores changes, so the
+  file loads and runs the same. A command it can't prove the same once laid out (one with a
+  comment or blank line among its lines, a tab after a line's indentation, a `%\`, a keyword in
+  the middle of a statement, or an error diagnostic) is left exactly as written, and so is a
+  file with CRLF line endings, where tf doesn't join a line ending in `\`. The style has no
+  settings, and the editor's tab size doesn't change it. To format on save:
+  `"[tf]": { "editor.formatOnSave": true }` in your settings.
 - A status bar item on tf files showing the load context the file is seen in and the chain of
   `/load`s that reaches it; click it (or run **tfscript: Choose Load Context**) to switch
   between the contexts listed in `tfscript.contexts`.

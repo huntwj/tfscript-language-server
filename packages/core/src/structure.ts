@@ -510,6 +510,13 @@ class Parser {
   /** Every statement and block, in the order each one ended, with the list it is in. */
   readonly units: Unit[] = [];
   readonly lists: UnitList[] = [];
+  /** Every `%;`, `%|` or `%\` that ended a statement, with the list that statement is in (an index into `lists`). */
+  readonly separators: { at: number; char: string; list: number }[] = [];
+  /**
+   * Where each part of a block's body starts outside any `$(...)`: after `/if (...)`, `/elseif
+   * (...)`, `/while (...)`, `/then`, `/do` or `/else`, and the blanks after it.
+   */
+  readonly partStarts: number[] = [];
   private listId = -1;
   /** The keyword or condition the next statement follows, for an empty statement's message. */
   private emptyAfter: { label: string; warns: boolean } | undefined;
@@ -962,6 +969,7 @@ class Parser {
       if (this.isCmdsubEnd(this.i)) return;
       if (this.isStatEnd(this.i)) {
         const sep = { at: this.i, char: this.s[this.i + 1] as string };
+        this.separators.push({ ...sep, list: this.listId });
         this.i += 2;
         this.skipSpace();
         this.lastSep = sep;
@@ -987,6 +995,7 @@ class Parser {
   private bodyStarts(): void {
     const open = this.open[this.open.length - 1];
     if (open) open.body = this.i;
+    if (this.cmdsub === 0) this.partStarts.push(this.i);
   }
 
   /** The innermost open block's current body part ends at `at` (where its next keyword starts). */
@@ -1257,6 +1266,7 @@ class Parser {
   private breakSeparator(): void {
     if (!this.isStatEnd(this.i)) return;
     const sep = { at: this.i, char: this.s[this.i + 1] as string };
+    this.separators.push({ ...sep, list: this.listId });
     this.i += 2;
     this.skipSpace();
     this.lastSep = sep;
@@ -2121,6 +2131,24 @@ export function parseUnits(body: string): { units: Unit[]; lists: UnitList[]; co
   const parser = new Parser(body, "body");
   parser.run();
   return { units: parser.units, lists: parser.lists, complete: !parser.stopped && !parser.issues.some((i) => i.kind === "too-deep") };
+}
+
+/** What the formatter lays a command list out by (formatting.ts): its statements, separators and blocks. */
+export interface Layout {
+  units: Unit[];
+  lists: UnitList[];
+  separators: { at: number; char: string; list: number }[];
+  partStarts: number[];
+  blocks: BlockRegion[];
+  issues: StructureIssue[];
+  stopped: boolean;
+}
+
+export function parseLayout(text: string, mode: StructureMode): Layout {
+  const parser = new Parser(text, mode);
+  parser.run();
+  const { units, lists, separators, partStarts, blocks, issues, stopped } = parser;
+  return { units, lists, separators, partStarts, blocks, issues, stopped };
 }
 
 /**

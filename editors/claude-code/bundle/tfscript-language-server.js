@@ -9555,6 +9555,13 @@ var Parser = class _Parser {
   /** Every statement and block, in the order each one ended, with the list it is in. */
   units = [];
   lists = [];
+  /** Every `%;`, `%|` or `%\` that ended a statement, with the list that statement is in (an index into `lists`). */
+  separators = [];
+  /**
+   * Where each part of a block's body starts outside any `$(...)`: after `/if (...)`, `/elseif
+   * (...)`, `/while (...)`, `/then`, `/do` or `/else`, and the blanks after it.
+   */
+  partStarts = [];
   listId = -1;
   /** The keyword or condition the next statement follows, for an empty statement's message. */
   emptyAfter;
@@ -9923,6 +9930,7 @@ var Parser = class _Parser {
       if (this.isCmdsubEnd(this.i)) return;
       if (this.isStatEnd(this.i)) {
         const sep = { at: this.i, char: this.s[this.i + 1] };
+        this.separators.push({ ...sep, list: this.listId });
         this.i += 2;
         this.skipSpace();
         this.lastSep = sep;
@@ -9945,6 +9953,7 @@ var Parser = class _Parser {
   bodyStarts() {
     const open = this.open[this.open.length - 1];
     if (open) open.body = this.i;
+    if (this.cmdsub === 0) this.partStarts.push(this.i);
   }
   /** The innermost open block's current body part ends at `at` (where its next keyword starts). */
   endPart(at2) {
@@ -10153,6 +10162,7 @@ var Parser = class _Parser {
   breakSeparator() {
     if (!this.isStatEnd(this.i)) return;
     const sep = { at: this.i, char: this.s[this.i + 1] };
+    this.separators.push({ ...sep, list: this.listId });
     this.i += 2;
     this.skipSpace();
     this.lastSep = sep;

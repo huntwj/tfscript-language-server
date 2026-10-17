@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkStructure, macroBodyStart, parseRegions, parseStatements, type StructureMode } from "../src/structure";
+import { checkStructure, macroBodyStart, parseLayout, parseRegions, parseStatements, type StructureMode } from "../src/structure";
 
 /**
  * Every input here was run through real tf (tf-script-check, 2026-10-13): the macro bodies as
@@ -351,5 +351,16 @@ describe("parseRegions", () => {
 
   it("keeps what was read before an error", () => {
     expect(regions("/test x%; /if (1) /echo b", "body")).toEqual(["statement/full:x", "condition:1"]);
+  });
+});
+
+describe("parseLayout", () => {
+  it("gives each separator with the kind of list it ends a statement in, and where each block part starts", () => {
+    const text = "/a%; /if (x) /b $(/c%; /d)%; /else /e%; /endif%; /while /f%; /do /g%; /done";
+    const layout = parseLayout(text, "body");
+    const kinds = layout.separators.map((s) => `${text.slice(s.at - 2, s.at)}:${layout.lists[s.list]?.kind}`);
+    expect(kinds).toEqual(["/a:body", "/c:cmdsub", "d):body", "/e:body", "if:body", "/f:condition", "/g:body"]);
+    expect(layout.partStarts.map((p) => text.slice(p, p + 2))).toEqual(["/b", "/e", "/g"]);
+    expect(layout.blocks).toHaveLength(2);
   });
 });

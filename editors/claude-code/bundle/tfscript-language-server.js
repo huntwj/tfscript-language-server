@@ -15244,7 +15244,7 @@ function keywordBefore(s, p) {
 }
 
 // packages/core/src/formatting.ts
-var DEFAULT_FORMAT_OPTIONS = { indentWidth: 2, splitStatements: true };
+var DEFAULT_FORMAT_OPTIONS = { indentWidth: 2, splitStatements: true, maxWidth: 100 };
 function formatIndent(options = {}) {
   return " ".repeat(options.indentWidth ?? DEFAULT_FORMAT_OPTIONS.indentWidth);
 }
@@ -15331,12 +15331,11 @@ function depthAt(layout, base, o) {
 function statementTexts(text, layout) {
   return layout.units.filter((u) => !u.block).map((u) => `${u.word}:${text.slice(u.start, u.end).replace(/^[ \t]+|[ \t]+$/g, "")}`);
 }
-function splitPlan(entry, body, layout, authorBreaks, multiLine) {
+function splitPlan(entry, body, layout, moveBody) {
   const j = entry.text;
   const cuts = /* @__PURE__ */ new Set();
   const removed = /* @__PURE__ */ new Set();
   const spaced = /* @__PURE__ */ new Set();
-  const zones = [];
   const safe = new Set(topLevelSeparators(j));
   const own = layout.separators.filter((sep) => sep.char === ";" && layout.lists[sep.list]?.kind === "body");
   if (own.some((sep) => !safe.has(sep.at + body))) return void 0;
@@ -15348,18 +15347,16 @@ function splitPlan(entry, body, layout, authorBreaks, multiLine) {
     while (r > body && isTfSpace(j[r - 1])) r -= 1;
     if (r < at2 && r > body && !GLUES.has(j[r - 1])) for (let k = r; k < at2; k += 1) removed.add(k);
     for (let k = at2 + 2; k < q; k += 1) removed.add(k);
-    zones.push([r, q]);
     if (q < j.length) cuts.add(q);
   }
   for (const p0 of layout.partStarts) {
     const p = p0 + body;
     if (p >= j.length || !isTfSpace(j[p - 1]) || /^%[;|]/.test(j.slice(p))) continue;
     cuts.add(p);
-    zones.push([p, p]);
   }
   let first = body;
   while (isTfSpace(j[first])) first += 1;
-  if (first < j.length && (cuts.size > 0 || multiLine)) {
+  if (first < j.length && (cuts.size > 0 || moveBody)) {
     cuts.add(first);
     let name = body - 1;
     if (entry.isDefBody) {
@@ -15369,10 +15366,141 @@ function splitPlan(entry, body, layout, authorBreaks, multiLine) {
       spaced.add(body - 1);
       spaced.add(first);
     }
-    zones.push([name, first]);
   }
-  for (const b of authorBreaks) if (!zones.some(([r, q]) => r <= b && b <= q)) cuts.add(b);
   return { cuts, removed, spaced };
+}
+var TEXT_COMMAND_RE = /^\/@?(?:echo|_echo|send)(?![^ \t%])/i;
+var CONDITION_RE2 = /^\/@?(?:if|elseif|while)[ \t]*\(/i;
+function breakPoints(j, from, to, head, removed) {
+  const out = [];
+  const ok = (o2) => isTfSpace(j[o2 - 1]) && !removed.has(o2 - 1) && !isTfSpace(j[o2]) && j[o2] !== ";" && j[o2] !== "#" && !/^%[;|]/.test(j.slice(o2)) && j[o2 - 2] !== "\\";
+  let s = from;
+  while (isTfSpace(j[s])) s += 1;
+  const stmt = j.slice(s, to);
+  const words2 = () => {
+    const at2 = [];
+    let quote2 = "";
+    let started = false;
+    for (let o2 = s; o2 < to; o2 += 1) {
+      const ch = j[o2];
+      if (quote2) {
+        if (ch === "\\") o2 += 1;
+        else if (ch === quote2) quote2 = "";
+      } else if (ch === '"' || ch === "'" || ch === "`") quote2 = ch;
+      else if (started && ok(o2)) at2.push(o2);
+      else if (isTfSpace(ch)) started = true;
+    }
+    return at2;
+  };
+  if (head) return { first: words2(), then: [] };
+  if (CONDITION_RE2.test(stmt)) {
+    let o2 = j.indexOf("(", s);
+    let depth2 = 0;
+    let quote2 = "";
+    for (; o2 < to; o2 += 1) {
+      const ch = j[o2];
+      if (quote2) {
+        if (ch === "\\") o2 += 1;
+        else if (ch === quote2) quote2 = "";
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === "`") quote2 = ch;
+      else if (ch === "(" || ch === "[" || ch === "{") depth2 += 1;
+      else if (ch === ")" || ch === "]" || ch === "}") {
+        depth2 -= 1;
+        if (depth2 === 0) break;
+      } else if (depth2 === 1 && (ch === "&" || ch === "|") && ok(o2)) out.push(o2);
+    }
+    return { first: out, then: [] };
+  }
+  const word = /^\/@?([A-Za-z_]\w*)/.exec(stmt)?.[1]?.toLowerCase();
+  if (word && NESTED_COMMANDS.test(word)) {
+    const inner2 = macroBodyStart(stmt);
+    if (inner2 > 0) {
+      let o2 = s + inner2;
+      while (isTfSpace(j[o2])) o2 += 1;
+      if (o2 < to && ok(o2)) out.push(o2);
+    }
+    for (let o2 = s; o2 < to; o2 += 1) {
+      if (!ok(o2)) continue;
+      let p = o2 - 1;
+      while (p > s && isTfSpace(j[p])) p -= 1;
+      let n = 0;
+      while (j[p - 1 - n] === "%") n += 1;
+      if (j[p] === ";" && n >= 2) out.push(o2);
+    }
+    return { first: out, then: words2() };
+  }
+  if (!TEXT_COMMAND_RE.test(stmt) && stmt.startsWith("/")) return { first: [], then: [] };
+  let o = s;
+  if (stmt.startsWith("/")) {
+    while (o < to && !isTfSpace(j[o])) o += 1;
+    for (; ; ) {
+      let w = o;
+      while (isTfSpace(j[w])) w += 1;
+      if (j[w] !== "-") break;
+      o = w;
+      while (o < to && !isTfSpace(j[o])) o += 1;
+    }
+  }
+  let depth = 0;
+  let quote = "";
+  for (; o < to; o += 1) {
+    const ch = j[o];
+    if (quote) {
+      if (ch === "\\") o += 1;
+      else if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === "\\") {
+      o += 1;
+      continue;
+    }
+    if (depth > 0) {
+      if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+      else if ("([{".includes(ch)) depth += 1;
+      else if (")]}".includes(ch)) depth -= 1;
+      continue;
+    }
+    if ("$%@".includes(ch) && "([{".includes(j[o + 1] ?? "")) {
+      depth = 1;
+      o += 1;
+      continue;
+    }
+    if (ok(o)) out.push(o);
+  }
+  return { first: out, then: [] };
+}
+function piece(j, plan4, from, to) {
+  let out = "";
+  for (let o = from; o < to; o += 1) {
+    if (o > from && plan4.spaced.has(o)) out += " ";
+    if (!plan4.removed.has(o)) out += j[o];
+  }
+  if (to > from && plan4.spaced.has(to)) out += " ";
+  return out;
+}
+function wrapLines(j, plan4, maxWidth, head, widthOf, hangOf) {
+  const starts = [...plan4.cuts].filter((c) => c > 0 && c < j.length).sort((a, b) => a - b);
+  const bounds = [0, ...starts, j.length];
+  for (let k = 0; k + 1 < bounds.length; k += 1) {
+    const from = bounds[k];
+    const to = bounds[k + 1];
+    const fits = (a, b, lead2) => lead2 + piece(j, plan4, a, b).length + (b === j.length ? 0 : 1) <= maxWidth;
+    if (fits(from, to, widthOf(from))) continue;
+    const { first, then } = breakPoints(j, from, to, head >= 0 && from < head, plan4.removed);
+    let at2 = from;
+    let lead = widthOf(from);
+    while (!fits(at2, to, lead)) {
+      const fitting = (points) => points.filter((p) => p > at2 && fits(at2, p, lead));
+      const best = fitting(first).pop() ?? fitting(then).pop() ?? [...first, ...then].filter((p) => p > at2).sort((a, b) => a - b)[0];
+      if (best === void 0) break;
+      const cut = best;
+      plan4.cuts.add(cut);
+      at2 = cut;
+      lead = hangOf(from);
+    }
+  }
 }
 function cutLines(j, plan4) {
   const contents = [];
@@ -15438,7 +15566,7 @@ function reindentWithComments(entry, original, indent) {
   if (rejoin(out) !== entry.text) return "unverified";
   return out;
 }
-function layoutEntry(entry, original, indent, split) {
+function layoutEntry(entry, original, indent, split, maxWidth = DEFAULT_FORMAT_OPTIONS.maxWidth) {
   if (entry.incomplete) return "incomplete";
   if (original.some((l) => l.includes("%\\"))) return "percent-backslash";
   if (original.some((l) => /\\[ \t\f\v]+$/.test(l))) return "space-after-backslash";
@@ -15465,27 +15593,40 @@ function layoutEntry(entry, original, indent, split) {
   ) : keywordMidStatement2(j, top, authorBreaks);
   if (midKeyword) return "keyword-mid-statement";
   if (!inner2 && top.blocks.length === 0) return original;
-  const plan4 = (inner2 && split ? splitPlan(entry, body, inner2, authorBreaks, original.length > 1) : void 0) ?? {
+  const firstIndent = (original[0] ?? "").slice(0, leadingWhitespaceLength(original[0] ?? ""));
+  const split1 = inner2 && split ? splitPlan(entry, body, inner2, firstIndent.length + j.length > maxWidth) : void 0;
+  const wrap = split1 !== void 0;
+  const plan4 = split1 ?? {
     cuts: new Set(authorBreaks),
     removed: /* @__PURE__ */ new Set(),
     spaced: /* @__PURE__ */ new Set()
   };
-  const { contents, starts } = cutLines(j, plan4);
   const layout = inner2 ?? top;
   const base = inner2 ? body : 0;
   const stmtStarts = statementStarts(j, layout, base);
+  let first = body;
   if (inner2) {
-    let first = body;
     while (isTfSpace(j[first])) first += 1;
     stmtStarts.add(first);
   }
-  const firstIndent = (original[0] ?? "").slice(0, leadingWhitespaceLength(original[0] ?? ""));
+  const statementLevel = (o) => (inner2 ? 1 : 0) + depthAt(layout, base, o);
+  const levelAt = (o) => inner2 && o < body ? 2 : statementLevel(o) + (stmtStarts.has(o) ? 0 : 2);
+  if (wrap) {
+    const width = indent.length;
+    wrapLines(
+      j,
+      plan4,
+      maxWidth,
+      first,
+      (o) => o === 0 ? firstIndent.length : levelAt(o) * width,
+      (o) => (o < body ? 2 : statementLevel(o) + 2) * width
+    );
+  }
+  const { contents, starts } = cutLines(j, plan4);
   const lines = contents.map((content, i) => {
     const end = i < contents.length - 1 ? "\\" : "";
     if (i === 0) return `${firstIndent}${content}${end}`;
-    const o = starts[i];
-    const level = inner2 && o < body ? 2 : (inner2 ? 1 : 0) + depthAt(layout, base, o) + (stmtStarts.has(o) ? 0 : 1);
-    return `${indent.repeat(level)}${content}${end}`;
+    return `${indent.repeat(levelAt(starts[i]))}${content}${end}`;
   });
   if (lines.some((l, i) => i > 0 && (isBlankLine(l) || isCommentLine(l)))) return "unverified";
   if (lines.some((l, i) => i < lines.length - 1 !== continuesToNextLine(l))) return "unverified";
@@ -15531,7 +15672,7 @@ function formatDocument(text, options = {}, range) {
     const original = lines.slice(entry.startLine, entry.endLine + 1);
     let hasError = false;
     for (let l = entry.startLine; l <= entry.endLine; l += 1) if (errors.has(l)) hasError = true;
-    const laid = hasError ? "error" : layoutEntry(entry, original, indent, opts.splitStatements);
+    const laid = hasError ? "error" : layoutEntry(entry, original, indent, opts.splitStatements, opts.maxWidth);
     if (typeof laid === "string") {
       entries.push({ ...at2, changed: false, refused: laid });
       continue;

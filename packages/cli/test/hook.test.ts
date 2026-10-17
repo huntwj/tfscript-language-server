@@ -4,8 +4,8 @@ import * as path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { timeBudget } from "../../core/test/timeBudget";
 import type { JsonDiagnostic, JsonReport } from "../src/format";
-import { kindOf, RETRY_SECONDS, runHook, type CliRun, type HookDeps } from "../src/hook/hook";
-import { isSmallFolder, runNode } from "../src/hook/main";
+import { kindOf, RETRY_SECONDS, runHook, type CliFailure, type CliRun, type HookDeps } from "../src/hook/hook";
+import { isSmallFolder, runNode, spawnFailure } from "../src/hook/main";
 import { shapeReport } from "../src/hook/report";
 import { hookRoot, type RootHost } from "../src/hook/root";
 
@@ -293,12 +293,43 @@ describe("runHook", () => {
     expect(timedOut.hookSpecificOutput.additionalContext).toBe(
       `tfscript didn't finish checking a.tf within 10 seconds, so it is unchecked. Its root, ${slash(p("proj"))}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`,
     );
-    const noStart = parsed(runHook(input(p("proj", "a.tf")), deps(files, () => ({ status: null, stdout: "", stderr: "", timedOut: false, error: "spawn ENOENT" }))).stdout);
-    expect(noStart.hookSpecificOutput.additionalContext).toMatch(/^tfscript couldn't check a\.tf, because it couldn't start \(spawn ENOENT\): check that node can run /);
-    const crashed = parsed(runHook(input(p("proj", "a.tf")), deps(files, () => ({ status: 2, stdout: "", stderr: "tfscript: the check failed\nstack", timedOut: false }))).stdout);
+    const failed = (failure: CliFailure) =>
+      parsed(runHook(input(p("proj", "a.tf")), deps(files, () => ({ status: null, stdout: "", stderr: "", timedOut: false, failure }))).stdout).hookSpecificOutput.additionalContext;
+    expect(failed(spawnFailure(Object.assign(new Error("spawnSync node ENOENT"), { code: "ENOENT" })))).toBe(
+      `tfscript couldn't check a.tf, because it couldn't be started: node, or the folder it was to run in, wasn't found (ENOENT): check that node can run ${slash(p("plugin", "bundle", "tfscript.js"))}.`,
+    );
+    expect(failed(spawnFailure(Object.assign(new Error("spawnSync node ENOBUFS"), { code: "ENOBUFS" })))).toMatch(
+      /^tfscript couldn't check a\.tf, because its report was larger than 64 MiB: run node ".+" check .+ to see it\.$/,
+    );
+    // The first line of stderr, without the \r of a Windows line end.
+    const crashed = parsed(runHook(input(p("proj", "a.tf")), deps(files, () => ({ status: 2, stdout: "", stderr: "tfscript: the check failed\r\nstack\r\n", timedOut: false }))).stdout);
     expect(crashed.hookSpecificOutput.additionalContext).toMatch(/^tfscript couldn't check a\.tf \(tfscript: the check failed\): run node .+ to see why\.$/);
     const problem = parsed(runHook(input(p("proj", "a.tf")), deps(files, () => ran(report([], ["a.tf can't be read: check that it is a file you may read."]), 2))).stdout);
     expect(problem.hookSpecificOutput.additionalContext).toBe("tfscript couldn't check a.tf: a.tf can't be read: check that it is a file you may read.");
+  });
+
+  it("passes on problems beside diagnostics, rather than dropping them", () => {
+    const files = { [p("proj", "a.tf")]: "" };
+    const both = report([diagnostic("warning", 1)], ["b.tf doesn't exist: check the path."]);
+    const text = parsed(runHook(input(p("proj", "a.tf")), deps(files, () => ran(both, 2))).stdout).hookSpecificOutput.additionalContext;
+    expect(text?.split("\n")).toEqual([
+      "tfscript found 1 warning in a.tf:",
+      "- a.tf:1:1: warning warning-code: A warning on line 1: fix it.",
+      "tfscript also couldn't check everything: b.tf doesn't exist: check the path.",
+    ]);
+  });
+
+  it("takes a relative path from the call's cwd only when that is text", () => {
+    const files = { [p("proj", "a.tf")]: "", [p("other", "a.tf")]: "" };
+    const call = (cwd: unknown) => JSON.stringify({ tool_name: "Edit", tool_input: { file_path: "a.tf" }, cwd });
+    for (const cwd of [42, null, { dir: "x" }, ""]) {
+      const d = deps(files, () => ran(report([])));
+      expect(runHook(call(cwd), d), JSON.stringify(cwd)).toEqual({ stdout: "" });
+      expect(d.calls[0]?.args.at(-1)).toBe(p("proj", "a.tf"));
+    }
+    const d = deps(files, () => ran(report([])));
+    runHook(call(p("other")), d);
+    expect(d.calls[0]?.args.at(-1)).toBe(p("other", "a.tf"));
   });
 });
 
@@ -317,5 +348,13 @@ describe("runNode", () => {
     const quick = path.join(TMP, "quick.js");
     writeFileSync(quick, "process.stdout.write(process.argv.slice(2).join(' ')); process.exitCode = 1;\n");
     expect(runNode(quick, ["a", "b"], TMP, 10000)).toEqual({ status: 1, stdout: "a b", stderr: "", timedOut: false });
+  });
+
+  it("says why a run that can't start failed", () => {
+    const run = runNode(path.join(TMP, "quick.js"), [], path.join(TMP, "no-such-folder"), 10000);
+    expect(run.timedOut).toBe(false);
+    expect(run.failure).toEqual({ reason: "it couldn't be started: node, or the folder it was to run in, wasn't found (ENOENT)", overflow: false });
+    expect(spawnFailure(Object.assign(new Error("x"), { code: "EACCES" }))).toEqual({ reason: "it wasn't allowed to start (EACCES)", overflow: false });
+    expect(spawnFailure(Object.assign(new Error("odd"), { code: "EIO" }))).toEqual({ reason: "it couldn't be run (EIO: odd)", overflow: false });
   });
 });

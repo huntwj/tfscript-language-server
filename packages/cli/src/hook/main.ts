@@ -3,18 +3,37 @@ import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { isSkippedDir } from "@tfscript/core/workspace/nodeFileSystem";
-import { runHook, type CliRun, type HookDeps } from "./hook";
+import { runHook, type CliFailure, type CliRun, type HookDeps } from "./hook";
+
+/** The most output a check may give before it is stopped. */
+export const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+
+/** Why a run failed, as the end of "tfscript couldn't check x, because ...", from spawnSync's error. */
+export function spawnFailure(error: NodeJS.ErrnoException): CliFailure {
+  switch (error.code) {
+    case "ENOBUFS":
+      return { reason: `its report was larger than ${MAX_OUTPUT_BYTES / 1024 / 1024} MiB`, overflow: true };
+    case "ENOENT":
+      return { reason: "it couldn't be started: node, or the folder it was to run in, wasn't found (ENOENT)", overflow: false };
+    case "EACCES":
+    case "EPERM":
+      return { reason: `it wasn't allowed to start (${error.code})`, overflow: false };
+    default:
+      return { reason: `it couldn't be run (${error.code ? `${error.code}: ` : ""}${error.message})`, overflow: false };
+  }
+}
 
 /** Runs node `cli` with `args`, killing it after `timeoutMs`. */
 export function runNode(cli: string, args: string[], cwd: string, timeoutMs: number): CliRun {
-  const result = spawnSync(process.execPath, [cli, ...args], { cwd, encoding: "utf8", timeout: timeoutMs, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
-  const code = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  const result = spawnSync(process.execPath, [cli, ...args], { cwd, encoding: "utf8", timeout: timeoutMs, windowsHide: true, maxBuffer: MAX_OUTPUT_BYTES });
+  const error = result.error as NodeJS.ErrnoException | undefined;
+  const timedOut = error?.code === "ETIMEDOUT";
   return {
     status: result.status,
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
-    timedOut: code === "ETIMEDOUT",
-    ...(result.error !== undefined && code !== "ETIMEDOUT" ? { error: result.error.message } : {}),
+    timedOut,
+    ...(error !== undefined && !timedOut ? { failure: spawnFailure(error) } : {}),
   };
 }
 

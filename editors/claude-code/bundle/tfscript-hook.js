@@ -389,7 +389,8 @@ function runHook(input, deps) {
   }
   const given = call?.tool_input?.file_path;
   if (typeof given !== "string" || given === "") return QUIET;
-  const file = path4.resolve(call.cwd ?? deps.projectDir ?? ".", given);
+  const base = typeof call.cwd === "string" && call.cwd !== "" ? call.cwd : deps.projectDir ?? ".";
+  const file = path4.resolve(base, given);
   const kind = kindOf2(file);
   if (kind === void 0 || !deps.isFile(file)) return QUIET;
   const label = labelOf(file, deps.projectDir, deps.realpath);
@@ -417,7 +418,7 @@ function runHook(input, deps) {
   if (run.timedOut) {
     const own = path4.dirname(file);
     const quick = deps.runCli(["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", own, file], own, RETRY_SECONDS * 1e3);
-    const quickReport = quick.timedOut || quick.error !== void 0 ? void 0 : parseReport(quick.stdout);
+    const quickReport = quick.timedOut || quick.failure !== void 0 ? void 0 : parseReport(quick.stdout);
     if (quickReport === void 0 || quickReport.problems.length > 0 && quickReport.diagnostics.length === 0) {
       return context(
         `tfscript didn't finish checking ${label} within ${seconds} seconds, so it is unchecked. Its root, ${slash(root)}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`
@@ -426,22 +427,28 @@ function runHook(input, deps) {
     const note = `The full check of ${label} didn't finish within ${seconds} seconds (its root, ${slash(root)}, may hold too many files), so this is a quick check of the file alone, without undefined-macro. For the full check, put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`;
     const shaped2 = shapeReport(quickReport, label, { ...options, budget: DEFAULT_BUDGET - note.length });
     if (shaped2 === void 0) return context(note);
-    const text = `${shaped2.text}
+    const text2 = `${shaped2.text}
 ${note}`;
-    return shaped2.errors > 0 ? block(text) : context(text);
+    return shaped2.errors > 0 ? block(text2) : context(text2);
   }
-  if (run.error !== void 0) return context(`tfscript couldn't check ${label}, because it couldn't start (${run.error}): check that node can run ${slash(deps.cliPath)}.`);
+  if (run.failure !== void 0) {
+    const fix = run.failure.overflow ? `run ${fullCommand} to see it` : `check that node can run ${slash(deps.cliPath)}`;
+    return context(`tfscript couldn't check ${label}, because ${run.failure.reason}: ${fix}.`);
+  }
   const report = parseReport(run.stdout);
   if (report === void 0) {
-    const why = run.stderr.trim().split("\n")[0] ?? "";
+    const why = run.stderr.replace(/\r/g, "").trim().split("\n")[0] ?? "";
     return context(`tfscript couldn't check ${label}${why ? ` (${why})` : ""}: run ${fullCommand} to see why.`);
   }
   if (report.problems.length > 0 && report.diagnostics.length === 0) {
     return context(`tfscript couldn't check ${label}: ${report.problems.join(" ")}`);
   }
-  const shaped = shapeReport(report, label, { ...options, fullCommand });
-  if (shaped === void 0) return QUIET;
-  return shaped.errors > 0 ? block(shaped.text) : context(shaped.text);
+  const also = report.problems.length > 0 ? `tfscript also couldn't check everything: ${report.problems.join(" ")}` : void 0;
+  const shaped = shapeReport(report, label, { ...options, fullCommand, ...also ? { budget: DEFAULT_BUDGET - also.length } : {} });
+  if (shaped === void 0) return also === void 0 ? QUIET : context(also);
+  const text = also === void 0 ? shaped.text : `${shaped.text}
+${also}`;
+  return shaped.errors > 0 ? block(text) : context(text);
 }
 function parseReport(stdout) {
   try {
@@ -453,15 +460,30 @@ function parseReport(stdout) {
 }
 
 // packages/cli/src/hook/main.ts
+var MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+function spawnFailure(error) {
+  switch (error.code) {
+    case "ENOBUFS":
+      return { reason: `its report was larger than ${MAX_OUTPUT_BYTES / 1024 / 1024} MiB`, overflow: true };
+    case "ENOENT":
+      return { reason: "it couldn't be started: node, or the folder it was to run in, wasn't found (ENOENT)", overflow: false };
+    case "EACCES":
+    case "EPERM":
+      return { reason: `it wasn't allowed to start (${error.code})`, overflow: false };
+    default:
+      return { reason: `it couldn't be run (${error.code ? `${error.code}: ` : ""}${error.message})`, overflow: false };
+  }
+}
 function runNode(cli, args, cwd, timeoutMs) {
-  const result = (0, import_node_child_process.spawnSync)(process.execPath, [cli, ...args], { cwd, encoding: "utf8", timeout: timeoutMs, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
-  const code = result.error?.code;
+  const result = (0, import_node_child_process.spawnSync)(process.execPath, [cli, ...args], { cwd, encoding: "utf8", timeout: timeoutMs, windowsHide: true, maxBuffer: MAX_OUTPUT_BYTES });
+  const error = result.error;
+  const timedOut = error?.code === "ETIMEDOUT";
   return {
     status: result.status,
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
-    timedOut: code === "ETIMEDOUT",
-    ...result.error !== void 0 && code !== "ETIMEDOUT" ? { error: result.error.message } : {}
+    timedOut,
+    ...error !== void 0 && !timedOut ? { failure: spawnFailure(error) } : {}
   };
 }
 var SMALL_FOLDER_ENTRIES = 5e3;

@@ -29,8 +29,15 @@ export interface CliRun {
   stdout: string;
   stderr: string;
   timedOut: boolean;
-  /** Why it couldn't start, if it couldn't. */
-  error?: string;
+  /** Why it failed to run (it couldn't start, or its output was too big), if it did. */
+  failure?: CliFailure;
+}
+
+export interface CliFailure {
+  /** The end of "tfscript couldn't check x, because ...". */
+  reason: string;
+  /** Whether it ran but gave more output than could be read, so running it by hand shows why. */
+  overflow: boolean;
 }
 
 export interface HookDeps extends RootHost {
@@ -54,7 +61,7 @@ interface ToolCall {
   hook_event_name?: string;
   tool_name?: string;
   tool_input?: { file_path?: unknown };
-  cwd?: string;
+  cwd?: unknown;
 }
 
 const QUIET: HookResult = { stdout: "" };
@@ -110,7 +117,9 @@ export function runHook(input: string, deps: HookDeps): HookResult {
   }
   const given = call?.tool_input?.file_path;
   if (typeof given !== "string" || given === "") return QUIET;
-  const file = path.resolve(call.cwd ?? deps.projectDir ?? ".", given);
+  // The path is absolute as Claude Code sends it; a relative one is taken from the call's cwd.
+  const base = typeof call.cwd === "string" && call.cwd !== "" ? call.cwd : (deps.projectDir ?? ".");
+  const file = path.resolve(base, given);
   const kind = kindOf(file);
   if (kind === undefined || !deps.isFile(file)) return QUIET;
   const label = labelOf(file, deps.projectDir, deps.realpath);
@@ -150,7 +159,7 @@ export function runHook(input: string, deps: HookDeps): HookResult {
     // needn't search any folder for what defines each macro.
     const own = path.dirname(file);
     const quick = deps.runCli(["check", "--format", "json", "--setting-names", "config", "--no-undefined-macros", "--root", own, file], own, RETRY_SECONDS * 1000);
-    const quickReport = quick.timedOut || quick.error !== undefined ? undefined : parseReport(quick.stdout);
+    const quickReport = quick.timedOut || quick.failure !== undefined ? undefined : parseReport(quick.stdout);
     if (quickReport === undefined || (quickReport.problems.length > 0 && quickReport.diagnostics.length === 0)) {
       return context(
         `tfscript didn't finish checking ${label} within ${seconds} seconds, so it is unchecked. ` +
@@ -165,20 +174,27 @@ export function runHook(input: string, deps: HookDeps): HookResult {
     const text = `${shaped.text}\n${note}`;
     return shaped.errors > 0 ? block(text) : context(text);
   }
-  if (run.error !== undefined) return context(`tfscript couldn't check ${label}, because it couldn't start (${run.error}): check that node can run ${slash(deps.cliPath)}.`);
+  if (run.failure !== undefined) {
+    const fix = run.failure.overflow ? `run ${fullCommand} to see it` : `check that node can run ${slash(deps.cliPath)}`;
+    return context(`tfscript couldn't check ${label}, because ${run.failure.reason}: ${fix}.`);
+  }
 
   const report = parseReport(run.stdout);
   if (report === undefined) {
-    const why = run.stderr.trim().split("\n")[0] ?? "";
+    // The first line of what it said, without a Windows line end's \r.
+    const why = run.stderr.replace(/\r/g, "").trim().split("\n")[0] ?? "";
     return context(`tfscript couldn't check ${label}${why ? ` (${why})` : ""}: run ${fullCommand} to see why.`);
   }
   if (report.problems.length > 0 && report.diagnostics.length === 0) {
     return context(`tfscript couldn't check ${label}: ${report.problems.join(" ")}`);
   }
 
-  const shaped = shapeReport(report, label, { ...options, fullCommand });
-  if (shaped === undefined) return QUIET;
-  return shaped.errors > 0 ? block(shaped.text) : context(shaped.text);
+  // Problems beside diagnostics (a path it couldn't check, alongside the file) are passed on too.
+  const also = report.problems.length > 0 ? `tfscript also couldn't check everything: ${report.problems.join(" ")}` : undefined;
+  const shaped = shapeReport(report, label, { ...options, fullCommand, ...(also ? { budget: DEFAULT_BUDGET - also.length } : {}) });
+  if (shaped === undefined) return also === undefined ? QUIET : context(also);
+  const text = also === undefined ? shaped.text : `${shaped.text}\n${also}`;
+  return shaped.errors > 0 ? block(text) : context(text);
 }
 
 /** tfscript check's JSON report, or undefined when `stdout` isn't one. */

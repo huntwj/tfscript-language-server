@@ -16,6 +16,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Check the tag is the version every part carries
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          npm run version:check
+          test "$TAG" = "v$(node -p "require('./packages/cli/package.json').version")" || { echo "The tag $TAG isn't v<version>: set the version with npm run version:set, or tag it v<version>."; exit 1; }
       - run: npm ci
       - run: npm run build
       - run: npm ci

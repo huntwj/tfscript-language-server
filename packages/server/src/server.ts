@@ -77,6 +77,7 @@ import {
 import { encodeSemanticTokens, getSemanticTokens, TOKEN_MODIFIERS, TOKEN_TYPES } from "@tfscript/core/semanticTokens";
 import { getSignatureHelp } from "@tfscript/core/signatureHelp";
 import { formatText } from "@tfscript/core/formatting";
+import { asLoaded, DEFAULT_TF_BUILD } from "@tfscript/core/tfBuild";
 import type { RawSettings } from "@tfscript/core/workspace/settings";
 import { fileKey } from "@tfscript/core/workspace/loadGraph";
 import { WorkspaceIndex, type ContextInfo } from "@tfscript/core/workspace/workspaceIndex";
@@ -125,6 +126,16 @@ function toUri(file: string): string {
     return p !== undefined && sameFile(p, file);
   });
   return open?.uri ?? pathToFileURL(file).href;
+}
+
+/**
+ * An open document's text as tf reads it with `/load` (core's asLoaded()), which every feature
+ * works on. Under the fork a CR at a line's end is gone, and no other character moves. The
+ * formatter alone takes the text as it is, since it rewrites it.
+ */
+function loadedText(document: TextDocument): string {
+  const file = toPath(document.uri);
+  return asLoaded(document.getText(), file === undefined ? DEFAULT_TF_BUILD : index.tfBuildFor(file));
 }
 
 function contextFor(document: TextDocument): NavContext | undefined {
@@ -302,7 +313,7 @@ function toLspDiagnostic(d: TfDiagnostic, uri: string): Diagnostic {
 }
 
 function validate(document: TextDocument): void {
-  const text = document.getText();
+  const text = loadedText(document);
   const file = toPath(document.uri);
   const all = documentDiagnostics(text, file, index);
   published.set(document.uri, { version: document.version, diagnostics: all });
@@ -314,30 +325,30 @@ const published = new Map<string, { version: number; diagnostics: TfDiagnostic[]
 
 function diagnosticsFor(document: TextDocument): TfDiagnostic[] {
   const last = published.get(document.uri);
-  return last && last.version === document.version ? last.diagnostics : getDiagnostics(document.getText());
+  return last && last.version === document.version ? last.diagnostics : getDiagnostics(loadedText(document));
 }
 
 connection.onCompletion((params: CompletionParams): CompletionItem[] => {
   const document = documents.get(params.textDocument.uri);
-  return document ? getCompletions(document.getText(), params.position, contextFor(document)) : [];
+  return document ? getCompletions(loadedText(document), params.position, contextFor(document)) : [];
 });
 
 connection.onDocumentSymbol((params: DocumentSymbolParams): DocumentSymbol[] => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  return getDocumentSymbols(document.getText()).map(toDocumentSymbol);
+  return getDocumentSymbols(loadedText(document)).map(toDocumentSymbol);
 });
 
 connection.onFoldingRanges((params: FoldingRangeParams): FoldingRange[] => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  return getFoldingRanges(document.getText()).map(toFoldingRange);
+  return getFoldingRanges(loadedText(document)).map(toFoldingRange);
 });
 
 connection.onSelectionRanges((params: SelectionRangeParams): SelectionRange[] => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  return getSelectionRanges(document.getText(), params.positions);
+  return getSelectionRanges(loadedText(document), params.positions);
 });
 
 connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
@@ -349,7 +360,7 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   const file = toPath(document.uri);
   // Only worked out when an extracted macro needs a name.
   let taken: ((name: string) => boolean) | undefined;
-  if (file) request.isTaken = (name) => (taken ??= index.macroNameTaken(file, document.getText()))(name);
+  if (file) request.isTaken = (name) => (taken ??= index.macroNameTaken(file, loadedText(document)))(name);
   // And, for inlining, whether the macro's /def is the only one, and whether other files name it
   // (or, for a new local variable's name, mention the word at all).
   let outside: ((name: string) => boolean) | undefined;
@@ -357,15 +368,16 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   if (file) request.definedOutside = (name) => (outside ??= index.macroDefinedOutside(file))(name);
   if (file) request.mentionedOutside = (name) => (mentioned ??= index.macroMentionedOutside(file))(name);
   if (file && index.isLibraryFile(file)) request.library = true;
+  if (file) request.tfBuild = index.tfBuildFor(file);
   let functions: ((name: string) => boolean) | undefined;
-  if (file) request.calledAsFunction = (name) => (functions ??= index.macroCalledAsFunction(file, document.getText()))(name);
-  return routeCodeActions(document.getText(), request).map((action) => toLspCodeAction(action, document.uri, (d) => toLspDiagnostic(d, document.uri), renameCommand));
+  if (file) request.calledAsFunction = (name) => (functions ??= index.macroCalledAsFunction(file, loadedText(document)))(name);
+  return routeCodeActions(loadedText(document), request).map((action) => toLspCodeAction(action, document.uri, (d) => toLspDiagnostic(d, document.uri), renameCommand));
 });
 
 connection.onHover((params: TextDocumentPositionParams): Hover | null => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return null;
-  const text = document.getText();
+  const text = loadedText(document);
   // VS Code shows a diagnostic's message at the top of the hover by itself; this adds its
   // excerpt, explanation and what its code means below, then whatever the hover says about the word itself.
   const explained = diagnosticsFor(document)
@@ -382,7 +394,7 @@ connection.onHover((params: TextDocumentPositionParams): Hover | null => {
 
 connection.onSignatureHelp((params: TextDocumentPositionParams): SignatureHelp | null => {
   const document = documents.get(params.textDocument.uri);
-  const help = document && getSignatureHelp(document.getText(), params.position, contextFor(document));
+  const help = document && getSignatureHelp(loadedText(document), params.position, contextFor(document));
   if (!help) return null;
   return {
     signatures: help.signatures.map((s) => ({
@@ -398,7 +410,7 @@ connection.onSignatureHelp((params: TextDocumentPositionParams): SignatureHelp |
 
 connection.languages.semanticTokens.on((params: SemanticTokensParams): SemanticTokens => {
   const document = documents.get(params.textDocument.uri);
-  return { data: document ? encodeSemanticTokens(getSemanticTokens(document.getText(), contextFor(document))) : [] };
+  return { data: document ? encodeSemanticTokens(getSemanticTokens(loadedText(document), contextFor(document))) : [] };
 });
 
 function formatting(params: DocumentFormattingParams | DocumentRangeFormattingParams): TextEdit[] {
@@ -416,25 +428,26 @@ connection.onDefinition((params: TextDocumentPositionParams): Location[] => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
   const ctx = contextFor(document);
-  return getDefinition(document.getText(), params.position, ctx).map((l) => ({ uri: l.uri || document.uri, range: l.range }));
+  return getDefinition(loadedText(document), params.position, ctx).map((l) => ({ uri: l.uri || document.uri, range: l.range }));
 });
 
 connection.onReferences((params: ReferenceParams): Location[] => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
   const ctx = contextFor(document);
-  return getReferences(document.getText(), params.position, params.context.includeDeclaration, ctx).map((l) => ({
+  return getReferences(loadedText(document), params.position, params.context.includeDeclaration, ctx).map((l) => ({
     uri: l.uri || document.uri,
     range: l.range,
   }));
 });
 
-/** A document's text: the editor's if it is open, else what is on disk. */
+/** A document's text as tf reads it: the editor's if it is open, else what is on disk. */
 function textOf(uri: string): string | undefined {
   const open = documents.get(uri);
-  if (open) return open.getText();
+  if (open) return loadedText(open);
   const file = toPath(uri);
-  return file === undefined ? undefined : readFile(file);
+  const text = file === undefined ? undefined : readFile(file);
+  return file === undefined || text === undefined ? undefined : asLoaded(text, index.tfBuildFor(file));
 }
 
 function navContextOf(uri: string): NavContext | undefined {
@@ -457,7 +470,7 @@ function fromCallItem(item: CallHierarchyItem): TfCallItem {
 connection.languages.callHierarchy.onPrepare((params): CallHierarchyItem[] | null => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return null;
-  const items = prepareCallHierarchy(document.getText(), params.position, contextFor(document));
+  const items = prepareCallHierarchy(loadedText(document), params.position, contextFor(document));
   return items.length > 0 ? items.map((i) => toCallItem({ ...i, uri: i.uri || document.uri })) : null;
 });
 
@@ -502,7 +515,7 @@ connection.onCodeLens((params): CodeLens[] => {
   const document = documents.get(params.textDocument.uri);
   const file = document && toPath(document.uri);
   if (!showReferencesCommand || !document || file === undefined || !index.referenceLenses(file)) return [];
-  return getDocumentSymbols(document.getText())
+  return getDocumentSymbols(loadedText(document))
     .filter((s) => s.kind === "def")
     .map((s) => ({ range: s.selectionRange, data: { uri: document.uri, position: s.selectionRange.start } satisfies LensData }));
 });
@@ -511,7 +524,7 @@ connection.onCodeLensResolve((lens): CodeLens => {
   const data = lens.data as LensData;
   const document = documents.get(data.uri);
   if (!document) return { ...lens, command: { title: "references", command: "" } };
-  const locations = getReferences(document.getText(), data.position, false, contextFor(document)).map((l) => ({
+  const locations = getReferences(loadedText(document), data.position, false, contextFor(document)).map((l) => ({
     uri: l.uri || document.uri,
     range: l.range,
   }));
@@ -529,7 +542,7 @@ connection.onCodeLensResolve((lens): CodeLens => {
 connection.onDocumentHighlight((params: TextDocumentPositionParams): DocumentHighlight[] => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return [];
-  return getDocumentHighlights(document.getText(), params.position).map((h) => ({
+  return getDocumentHighlights(loadedText(document), params.position).map((h) => ({
     range: h.range,
     kind: h.kind === "write" ? DocumentHighlightKind.Write : DocumentHighlightKind.Read,
   }));
@@ -539,7 +552,7 @@ connection.onDocumentLinks((params: DocumentLinkParams): DocumentLink[] => {
   const document = documents.get(params.textDocument.uri);
   const file = document && toPath(document.uri);
   if (!document || file === undefined) return [];
-  return index.documentLinks(file, document.getText()).map((link) => ({
+  return index.documentLinks(file, loadedText(document)).map((link) => ({
     range: link.range,
     target: toUri(link.target),
     tooltip: `Open ${link.target}`,
@@ -566,7 +579,7 @@ connection.onWorkspaceSymbol((params: WorkspaceSymbolParams): SymbolInformation[
 connection.onPrepareRename((params: PrepareRenameParams) => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return null;
-  const result = prepareRename(document.getText(), params.position, contextFor(document));
+  const result = prepareRename(loadedText(document), params.position, contextFor(document));
   if ("error" in result) throw new ResponseError(ErrorCodes.InvalidRequest, result.error);
   return result;
 });
@@ -574,7 +587,7 @@ connection.onPrepareRename((params: PrepareRenameParams) => {
 connection.onRenameRequest((params: RenameParams): WorkspaceEdit | null => {
   const document = documents.get(params.textDocument.uri);
   if (!document) return null;
-  const result = getRenameEdits(document.getText(), params.position, params.newName, contextFor(document));
+  const result = getRenameEdits(loadedText(document), params.position, params.newName, contextFor(document));
   if ("error" in result) throw new ResponseError(ErrorCodes.InvalidRequest, result.error);
   const changes: Record<string, TextEdit[]> = {};
   for (const edit of result) {

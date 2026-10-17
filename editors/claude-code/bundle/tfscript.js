@@ -24,9 +24,6 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// packages/cli/src/main.ts
-var import_node_fs4 = require("node:fs");
-
 // packages/cli/src/args.ts
 var UsageError = class extends Error {
 };
@@ -2286,9 +2283,9 @@ function joinFix(lines, entry, first, minLast, gone, diagnose, closerOnly, stopA
     if ([...counts(settled.diagnostics)].some(([code2, n]) => n > (had.get(code2) ?? 0))) continue;
     if (emptyStatements(settled.lines, separate) > emptyStatements(original, separate)) continue;
     const edits = lineEdits(original, settled.lines, base);
-    const join7 = { edits, clean: !settled.diagnostics.some((d) => d.severity === "error"), from: base, to: last };
-    if (join7.clean) return join7;
-    fallback ??= join7;
+    const join8 = { edits, clean: !settled.diagnostics.some((d) => d.severity === "error"), from: base, to: last };
+    if (join8.clean) return join8;
+    fallback ??= join8;
   }
   return fallback;
 }
@@ -2405,10 +2402,10 @@ function addJoins(text, diagnostics, diagnoseSlice) {
   );
   const joins = [];
   const clean = [];
-  const add = (d, title, join7) => {
-    d.fix = { title, edits: join7.edits };
+  const add = (d, title, join8) => {
+    d.fix = { title, edits: join8.edits };
     joins.push(d.fix);
-    if (join7.clean) clean.push({ fix: d.fix, from: join7.from, to: join7.to });
+    if (join8.clean) clean.push({ fix: d.fix, from: join8.from, to: join8.to });
   };
   for (const d of diagnostics) {
     if (d.code !== "missing-continuation" && d.code !== "block-structure") continue;
@@ -2421,15 +2418,15 @@ function addJoins(text, diagnostics, diagnoseSlice) {
     if (!entry || !opener || !starts && d.code !== "missing-continuation") continue;
     const at2 = d.range.start.line - entry.startLine;
     const anyMessage = d.code === "missing-continuation";
-    const join7 = attempt(
+    const join8 = attempt(
       diagnoseSlice,
       (diagnose) => (
         // missing-continuation's message names lines, which differ in the slice: the code and line are enough.
         joinFix(lines, entry, entry.endLine, entry.endLine + 1, (ds) => !ds.some((x) => x.code === d.code && (anyMessage || x.message === d.message) && x.range.start.line === at2), diagnose, true, definitions)
       )
     );
-    if (join7 && (join7.clean || d.code === "missing-continuation")) {
-      add(d, `Join the ${opener[0].toLowerCase()}'s lines with \\`, join7);
+    if (join8 && (join8.clean || d.code === "missing-continuation")) {
+      add(d, `Join the ${opener[0].toLowerCase()}'s lines with \\`, join8);
       continue;
     }
     const related = d.code === "missing-continuation" ? d.related ?? [] : [];
@@ -2468,19 +2465,19 @@ function addJoins(text, diagnostics, diagnoseSlice) {
     }
     const last = run[run.length - 1].range.start.line;
     const at2 = last - entry.startLine;
-    const join7 = attempt(
+    const join8 = attempt(
       diagnoseSlice,
       (diagnose) => joinFix(lines, entry, previous, last, (ds) => !ds.some((x) => x.code === head.code && x.range.start.line >= previous - entry.startLine && x.range.start.line <= at2), diagnose, false)
     );
-    if (!join7) continue;
-    add(head, join7.edits.length > 1 ? "Join these lines with \\" : `End line ${previous + 1} with \\`, join7);
+    if (!join8) continue;
+    add(head, join8.edits.length > 1 ? "Join these lines with \\" : `End line ${previous + 1} with \\`, join8);
     for (const d of run) d.fix = head.fix;
   }
   for (const d of diagnostics) {
     if (d.code !== "block-structure" && d.code !== "indented-line-after-command") continue;
     if (d.fix && !d.fix.title.startsWith("Add %; /")) continue;
-    const join7 = clean.find((j) => j.from <= d.range.start.line && d.range.start.line <= j.to);
-    if (join7) d.fix = join7.fix;
+    const join8 = clean.find((j) => j.from <= d.range.start.line && d.range.start.line <= j.to);
+    if (join8) d.fix = join8.fix;
   }
 }
 
@@ -8935,6 +8932,17 @@ function applyFormatEdits(text, edits) {
 }
 
 // packages/cli/src/formatFiles.ts
+var writeFileAtomic = (file, text) => {
+  const temp = path9.join(path9.dirname(file), `.${path9.basename(file)}.tfscript-${process.pid}.tmp`);
+  try {
+    (0, import_node_fs3.writeFileSync)(temp, text);
+    (0, import_node_fs3.chmodSync)(temp, (0, import_node_fs3.statSync)(file).mode);
+    (0, import_node_fs3.renameSync)(temp, file);
+  } catch (error) {
+    (0, import_node_fs3.rmSync)(temp, { force: true });
+    throw error;
+  }
+};
 var UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 function formatFiles(request, host, write, read = (f) => (0, import_node_fs3.readFileSync)(f)) {
   const problems = [];
@@ -9051,7 +9059,7 @@ written.
 var EXIT_OK = 0;
 var EXIT_PROBLEMS = 1;
 var EXIT_USAGE = 2;
-function main(argv, io, host = nodeHost(), write = (f, t) => (0, import_node_fs4.writeFileSync)(f, t)) {
+function main(argv, io, host = nodeHost(), write = writeFileAtomic) {
   let command2;
   try {
     command2 = parseArgs(argv);

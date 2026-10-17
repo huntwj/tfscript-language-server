@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { chmodSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { applyFormatEdits, formatDocument } from "@tfscript/core/formatting";
 import { expandPaths, type CheckHost } from "./check";
@@ -29,6 +29,22 @@ export type WriteFile = (file: string, text: string) => void;
 
 /** Reads a file's bytes; throws when it can't. */
 export type ReadBytes = (file: string) => Uint8Array;
+
+/**
+ * Writes `text` to a new file beside `file`, then renames it over `file`, so a write that fails
+ * part way leaves the old file whole. The new file takes the old one's permissions.
+ */
+export const writeFileAtomic: WriteFile = (file, text) => {
+  const temp = path.join(path.dirname(file), `.${path.basename(file)}.tfscript-${process.pid}.tmp`);
+  try {
+    writeFileSync(temp, text);
+    chmodSync(temp, statSync(file).mode);
+    renameSync(temp, file);
+  } catch (error) {
+    rmSync(temp, { force: true });
+    throw error;
+  }
+};
 
 // ignoreBOM keeps a byte order mark in the text, so writing it back keeps it in the file.
 const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });

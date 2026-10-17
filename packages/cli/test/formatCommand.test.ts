@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseArgs, UsageError } from "../src/args";
+import { writeFileAtomic } from "../src/formatFiles";
 import { EXIT_OK, EXIT_PROBLEMS, EXIT_USAGE, main } from "../src/main";
 import { USAGE } from "../src/usage";
 import { runBin, testHost } from "./fixtures";
@@ -92,6 +93,16 @@ describe("tfscript format", () => {
     writeFileSync(path.join(dir, "bom.tf"), "﻿;; café\n/def go = /echo café%; /echo b\n");
     expect(run(["format", "bom.tf"]).code).toBe(EXIT_OK);
     expect(read("bom.tf")).toBe("﻿;; café\n/def go = \\\n  /echo café%;\\\n  /echo b\n");
+  });
+
+  it("writes through a file beside the old one, renamed over it, leaving nothing behind", () => {
+    const file = path.join(dir, "scripts", "a.tf");
+    writeFileAtomic(file, LAID_OUT);
+    expect(read("scripts/a.tf")).toBe(LAID_OUT);
+    expect(readdirSync(path.join(dir, "scripts")).sort()).toEqual(["a.tf", "b.tf"]);
+    // A file that can't be replaced keeps its old text, and no temporary file is left.
+    expect(() => writeFileAtomic(path.join(dir, "scripts", "missing.tf"), LAID_OUT)).toThrow();
+    expect(readdirSync(path.join(dir, "scripts")).sort()).toEqual(["a.tf", "b.tf"]);
   });
 
   it("exits 2 on a path it can't read or write", () => {

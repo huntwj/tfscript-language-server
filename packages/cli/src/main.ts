@@ -1,8 +1,7 @@
-import { writeFileSync } from "node:fs";
 import { parseArgs, UsageError } from "./args";
 import { check, nodeHost, type CheckHost } from "./check";
 import { displayPath, formatHuman, formatSummary, plural, summarize, toJsonReport } from "./format";
-import { formatFiles, type WriteFile } from "./formatFiles";
+import { formatFiles, writeFileAtomic, type WriteFile } from "./formatFiles";
 import { NAMERS } from "./settingNames";
 import { USAGE, VERSION } from "./usage";
 
@@ -20,7 +19,7 @@ export interface Io {
 }
 
 /** Runs the command line `argv` (without node and the script) and returns the exit status. */
-export function main(argv: readonly string[], io: Io, host: CheckHost = nodeHost(), write: WriteFile = (f, t) => writeFileSync(f, t)): number {
+export function main(argv: readonly string[], io: Io, host: CheckHost = nodeHost(), write: WriteFile = writeFileAtomic): number {
   let command;
   try {
     command = parseArgs(argv);

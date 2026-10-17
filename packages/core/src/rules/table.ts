@@ -703,17 +703,19 @@ export const RULE_SECTIONS: RuleSection[] = [
         code: "text-sent-from-body",
         severity: "warning",
         summary:
-          "This text in a macro body is sent to the world. Write it as `/send -h text` to say so (it does the same, " +
+          "This text in a macro body is sent to the world. Put `/send -h` in front of it to say so (it does the same, " +
           "the `SEND` hook included), or put `; tflint:ignore-nextline` on the line before.",
         detail:
           "a statement of a macro body that isn't a command, which tf sends to the world; the fix puts `/send -h ` " +
-          "before it, but not where the text starts with `-` or a substitution, which `/send` could read as an option",
+          "before it, but not where the text starts with `-` or a substitution, which `/send` could read as an option. " +
+          "Not flagged: a macro that holds a value (read as `${name}`, or named in capitals, as tfrc's `LOGFILE`), " +
+          "and text either side of a `%|`, which tf refuses to pipe, sending nothing",
       },
       {
         code: "load-of-library-file",
         severity: "warning",
         summary:
-          "This `/load`s one of tf's library files, which `/require` loads only if it isn't loaded yet. Write " +
+          "The file this `/load`s is one of tf's library files, so `/require` loads it only if it isn't loaded yet. Write " +
           "`/require`, or put `; tflint:ignore-nextline` on the line before if loading it again is the point.",
         detail:
           "a top-level `/load` of a library file that runs `/loaded`, named on its own (found through `TFPATH` or " +

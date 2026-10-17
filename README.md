@@ -214,7 +214,6 @@ under `tfscript`):
 | `diagnostics.unresolvedLoads` | warn on a `/load`/`/require` tf wouldn't find (`unresolved-load`) | on |
 | `diagnostics.undefinedMacros` | warn on `/name` calls to macros defined nowhere (`undefined-macro`) | on |
 | `diagnostics.ignoreMacros` | macro names `undefined-macro` leaves alone, ignoring case; `*` is a wildcard | none |
-| `format.splitStatements` | when formatting, put each `%;` statement of a macro body on its own line | on |
 
 Outside an editor, the same settings (less `codeLens` and `format`) can be kept in a
 `tfscript.json`, the keys without the `tfscript.` prefix and relative paths relative to its folder:

@@ -46,10 +46,6 @@ export interface RawSettings {
     /** "N references" above each /def. Default on. */
     references?: boolean;
   };
-  format?: {
-    /** Split macro bodies into one `%;`-separated statement per line. Default on. */
-    splitStatements?: boolean;
-  };
 }
 
 /** One way tf might be started: a name and the files it loads after stdlib.tf, in order. */

@@ -114,12 +114,6 @@
           "scope": "resource",
           "markdownDescription": "Macro names the undefined-macro check leaves alone, ignoring case; `*` matches any run of characters (`wot_*`)."
         },
-        "tfscript.format.splitStatements": {
-          "type": "boolean",
-          "default": true,
-          "scope": "resource",
-          "markdownDescription": "When formatting, put each `%;`-separated statement of a `/def`, `/bind`, `/hook` or `/trig` body on its own `%;\\` line, and break after `/if (...)`, `/else`, `/then` and `/do`. Off: only re-indent the lines you already have."
-        },
         "tfscript.homeDirectory": {
           "type": "string",
           "default": "",

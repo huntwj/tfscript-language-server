@@ -7,3 +7,6 @@ dist/
 
 # Claude Code tool state, not project content.
 /.claude/
+
+# claude plugin eval output.
+/editors/claude-code/evals/results/

@@ -61,7 +61,7 @@ var DIAGNOSTIC_SHAPES = {
   undefinedMacros: "boolean",
   ignoreMacros: "names"
 };
-var MAX_TIMEOUT_SECONDS = 25;
+var MAX_TIMEOUT_SECONDS = 20;
 var CLAUDE_CODE_SHAPES = {
   enabled: "boolean",
   warningLimit: "count",
@@ -351,6 +351,7 @@ function terraformSign(file, host) {
 
 // packages/cli/src/hook/hook.ts
 var DEFAULT_TIMEOUT_SECONDS = 10;
+var RETRY_SECONDS = 5;
 var QUIET = { stdout: "" };
 function kindOf2(file) {
   const name = path4.basename(file);
@@ -406,32 +407,43 @@ function runHook(input, deps) {
   const args = ["check", "--format", "json", ...fileOnly ? ["--no-undefined-macros"] : [], "--root", root, file];
   const run = deps.runCli(args, cwd, seconds * 1e3);
   const fullCommand = `node ${quote(deps.cliPath)} check --root ${quote(root)} ${quote(file)}`;
+  const options = { warningLimit: claudeCode.warningLimit ?? DEFAULT_WARNING_LIMIT, showInformation: claudeCode.showInformation ?? false };
   if (run.timedOut) {
-    return context(
-      `tfscript didn't finish checking ${label} within ${seconds} seconds, so it is unchecked. Its root, ${root}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`
-    );
+    const own = path4.dirname(file);
+    const quick = deps.runCli(["check", "--format", "json", "--no-undefined-macros", "--root", own, file], cwd, RETRY_SECONDS * 1e3);
+    const quickReport = quick.timedOut || quick.error !== void 0 ? void 0 : parseReport(quick.stdout);
+    if (quickReport === void 0 || quickReport.problems.length > 0 && quickReport.diagnostics.length === 0) {
+      return context(
+        `tfscript didn't finish checking ${label} within ${seconds} seconds, so it is unchecked. Its root, ${root}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`
+      );
+    }
+    const note = `The full check of ${label} didn't finish within ${seconds} seconds (its root, ${root}, may hold too many files), so this is a quick check of the file alone, without undefined-macro. For the full check, put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`;
+    const shaped2 = shapeReport(quickReport, label, { ...options, budget: DEFAULT_BUDGET - note.length });
+    if (shaped2 === void 0) return context(note);
+    const text = `${shaped2.text}
+${note}`;
+    return shaped2.errors > 0 ? block(text) : context(text);
   }
   if (run.error !== void 0) return context(`tfscript couldn't check ${label}, because it couldn't start (${run.error}): check that node can run ${deps.cliPath}.`);
-  let report;
-  try {
-    report = JSON.parse(run.stdout);
-  } catch {
-    report = void 0;
-  }
-  if (report === void 0 || !Array.isArray(report.diagnostics)) {
+  const report = parseReport(run.stdout);
+  if (report === void 0) {
     const why = run.stderr.trim().split("\n")[0] ?? "";
     return context(`tfscript couldn't check ${label}${why ? ` (${why})` : ""}: run ${fullCommand} to see why.`);
   }
   if (report.problems.length > 0 && report.diagnostics.length === 0) {
     return context(`tfscript couldn't check ${label}: ${report.problems.join(" ")}`);
   }
-  const shaped = shapeReport(report, label, {
-    warningLimit: claudeCode.warningLimit ?? DEFAULT_WARNING_LIMIT,
-    showInformation: claudeCode.showInformation ?? false,
-    fullCommand
-  });
+  const shaped = shapeReport(report, label, { ...options, fullCommand });
   if (shaped === void 0) return QUIET;
   return shaped.errors > 0 ? block(shaped.text) : context(shaped.text);
+}
+function parseReport(stdout) {
+  try {
+    const report = JSON.parse(stdout);
+    return Array.isArray(report?.diagnostics) && Array.isArray(report.problems) ? report : void 0;
+  } catch {
+    return void 0;
+  }
 }
 
 // packages/cli/src/hook/main.ts

@@ -187,7 +187,7 @@ var DIAGNOSTIC_SHAPES = {
   undefinedMacros: "boolean",
   ignoreMacros: "names"
 };
-var MAX_TIMEOUT_SECONDS = 25;
+var MAX_TIMEOUT_SECONDS = 20;
 var CLAUDE_CODE_SHAPES = {
   enabled: "boolean",
   warningLimit: "count",

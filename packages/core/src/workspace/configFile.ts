@@ -17,7 +17,7 @@ export interface ClaudeCodeSettings {
   warningLimit?: number;
   /** Whether the hook lists information notes too. Default off. */
   showInformation?: boolean;
-  /** How long the hook waits for a check before giving up with a notice, in seconds. Default 10. */
+  /** How long the hook waits for the full check before a quick one of the file alone, in seconds. Default 10, at most 20. */
   timeoutSeconds?: number;
 }
 
@@ -61,8 +61,11 @@ export const DIAGNOSTIC_SHAPES: Readonly<Record<string, Shape>> = {
   ignoreMacros: "names",
 };
 
-/** The longest timeoutSeconds: the hook itself is given 30 seconds, and must answer within them. */
-export const MAX_TIMEOUT_SECONDS = 25;
+/**
+ * The longest timeoutSeconds. The hook is given 30 seconds in all, and after a full check that
+ * times out it runs a quick one of up to 5 seconds, so the full check gets at most 20.
+ */
+export const MAX_TIMEOUT_SECONDS = 20;
 
 export const CLAUDE_CODE_SHAPES: Readonly<Record<string, "boolean" | "count" | "seconds">> = {
   enabled: "boolean",

@@ -78,7 +78,7 @@
         "enabled": { "description": "Check the files under this tfscript.json after each edit. Default: true.", "type": "boolean" },
         "warningLimit": { "description": "How many warnings to list; the rest are counted. Errors are always listed. Default: 20.", "type": "integer", "minimum": 0 },
         "showInformation": { "description": "List information notes too. Default: false.", "type": "boolean" },
-        "timeoutSeconds": { "description": "How long to wait for a check before giving up with a short notice. Default: 10.", "type": "number", "exclusiveMinimum": 0, "maximum": 25 }
+        "timeoutSeconds": { "description": "How long to wait for the full check before checking the file alone, quickly and without undefined-macro. Default: 10, at most 20.", "type": "number", "exclusiveMinimum": 0, "maximum": 20 }
       }
     }
   }

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { timeBudget } from "../../core/test/timeBudget";
 import type { JsonDiagnostic, JsonReport } from "../src/format";
-import { kindOf, runHook, type CliRun, type HookDeps } from "../src/hook/hook";
+import { kindOf, RETRY_SECONDS, runHook, type CliRun, type HookDeps } from "../src/hook/hook";
 import { isSmallFolder, runNode } from "../src/hook/main";
 import { shapeReport } from "../src/hook/report";
 import { hookRoot, type RootHost } from "../src/hook/root";
@@ -246,6 +246,28 @@ describe("runHook", () => {
       'tfscript can\'t use tfscript.json: tfscript.json gives "entryFiles" as the text "tfrc", not a list of paths: write it as "entryFiles": ["tfrc"].',
     );
     expect(runHook(input(p("proj", "tfscript.json")), deps({ [p("proj", "tfscript.json")]: "{}" }, () => ran(report([]))))).toEqual({ stdout: "" });
+  });
+
+  it("checks the file alone, quickly and without undefined-macro, when the full check times out", () => {
+    const files = { [p("proj", "a.tf")]: "" };
+    const timedOut: CliRun = { status: null, stdout: "", stderr: "", timedOut: true };
+    const note =
+      `The full check of a.tf didn't finish within 10 seconds (its root, ${p("proj")}, may hold too many files), so this is a quick check of the file alone, without undefined-macro. ` +
+      "For the full check, put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.";
+
+    let n = 0;
+    const d = deps(files, () => (n++ === 0 ? timedOut : ran(report([diagnostic("error", 1)]), 1)));
+    const out = parsed(runHook(input(p("proj", "a.tf")), d).stdout);
+    expect(d.calls.map((c) => [c.args, c.timeoutMs])).toEqual([
+      [["check", "--format", "json", "--root", p("proj"), p("proj", "a.tf")], 10000],
+      [["check", "--format", "json", "--no-undefined-macros", "--root", p("proj"), p("proj", "a.tf")], RETRY_SECONDS * 1000],
+    ]);
+    expect(out.decision).toBe("block");
+    expect(out.reason?.split("\n")).toEqual(["tfscript found 1 error in a.tf:", "- a.tf:1:1: error error-code: A error on line 1: fix it.", note]);
+
+    n = 0;
+    const clean = parsed(runHook(input(p("proj", "a.tf")), deps(files, () => (n++ === 0 ? timedOut : ran(report([]))))).stdout);
+    expect(clean).toEqual({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: note } });
   });
 
   it("gives a short notice when the check times out, can't start or fails", () => {

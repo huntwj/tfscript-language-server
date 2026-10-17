@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { MAX_TIMEOUT_SECONDS } from "@tfscript/core/workspace/configFile";
+import { RETRY_SECONDS } from "../src/hook/hook";
 import { FIXTURES } from "./fixtures";
 
 /**
@@ -44,6 +46,13 @@ describe("the Claude Code plugin's manifests", () => {
       expect(existsSync(path.join(PLUGIN, script.slice("${CLAUDE_PLUGIN_ROOT}/".length)))).toBe(true);
     }
     expect(lsp.tfscript.diagnostics).toBe(false);
+  });
+
+  it("gives the hook time for the longest full check and the quick one after it", () => {
+    const hooks = json(path.join(PLUGIN, "hooks", "hooks.json"));
+    const timeout = hooks.hooks.PostToolUse[0].hooks[0].timeout as number;
+    expect(timeout).toBe(30);
+    expect(MAX_TIMEOUT_SECONDS + RETRY_SECONDS).toBeLessThan(timeout);
   });
 
   it("carries the repo's license", () => {

@@ -83,7 +83,7 @@ describe("parseConfig", () => {
       'tfscript.json gives "diagnostics.undefinedMacros" as the text "no", not true or false: write it as "undefinedMacros": false.',
       'tfscript.json gives "diagnostics.ignoreMacros" as the text "x", not a list of macro names: write it as "ignoreMacros": ["<name>"].',
       'tfscript.json gives "claudeCode.warningLimit" as the number -1, not a whole number, 0 or more: write it as "warningLimit": 20.',
-      'tfscript.json gives "claudeCode.timeoutSeconds" as the number 60, not a number of seconds above 0 and at most 25: write it as "timeoutSeconds": 10.',
+      'tfscript.json gives "claudeCode.timeoutSeconds" as the number 60, not a number of seconds above 0 and at most 20: write it as "timeoutSeconds": 10.',
       'tfscript.json gives "claudeCode.enabled" as the text "yes", not true or false: write it as "enabled": true.',
     ]);
   });

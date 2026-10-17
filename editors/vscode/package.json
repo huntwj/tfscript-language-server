@@ -140,6 +140,17 @@
           "default": {},
           "scope": "resource",
           "markdownDescription": "Variables with a value when tf starts, as if `/set` after `stdlib.tf`: set in the environment, by a tfrc outside the workspace, or by a default this check can't work out, such as `/if (x =~ \"\") /set x=...%; /endif`. For example `{ \"wotmud_repo_dir\": \"/wotmud\" }`. Values are as tf sees them, so paths go through `#tfscript.pathMappings#`. A value here stands through a `/set` of it inside an `/if` or `/while`; a `/set` that always runs replaces it."
+        },
+        "tfscript.tfBuild": {
+          "type": "string",
+          "enum": ["upstream", "fork"],
+          "enumDescriptions": [
+            "TinyFugue 5.0 beta 8, as released.",
+            "A tf that loads a file saved with CRLF line endings like an LF one, and fixes three bugs in macro bodies: a ?: that crashed tf, a comma in $[...] that lost text, and /else running after a true /elseif."
+          ],
+          "default": "upstream",
+          "scope": "resource",
+          "markdownDescription": "Which tf the scripts run in, where builds differ in what a script does. With `fork`, a `\\` before a CRLF line ending continues the line, and extracting a variable is offered where upstream's bugs ruled it out."
         }
       }
     }

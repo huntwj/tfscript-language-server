@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Two more lint rules on where a macro's writes land. `set-writes-global`: a `/set` of a name the
+  macro made local with `/let`, which writes the global instead (the macro goes on reading its
+  local); the fix writes `/let`. `tfread-without-let`: a `tfread()` into a name with no `/let`
+  first, which writes a global that outlives the macro (as tf's `kv-textlog.tf` once did); a note,
+  with a fix that puts the `/let` first. `tfscript.diagnostics.localPrefix` (`--local-prefix`) names
+  a project's convention for locals (`_`, say): both then warn for a name starting with it. No
+  prefix is assumed, as tf's own library uses `_` names for globals. The tf-scripting skill says to
+  make a macro's own variables locals with `/let`, and change them with `/let` or `:=`, never `/set`.
+
 - The Claude Code hook passes on lint warnings only for the lines the edit wrote (all of a Write),
   and counts the rest; errors and other warnings are passed on for the whole file as before. The
   JSON report marks each diagnostic's `lint`.

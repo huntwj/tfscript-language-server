@@ -677,12 +677,20 @@ export const RULE_SECTIONS: RuleSection[] = [
         "in new code.",
       "`/require file` loads a file as `/load file` does, options and all, but not again once the file has run " +
         "`/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again.",
+      "In a macro, `/set` always writes the global variable, even where the macro made a local of that name with " +
+        "`/let`, and the macro's own reads still see the local. `tfread(handle, name)` writes the local where a `/let` " +
+        "made one first, else a global, which outlives the macro. `name := value` makes a local where there is none " +
+        "(with `%local_assign` on, the default). A local is seen by the macros a macro calls, too.",
+      "Whether a variable is a local is the author's intent, which tf can't see: a project that names its locals by a " +
+        "rule (a leading `_`, say) can say so with `tfscript.diagnostics.localPrefix`, and a write that would land on a " +
+        "global of such a name is then a warning. tf's own library uses names with a leading `_` for globals, so no " +
+        "prefix is assumed.",
     ],
     source: [
       { at: "expand.c:620", what: "text in a body runs the `SEND` hook, then is sent" },
       { at: "socket.c:2991", what: "handle_send_function() runs the `SEND` hook only for `-h`" },
     ],
-    cases: ["lint-empty-body", "lint-empty-trigger-body", "lint-send-h"],
+    cases: ["lint-empty-body", "lint-empty-trigger-body", "lint-send-h", "set-writes-global-over-local", "tfread-writes-global-without-let"],
     sourceOnly: [
       "That `/send` passes `-h` on to `send()` is read from stdlib.tf's `/send` (lib/tf/stdlib.tf:103-115), and " +
         "that `send()` runs the `SEND` hook only for `-h`, so `/send` without it skips the hook, from socket.c:2991.",
@@ -711,12 +719,37 @@ export const RULE_SECTIONS: RuleSection[] = [
           "`TFLIBDIR`); the fix writes `/require`. A file without `/loaded`, which `/require` would load again anyway, " +
           "isn't flagged",
       },
+      {
+        code: "set-writes-global",
+        severity: "warning",
+        summary:
+          "This `/set` writes the global variable, not the macro's local of that name, which its own reads go on " +
+          "seeing. Write `/let name=...` to change the local, or put `; tflint:ignore-nextline` on the line before if " +
+          "the global is meant.",
+        detail:
+          "a `/set` in a macro body of a name the body made local with `/let` before it, or, with " +
+          "`tfscript.diagnostics.localPrefix`, of a name starting with that prefix; the fix writes `/let`",
+      },
+      {
+        code: "tfread-without-let",
+        severity: "information (warning for a name with the project's local prefix)",
+        summary:
+          "This `tfread()` writes a global variable, as the macro has no local of that name, and the global outlives " +
+          "the macro. Put `/let name=` before it for a local, or put `; tflint:ignore-nextline` on the line before if " +
+          "the global is meant.",
+        detail:
+          "a `tfread()` in a macro body whose variable no `/let` before it made local; a warning where the name starts " +
+          "with `tfscript.diagnostics.localPrefix`. The fix puts `/let name=%; ` before the statement",
+      },
     ],
     fix: [
       "In code you write, send text to the world with `/send -h text`: it does what bare text does, the `SEND` hook " +
         "included, and says it is meant. Leave bare text already in a script as it is. Not `/send` alone, which " +
         "skips the hook, and not where the text starts with `-` or a substitution, which `/send` reads as an option.",
       "Load a library file with `/require`: `/require alias.tf`.",
+      "In code you write, make every variable a macro only uses itself a local with `/let` before it is first " +
+        "written (`/let _line=%; /while (tfread(h, _line) >= 0) ...`), and change it with `/let` or `:=`, never " +
+        "`/set`, which writes the global.",
       "Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before.",
     ],
   },

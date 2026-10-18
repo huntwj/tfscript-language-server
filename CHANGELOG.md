@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- An assignment (`x := 1`, `++x`) to a name with no variable makes a global in upstream tf; only
+  the fork's `local_assign` makes it a local. The tf-scripting skill and the rule docs said it
+  made a local everywhere. Extract and inline macro now refuse to move such an assignment only
+  with `tfscript.tfBuild` set to `fork`; upstream it makes the same global wherever it runs.
+
 ## 0.4.0
 
 - Two more lint rules on where a macro's writes land. `set-writes-global`: a `/set` of a name the

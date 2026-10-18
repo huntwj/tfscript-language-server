@@ -33,8 +33,7 @@ describe("empty-macro-body", () => {
 });
 
 it("leaves bare text in a body alone, tf's own idiom (the skill says to write /send -h in new code)", () => {
-  expect(lint("/def go = /echo a%; kill %{target}%; /if (x) change mood brave%; /endif
-")).toEqual([]);
+  expect(lint("/def go = /echo a%; kill %{target}%; /if (x) change mood brave%; /endif\n")).toEqual([]);
 });
 
 describe("load-of-library-file", () => {

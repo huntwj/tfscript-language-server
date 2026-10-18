@@ -153,9 +153,7 @@ export function getDiagnostics(text: string, { joinFixes = true, tfBuild = DEFAU
     const name = definedMacro(entry);
     if (name) macros.add(name.toLowerCase());
   }
-  // Macros the file reads as a value (`${HILITEFILE}`, as stdlib.tf does), which hold no commands.
-  const valueMacros = new Set([...text.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((m) => (m[1] as string).toLowerCase()));
-  const facts: FileFacts = { macros, tfBuild, valueMacros };
+  const facts: FileFacts = { macros, tfBuild };
 
   for (const rule of RULES) {
     // A rule that throws loses its own diagnostics, for that command, not every rule's for the file.

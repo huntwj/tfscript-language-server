@@ -1,7 +1,7 @@
 import { LIBRARY_FILES_WITH_LOADED } from "../data/libraryLoaded.generated";
 import { isTfSpace } from "../logicalEntries";
-import { code, commandParts, macroBodyStart, parseLayout } from "../structure";
-import { definedMacro, defFiresOnEvent, defHasInvalidOption } from "../symbols";
+import { code, commandParts, macroBodyStart } from "../structure";
+import { defFiresOnEvent, defHasInvalidOption } from "../symbols";
 import { invalidMacroName } from "./invalidMacroName";
 import type { EntryMatch, EntryRule, FileFacts } from "./types";
 import type { LogicalEntry } from "../logicalEntries";
@@ -60,68 +60,6 @@ export const emptyMacroBody: EntryRule = {
   },
 };
 
-/** Text that `/send -h` takes as it is: not an option (`-`), and not a substitution that could turn into one. */
-const SAFE_SEND_START = /^[^-%$\\{]/;
-
-/**
- * Text in a macro body that tf sends to the world: the same as `/send -h text`, the SEND hook
- * included (case lint-send-h; expand.c sends text through the hook, stdlib.tf's /send passes -h
- * on to send(), socket.c's handle_send_function() runs the hook for it). The quick fix writes the
- * `/send -h`, where the text can't be read as one of /send's options.
- *
- * Not flagged: a macro that holds a value rather than commands (tfrc's `/def LOGFILE = ...`,
- * which stdlib.tf reads as `${LOGFILE}`): one the file reads as `${name}`, or one named in capitals
- * by that convention; and text either side of a `%|`, which tf refuses to pipe ("Piping output of
- * a server command is not allowed"), so it sends nothing, where `/send -h` would.
- */
-export const textSentFromBody: EntryRule = {
-  id: "text-sent-from-body",
-  severity: "warning",
-  scope: "entry",
-  check(entry, file): EntryMatch[] {
-    if (!(entry.isDefBody || entry.isOtherMacroBody) || refused(entry, file)) return [];
-    const text = entry.text;
-    const body = macroBodyStart(text);
-    if (body < 0) return [];
-    const name = entry.isDefBody ? definedMacro(entry) : undefined;
-    if (name && (file.valueMacros.has(name.toLowerCase()) || (/[A-Z]/.test(name) && name === name.toUpperCase()))) return [];
-    const b = text.slice(body);
-    const layout = parseLayout(b, "body");
-    if (layout.stopped) return [];
-    const out: EntryMatch[] = [];
-    for (const u of layout.units) {
-      if (u.block || u.word !== "" || layout.lists[u.list]?.kind !== "body") continue;
-      // The separators either side of it, in its own list.
-      const seps = layout.separators.filter((sep) => sep.list === u.list);
-      const before = seps.filter((sep) => sep.at < u.start).pop();
-      const after = seps.find((sep) => sep.at >= u.start);
-      if (before?.char === "|" || (after && after.at <= u.end && after.char === "|")) continue;
-      let s = u.start;
-      let e = u.end;
-      while (s < e && isTfSpace(b[s])) s += 1;
-      while (e > s && isTfSpace(b[e - 1])) e -= 1;
-      if (s >= e) continue;
-      const said = b.slice(s, e);
-      const safe = SAFE_SEND_START.test(said);
-      out.push({
-        start: body + s,
-        end: body + e,
-        message: `This text is sent to the world: put /send -h in front of it to say so, or ${IGNORE.replace(/`/g, "")}.`,
-        label: "sent to the world",
-        explanation:
-          `Text in a macro body that isn't a command is sent to the world when the macro runs, through the ` +
-          `${code("SEND")} hook. ${code("/send -h")} does exactly that, and says it on purpose. ` +
-          (safe
-            ? ""
-            : `The fix isn't offered here: text starting with ${code("-")} or a substitution could be read as an option of ${code("/send")}. `) +
-          `If sending it bare is the point, ${IGNORE}.`,
-        ...(safe ? { fix: { title: "Write it as /send -h", edits: [{ start: body + s, end: body + s, newText: "/send -h " }] } } : {}),
-      });
-    }
-    return out;
-  },
-};
-
 /**
  * A top-level `/load` of one of tf's library files that runs `/loaded`, by its bare name (found
  * through `TFPATH` or `TFLIBDIR`): `/require` loads it the same way, but only if it isn't loaded
@@ -158,11 +96,11 @@ export const loadOfLibraryFile: EntryRule = {
   },
 };
 
-export const LINT_RULES = [emptyMacroBody, textSentFromBody, loadOfLibraryFile];
+export const LINT_RULES = [emptyMacroBody, loadOfLibraryFile];
 
 /**
  * A comment that turns the lint tier off for the line after it: all of it, or the codes it names
- * (words like `text-sent-from-body`; anything else on the line, a reason, say, is just a comment).
+ * (words like `empty-macro-body`; anything else on the line, a reason, say, is just a comment).
  */
 const IGNORE_RE = /^[ \t]*[;#].*?\btflint:ignore-nextline\b(.*)$/;
 const CODE_WORD = /^[a-z]+(?:-[a-z]+)+$/;

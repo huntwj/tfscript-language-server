@@ -38,8 +38,6 @@ export interface LineMatch extends LineSpan {
 export interface FileFacts {
   /** Which tf runs the file (tfBuild.ts). */
   tfBuild: TfBuild;
-  /** Names the file reads as a macro's value, `${name}`, lower case: such a macro holds a value, not commands. */
-  valueMacros: ReadonlySet<string>;
   /**
    * The macros the file's commands define, lower case: each `/def` tf reads, at the top level and
    * before any line that aborts the load, not a comment or a /def inside another command's text.

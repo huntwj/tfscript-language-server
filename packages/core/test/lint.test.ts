@@ -32,43 +32,9 @@ describe("empty-macro-body", () => {
   });
 });
 
-describe("text-sent-from-body", () => {
-  it("flags each statement of a body that is text, and offers /send -h", () => {
-    const text = "/def go = /echo a%; kill %{target}%; /if (x) change mood brave%; /endif\n";
-    const ds = lint(text, "text-sent-from-body");
-    expect(ds.map((d) => text.slice(d.range.start.character, d.range.end.character))).toEqual(["kill %{target}", "change mood brave"]);
-    expect(fixed(text, ds[0])).toBe("/def go = /echo a%; /send -h kill %{target}%; /if (x) change mood brave%; /endif\n");
-    expect(ds[0]?.fix?.title).toBe("Write it as /send -h");
-  });
-
-  it("says to put /send -h in front, without quoting the text", () => {
-    expect(lint("/def go = kill orc\n", "text-sent-from-body")[0]?.message).toBe(
-      "This text is sent to the world: put /send -h in front of it to say so, or put ; tflint:ignore-nextline on the line before.",
-    );
-  });
-
-  it("leaves a macro that holds a value alone: one read as ${name}, or named in capitals", () => {
-    // tf's tfrc: /def LOGFILE = ~/tf-dir/tiny.log, which stdlib.tf reads as ${LOGFILE}.
-    expect(lint("/def LOGFILE = ~/tf-dir/tiny.log\n", "text-sent-from-body")).toEqual([]);
-    expect(lint("/def myfile = myfile.tf\n/def save = /echo ${myfile}\n", "text-sent-from-body")).toEqual([]);
-    expect(lint("/def myfile = myfile.tf\n", "text-sent-from-body")).toHaveLength(1);
-  });
-
-  it("leaves text either side of a %| alone, which tf refuses to pipe and so sends nothing", () => {
-    // Real tf: "Piping output of a server command is not allowed." / "Piping input to a server command is not allowed."
-    expect(lint("/def a = c3 %| /grep zzz\n", "text-sent-from-body")).toEqual([]);
-    expect(lint("/def a = /echo hi %| text10\n", "text-sent-from-body")).toEqual([]);
-    expect(lint("/def a = /echo hi %| /grep h%; kill orc\n", "text-sent-from-body")).toHaveLength(1);
-  });
-
-  it("offers no fix for text /send could read as an option, and leaves $(...) and refused /defs alone", () => {
-    const [dash] = lint("/def go = -5 hp\n", "text-sent-from-body");
-    expect(dash?.fix).toBeUndefined();
-    expect(dash?.explanation).toContain("The fix isn't offered here");
-    expect(lint("/def go = %1\n", "text-sent-from-body")[0]?.fix).toBeUndefined();
-    expect(lint("/def go = /echo $(/echo hi)\n", "text-sent-from-body")).toEqual([]);
-    expect(lint("/def oops /echo the = was left out\n", "text-sent-from-body")).toEqual([]);
-  });
+it("leaves bare text in a body alone, tf's own idiom (the skill says to write /send -h in new code)", () => {
+  expect(lint("/def go = /echo a%; kill %{target}%; /if (x) change mood brave%; /endif
+")).toEqual([]);
 });
 
 describe("load-of-library-file", () => {
@@ -96,18 +62,15 @@ describe("tflint:ignore-nextline", () => {
   });
 
   it("with codes after it, only those", () => {
-    const text = "; tflint:ignore-nextline empty-macro-body\n/def go = kill orc\n";
-    expect(lint(text).map((d) => d.code)).toEqual(["text-sent-from-body"]);
-    expect(lint("; tflint:ignore-nextline text-sent-from-body, empty-macro-body\n/def go = kill orc\n")).toEqual([]);
+    expect(lint("; tflint:ignore-nextline load-of-library-file\n/def idle =\n").map((d) => d.code)).toEqual(["empty-macro-body"]);
+    expect(lint("; tflint:ignore-nextline load-of-library-file, empty-macro-body\n/def idle =\n")).toEqual([]);
   });
 
-  it("works on a continued body's own line, and leaves other diagnostics as they are", () => {
-    const text = "/def go = \\\n  /echo a%;\\\n; tflint:ignore-nextline\n  kill orc\n";
-    expect(lint(text)).toEqual([]);
+  it("leaves other diagnostics as they are", () => {
     expect(getDiagnostics("; tflint:ignore-nextline\n/def if = /echo x\n").map((d) => d.code)).toContain("invalid-macro-name");
   });
 });
 
 it("counts the lint tier as quiet in tf: a file it flags still loads clean", () => {
-  for (const d of [...lint("/def idle =\n"), ...lint("/def go = kill orc\n"), ...lint("/load alias.tf\n")]) expect(quietInTf(d), d.code).toBe(true);
+  for (const d of [...lint("/def idle =\n"), ...lint("/load alias.tf\n")]) expect(quietInTf(d), d.code).toBe(true);
 });

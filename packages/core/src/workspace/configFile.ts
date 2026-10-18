@@ -61,6 +61,7 @@ export const DIAGNOSTIC_SHAPES: Readonly<Record<string, Shape>> = {
   unresolvedLoads: "boolean",
   undefinedMacros: "boolean",
   ignoreMacros: "names",
+  localPrefix: "string",
 };
 
 /**
@@ -215,6 +216,9 @@ export function parseConfig(text: string, file: string, label: string = file): C
           else if (want === "boolean") {
             if (typeof v === "boolean") diagnostics[sub as "unresolvedLoads" | "undefinedMacros"] = v;
             else wrong(`diagnostics.${sub}`, v, "true or false", `"${sub}": false`);
+          } else if (want === "string") {
+            if (typeof v === "string") diagnostics.localPrefix = v;
+            else wrong(`diagnostics.${sub}`, v, "text", `"${sub}": "_"`);
           } else if (isStrings(v)) diagnostics.ignoreMacros = v;
           else wrong(`diagnostics.${sub}`, v, "a list of macro names", `"${sub}": ["<name>"]`);
         }

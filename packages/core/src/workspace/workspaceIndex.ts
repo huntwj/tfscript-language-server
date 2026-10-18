@@ -164,6 +164,12 @@ export class WorkspaceIndex {
     return folder === undefined ? DEFAULT_TF_BUILD : this.settingsFor(folder).tfBuild;
   }
 
+  /** The folder's tfscript.diagnostics.localPrefix for `file`, or undefined for none. */
+  localPrefixFor(file: string): string | undefined {
+    const prefix = this.raw.get(keyOf(this.folderFor(file)))?.diagnostics?.localPrefix;
+    return typeof prefix === "string" && prefix !== "" ? prefix : undefined;
+  }
+
   private readAsIs(file: string): string | undefined {
     const key = keyOf(file);
     const open = this.overlay.get(key);

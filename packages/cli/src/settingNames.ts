@@ -17,6 +17,7 @@ export const OPTION_FOR_SETTING: Readonly<Record<string, string>> = {
   "diagnostics.unresolvedLoads": "--no-unresolved-loads",
   "diagnostics.undefinedMacros": "--no-undefined-macros",
   "diagnostics.ignoreMacros": "--ignore-macro",
+  "diagnostics.localPrefix": "--local-prefix",
 };
 
 /** A setting's name in core's text: `tfscript.` and dotted words, not a sentence's final period. */

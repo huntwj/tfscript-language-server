@@ -55,6 +55,7 @@ export const OPTIONS: Readonly<Record<string, Kind>> = {
   "no-unresolved-loads": "flag",
   "no-undefined-macros": "flag",
   "ignore-macro": "list",
+  "local-prefix": "value",
 };
 
 const SHORT: Record<string, string> = { h: "help" };
@@ -162,6 +163,8 @@ function settingsOf(p: Parsed): RawSettings {
   if (p.flags.has("no-unresolved-loads")) diagnostics.unresolvedLoads = false;
   if (p.flags.has("no-undefined-macros")) diagnostics.undefinedMacros = false;
   if (all("ignore-macro").length > 0) diagnostics.ignoreMacros = all("ignore-macro");
+  const prefix = one("local-prefix");
+  if (prefix !== undefined) diagnostics.localPrefix = prefix;
   if (Object.keys(diagnostics).length > 0) settings.diagnostics = diagnostics;
   return settings;
 }

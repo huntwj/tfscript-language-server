@@ -135,6 +135,12 @@
           "scope": "resource",
           "markdownDescription": "Macro names the undefined-macro check leaves alone, ignoring case; `*` matches any run of characters (`wot_*`)."
         },
+        "tfscript.diagnostics.localPrefix": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "The start of a name that, by this project's convention, is only ever a macro's local variable (`_`, say). A write that would land on a global of such a name (a `/set`, or `tfread()` with no `/let` first) is then a warning. Empty: no convention."
+        },
         "tfscript.homeDirectory": {
           "type": "string",
           "default": "",

@@ -38,6 +38,8 @@ export interface LineMatch extends LineSpan {
 export interface FileFacts {
   /** Which tf runs the file (tfBuild.ts). */
   tfBuild: TfBuild;
+  /** The project's tfscript.diagnostics.localPrefix: names starting with it are only ever locals, by its convention. */
+  localPrefix?: string;
   /**
    * The macros the file's commands define, lower case: each `/def` tf reads, at the top level and
    * before any line that aborts the load, not a comment or a /def inside another command's text.

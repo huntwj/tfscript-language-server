@@ -44,6 +44,11 @@ export interface RawSettings {
     undefinedMacros?: boolean;
     /** Macro names the undefined-macro check leaves alone (made while tf runs, say); `*` is a wildcard. */
     ignoreMacros?: string[];
+    /**
+     * The start of a name that, by this project's convention, is only ever a macro's local
+     * variable (`_`, say): the /let lint then warns of a global write to such a name. Default none.
+     */
+    localPrefix?: string;
   };
   codeLens?: {
     /** "N references" above each /def. Default on. */

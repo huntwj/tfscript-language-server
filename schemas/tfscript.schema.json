@@ -72,6 +72,10 @@
           "description": "Macro names the undefined-macro check leaves alone, ignoring case; * is a wildcard.",
           "type": "array",
           "items": { "type": "string" }
+        },
+        "localPrefix": {
+          "description": "The start of a name that, by this project's convention, is only ever a macro's local variable (\"_\", say): a write that would land on a global of such a name is then a warning. Default: none.",
+          "type": "string"
         }
       }
     },

@@ -43,6 +43,8 @@ Which diagnostics:
   --no-undefined-macros         leave out undefined-macro (diagnostics.undefinedMacros)
   --ignore-macro <name>         a macro undefined-macro leaves alone, ignoring case, * a
                                 wildcard; repeat for more (diagnostics.ignoreMacros)
+  --local-prefix <text>         names starting with it are only ever locals, by this project's
+                                convention (diagnostics.localPrefix; default: none)
 
   -h, --help                    show this help
   --version                     show the version

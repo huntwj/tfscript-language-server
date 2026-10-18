@@ -114,6 +114,7 @@ describe("parseArgs", () => {
     );
     expect(usageError(["check", "--tf-build", "dev", "a.tf"])).toBe("--tf-build dev isn't a tf build: give upstream or fork.");
     expect(parseArgs(["check", "--tf-build", "fork", "a.tf"])).toMatchObject({ settings: { tfBuild: "fork" } });
+    expect(parseArgs(["check", "--local-prefix", "_", "a.tf"])).toMatchObject({ settings: { diagnostics: { localPrefix: "_" } } });
     expect(usageError(["check", "--path-mapping", "wotmud=C:/w", "a.tf"])).toBe(
       "--path-mapping wotmud=C:/w maps wotmud, which isn't absolute: start tf's side with /, as in /wotmud=C:/wotmud.",
     );

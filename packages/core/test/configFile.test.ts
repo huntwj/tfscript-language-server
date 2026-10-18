@@ -97,7 +97,7 @@ describe("parseConfig", () => {
       'tfscript.json has "tfscript.diagnostics.undefinedMacros": write the key without the tfscript. prefix, as "diagnostics".',
     ]);
     expect(parse({ diagnostics: { unknown: true }, claudeCode: { quiet: true } }).problems).toEqual([
-      'tfscript.json has "diagnostics.unknown", which isn\'t a setting: remove it, or use one of unresolvedLoads, undefinedMacros, ignoreMacros.',
+      'tfscript.json has "diagnostics.unknown", which isn\'t a setting: remove it, or use one of unresolvedLoads, undefinedMacros, ignoreMacros, localPrefix.',
       'tfscript.json has "claudeCode.quiet", which isn\'t a setting: remove it, or use one of enabled, warningLimit, showInformation, timeoutSeconds.',
     ]);
   });

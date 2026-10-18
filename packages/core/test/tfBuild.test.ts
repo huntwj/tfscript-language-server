@@ -47,6 +47,9 @@ describe("the tfBuild setting", () => {
   it("is read from tfscript.json, which names the builds when it is something else", () => {
     const parse = (data: unknown) => parseConfig(JSON.stringify(data), p("ws", "tfscript.json"), "tfscript.json");
     expect(parse({ tfBuild: "fork" }).config?.settings).toEqual({ tfBuild: "fork" });
+    // The /let lint's opt-in convention rides along under diagnostics.
+    expect(parse({ diagnostics: { localPrefix: "_" } }).config?.settings).toEqual({ diagnostics: { localPrefix: "_" } });
+    expect(parse({ diagnostics: { localPrefix: 1 } }).problems).toEqual(['tfscript.json gives "diagnostics.localPrefix" as the number 1, not text: write it as "localPrefix": "_".']);
     expect(parse({ tfBuild: "dev" }).problems).toEqual(['tfscript.json gives "tfBuild" as the text "dev", not "upstream" or "fork": write it as "tfBuild": "fork".']);
   });
 });

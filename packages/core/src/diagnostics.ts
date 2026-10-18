@@ -128,7 +128,10 @@ export function quietInTf(d: TfDiagnostic): boolean {
  * Every diagnostic for `text`. `joinFixes: false` leaves out the line-joining fixes (joinFix.ts),
  * which try out candidate fixes with this function and so must not recurse into themselves.
  */
-export function getDiagnostics(text: string, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD }: { joinFixes?: boolean; tfBuild?: TfBuild } = {}): TfDiagnostic[] {
+export function getDiagnostics(
+  text: string,
+  { joinFixes = true, tfBuild = DEFAULT_TF_BUILD, localPrefix }: { joinFixes?: boolean; tfBuild?: TfBuild; localPrefix?: string } = {},
+): TfDiagnostic[] {
   const entries = splitLogicalEntries(text);
   let diagnostics: TfDiagnostic[] = [];
 
@@ -153,7 +156,7 @@ export function getDiagnostics(text: string, { joinFixes = true, tfBuild = DEFAU
     const name = definedMacro(entry);
     if (name) macros.add(name.toLowerCase());
   }
-  const facts: FileFacts = { macros, tfBuild };
+  const facts: FileFacts = { macros, tfBuild, ...(localPrefix ? { localPrefix } : {}) };
 
   for (const rule of RULES) {
     // A rule that throws loses its own diagnostics, for that command, not every rule's for the file.
@@ -189,7 +192,7 @@ export function getDiagnostics(text: string, { joinFixes = true, tfBuild = DEFAU
   // One missing \ makes the lines after a top-level /if or /while commands of their own: say so once.
   diagnostics = consolidateContinuations(text, entries, diagnostics);
   unjoinGluedKeywords(text, entries, diagnostics);
-  if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false, tfBuild }));
+  if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false, tfBuild, ...(localPrefix ? { localPrefix } : {}) }));
 
   // A lint diagnostic the comment on the line before turns off (`; tflint:ignore-nextline`).
   const rawLines = splitRawLines(text);

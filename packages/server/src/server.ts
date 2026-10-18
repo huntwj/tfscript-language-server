@@ -331,7 +331,10 @@ const published = new Map<string, { version: number; diagnostics: TfDiagnostic[]
 
 function diagnosticsFor(document: TextDocument): TfDiagnostic[] {
   const last = published.get(document.uri);
-  return last && last.version === document.version ? last.diagnostics : getDiagnostics(loadedText(document), { tfBuild: buildOf(document) });
+  if (last && last.version === document.version) return last.diagnostics;
+  const file = toPath(document.uri);
+  const localPrefix = file === undefined ? undefined : index.localPrefixFor(file);
+  return getDiagnostics(loadedText(document), { tfBuild: buildOf(document), ...(localPrefix ? { localPrefix } : {}) });
 }
 
 connection.onCompletion((params: CompletionParams): CompletionItem[] => {

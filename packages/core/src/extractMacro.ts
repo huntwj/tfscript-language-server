@@ -4,6 +4,7 @@ import { formatIndent, splitEntry } from "./formatting";
 import { isBlankLine, isCommentLine, isTfSpace, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { macroBodyStart, parseUnits, type Unit } from "./structure";
 import { defIsInvisible, getDocumentSymbols, type TfSymbol } from "./symbols";
+import type { TfBuild } from "./tfBuild";
 import { findFunctionCalls, findMacroCalls, findVariables, isNameChar, type MacroCall } from "./variables";
 
 /**
@@ -34,8 +35,8 @@ import { findFunctionCalls, findMacroCalls, findVariables, isNameChar, type Macr
  *
  * And what doesn't, so the action is shown disabled with the reason:
  *  - A `/let` in the moved statements makes a local of the new macro, gone when it returns (a
- *    callee's `/let z` left the caller's `%z` empty), and so does an assignment (`h := 7`, `++c`)
- *    to a name with no local and no global: refused when the rest of the body names it, or runs a
+ *    callee's `/let z` left the caller's `%z` empty), and in the fork so does an assignment (`h := 7`,
+ *    `++c`) to a name with no local and no global (upstream's makes a global): refused when the rest of the body names it, or runs a
  *    macro (or `/trigger`) that might read it through the same dynamic scoping. An assignment to a
  *    name the macro `/let`s before it is fine: it sets that local.
  *  - `regmatch()` in the new macro sets `%P1`... only for it: the caller's `%P1` afterwards was
@@ -69,6 +70,8 @@ export interface ExtractOptions {
   indent?: string;
   /** Whether a macro (lower case) is called as a function, `name(...)`, anywhere that can be seen. */
   calledAsFunction?: (name: string) => boolean;
+  /** Which tf runs the file (tfBuild.ts): whether an assignment to a name with no variable makes a local. */
+  tfBuild?: TfBuild;
 }
 
 const TITLE = "Extract to a new macro";
@@ -305,15 +308,16 @@ function plan(
       return { disabled: "A /let in the selection sets a variable whose name is built when it runs, and it would be the new macro's local: keep it outside the selection." };
     }
   }
-  // The variables the moved text makes a local of: its /lets, and its assignments to a name with
-  // no local of the macro's (one with no global either makes a local; whether there is a global
-  // isn't known, so any).
+  // The variables the moved text makes a local of: its /lets, and in the fork its assignments to a
+  // name with no local of the macro's (one with no global either makes a local; whether there is a
+  // global isn't known, so any). Upstream, such an assignment makes a global wherever it runs
+  // (expr.c's assign()), so moving it changes nothing.
   const inMoved = (offset: number): boolean => offset >= body + xStart && offset < body + xEnd;
   const made = new Map<string, "let" | "assign">();
   const movedOccurrences = findVariables(text).filter((o) => o.entry === entryIndex && inMoved(o.offset));
   for (const o of movedOccurrences) {
     if (o.access === "let") made.set(o.name, "let");
-    else if (o.access === "assign" && o.scope === "global" && !made.has(o.name)) made.set(o.name, "assign");
+    else if (o.access === "assign" && o.scope === "global" && options.tfBuild === "fork" && !made.has(o.name)) made.set(o.name, "assign");
   }
   // Inside a loop, a local the selection makes lasts into the loop's next turn, where the
   // selection may read it before setting it again; in a macro of its own it starts afresh each

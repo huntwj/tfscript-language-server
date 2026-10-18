@@ -18,6 +18,7 @@ import { formatIndent, splitEntry } from "./formatting";
 import { isBlankLine, isTfSpace, splitLogicalEntries, splitRawLines, type LogicalEntry } from "./logicalEntries";
 import { macroBodyStart, parseStatements, parseUnits, type Unit } from "./structure";
 import { getDocumentSymbols, type TfSymbol } from "./symbols";
+import type { TfBuild } from "./tfBuild";
 import { findFunctionCalls, findMacroCalls, findVariables } from "./variables";
 import { countDefsOf } from "./workspace/loadPathDiagnostics";
 
@@ -37,8 +38,8 @@ import { countDefsOf } from "./workspace/loadPathDiagnostics";
  * Refused (shown disabled, with the reason) when the body would run differently in the caller:
  * `/return`, `/result`, `/exit` (would end the caller), `/shift` and getopts() (the caller's
  * arguments), `%0` (the caller's name), a `/break` outside a loop in the body (ends the macro;
- * inlined, it would end the caller's loop), a `/let` or an assignment that makes a local
- * (the caller's, once inlined, so its other statements and the macros it runs would see it),
+ * inlined, it would end the caller's loop), a `/let` or (in the fork) an assignment that makes a
+ * local (the caller's, once inlined, so its other statements and the macros it runs would see it),
  * regmatch() when the caller reads `%P` (a match made in a macro ends with it: do_macro()'s
  * new_reg_scope()), arguments other than `%*`, `/!foo` (negates the result), a call inside a
  * `$(...)` or a condition list, `%|` or `%\` beside the call, a tab, recursion, and a macro that
@@ -65,6 +66,8 @@ export interface InlineOptions {
   indent?: string;
   /** The file is in tf's library. */
   library?: boolean;
+  /** Which tf runs the file (tfBuild.ts): whether an assignment to a name with no variable makes a local. */
+  tfBuild?: TfBuild;
   /** Whether a macro (lower case) is called as a function, `name(...)`, anywhere that can be seen. */
   calledAsFunction?: (name: string) => boolean;
 }
@@ -245,8 +248,9 @@ function plan(text: string, entries: LogicalEntry[], site: Site, callee: Callee,
     if (reader) return { disabled: `/${name}'s regmatch() sets %P1 and the rest only inside /${name}; inlined, ${reader}, which ${owner} also runs, might read them.` };
   }
 
-  // The locals the body makes: its /lets, and assignments to a name it has no local of (which make
-  // one when no variable of that name exists, and whether one does isn't known).
+  // The locals the body makes: its /lets, and in the fork assignments to a name it has no local of
+  // (which make one when no variable of that name exists, and whether one does isn't known).
+  // Upstream, such an assignment makes a global wherever it runs (expr.c's assign()).
   const calleeBodyAt = macroBodyStart(callee.entry.text);
   const made = new Map<string, "let" | "assign">();
   for (const u of parsed.units.filter((w) => w.word === "let")) {
@@ -255,7 +259,7 @@ function plan(text: string, entries: LogicalEntry[], site: Site, callee: Callee,
   for (const o of findVariables(text)) {
     if (o.entry !== callee.entryIndex || o.offset < calleeBodyAt) continue;
     if (o.access === "let") made.set(o.name, "let");
-    else if (o.access === "assign" && o.scope === "global" && !made.has(o.name)) made.set(o.name, "assign");
+    else if (o.access === "assign" && o.scope === "global" && options.tfBuild === "fork" && !made.has(o.name)) made.set(o.name, "assign");
   }
   if (made.size > 0) {
     // An assignment to a name the caller has already /let, in its body's own list (not in a

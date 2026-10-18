@@ -157,6 +157,7 @@ export function routeCodeActions(text: string, request: CodeActionRequest): Rout
     const options = {
       ...(request.isTaken ? { isTaken: request.isTaken } : {}),
       ...(request.calledAsFunction ? { calledAsFunction: request.calledAsFunction } : {}),
+      ...(request.tfBuild ? { tfBuild: request.tfBuild } : {}),
     };
     const variable = {
       ...(request.mentionedOutside ? { mentionedOutside: request.mentionedOutside } : {}),
@@ -173,6 +174,7 @@ export function routeCodeActions(text: string, request: CodeActionRequest): Rout
       ...(request.mentionedOutside ? { mentionedOutside: request.mentionedOutside } : {}),
       ...(request.library ? { library: true } : {}),
       ...(request.calledAsFunction ? { calledAsFunction: request.calledAsFunction } : {}),
+      ...(request.tfBuild ? { tfBuild: request.tfBuild } : {}),
     };
     for (const a of getInlineActions(text, request.range, options)) {
       if (a.disabled === undefined) out.push({ title: a.title, kind: REFACTOR_INLINE, edits: a.edits });

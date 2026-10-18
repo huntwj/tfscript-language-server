@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Range, TfTextEdit } from "../src/diagnostics";
-import { getExtractActions } from "../src/extractMacro";
+import { getExtractActions, type ExtractOptions } from "../src/extractMacro";
 
 /** Applies edits, last first, so earlier positions stay valid. */
 function apply(text: string, edits: TfTextEdit[]): string {
@@ -24,15 +24,17 @@ function rangeOf(text: string, sub: string, from = 0): Range {
   return { start: pos(at), end: pos(at + sub.length) };
 }
 
-function extract(text: string, sub: string, from = 0): string | undefined {
-  const [action] = getExtractActions(text, rangeOf(text, sub, from));
+function extract(text: string, sub: string, from = 0, options: ExtractOptions = {}): string | undefined {
+  const [action] = getExtractActions(text, rangeOf(text, sub, from), options);
   if (!action || action.disabled) return undefined;
   return apply(text, action.edits);
 }
 
-function reason(text: string, sub: string): string | undefined {
-  return getExtractActions(text, rangeOf(text, sub))[0]?.disabled;
+function reason(text: string, sub: string, options: ExtractOptions = {}): string | undefined {
+  return getExtractActions(text, rangeOf(text, sub), options)[0]?.disabled;
 }
+
+const FORK: ExtractOptions = { tfBuild: "fork" };
 
 describe("extract to a new macro", () => {
   it("moves statements of a one-line body into a /def above it", () => {
@@ -124,16 +126,23 @@ describe("extract to a new macro", () => {
     expect(extract("/def -i -hLOAD hk = /echo %1%; /echo x\n", "/echo %1")?.split("\n")[2]).toBe("/def -i -hLOAD hk = /hk_extracted %*%; /echo x");
   });
 
-  it("refuses an assignment that would make a local of the new macro, when the rest of the body needs it", () => {
-    expect(reason("/def t = /test h:=7%; /test ++c%; /echo %h %c\n", "/test h:=7%; /test ++c")).toMatch(
+  it("refuses, in the fork, an assignment that would make a local of the new macro, when the rest of the body needs it", () => {
+    expect(reason("/def t = /test h:=7%; /test ++c%; /echo %h %c\n", "/test h:=7%; /test ++c", FORK)).toMatch(
       /^h is assigned in the selection with no \/let of it in \/t, so unless a global h exists.*uses it outside the selection: \/let or \/set h before the selection/,
     );
-    expect(reason("/def t = /test h:=7%; /other\n", "/test h:=7")).toMatch(/also runs \/other/);
-    expect(reason("/def t = /eval /let ww=1%; /test ww:=2%; /echo %ww\n", "/test ww:=2")).toMatch(/^ww is assigned/);
+    expect(reason("/def t = /test h:=7%; /other\n", "/test h:=7", FORK)).toMatch(/also runs \/other/);
+    expect(reason("/def t = /eval /let ww=1%; /test ww:=2%; /echo %ww\n", "/test ww:=2", FORK)).toMatch(/^ww is assigned/);
     // A /let of it before the selection: the assignment sets that local.
-    expect(extract("/def t = /let h=1%; /test h:=7%; /echo %h\n", "/test h:=7")).toBeDefined();
+    expect(extract("/def t = /let h=1%; /test h:=7%; /echo %h\n", "/test h:=7", 0, FORK)).toBeDefined();
     // Nothing outside reads it.
-    expect(extract("/def t = /test h:=7%; /echo done\n", "/test h:=7")).toBeDefined();
+    expect(extract("/def t = /test h:=7%; /echo done\n", "/test h:=7", 0, FORK)).toBeDefined();
+  });
+
+  it("moves such an assignment upstream, where it makes a global wherever it runs", () => {
+    expect(extract("/def t = /test h:=7%; /test ++c%; /echo %h %c\n", "/test h:=7%; /test ++c")).toBeDefined();
+    expect(extract("/def t = /test h:=7%; /other\n", "/test h:=7", 0, { tfBuild: "upstream" })).toBeDefined();
+    // A /let still makes a local of the new macro.
+    expect(reason("/def t = /let h=7%; /echo %h\n", "/let h=7")).toMatch(/^h is \/let in the selection/);
   });
 
   it("only counts a call in the rest of the body that runs, not parentheses in text", () => {

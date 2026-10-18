@@ -94,10 +94,13 @@ describe("inline a macro", () => {
     expect(reason(def("/let x=1%; /echo %x", "/hi%; /echo %x"), "/hi%;")).toMatch(/\/lets x.*\/go uses x itself/);
     expect(reason(def("/let x=1", "/hi%; /other"), "/hi%;")).toMatch(/also runs \/other/);
     expect(inline(def("/let x=1%; /echo %x"), "/hi%;")).toBeDefined();
-    expect(reason(def("/test fresh := 4", "/hi%; /echo %fresh"), "/hi%;")).toMatch(/assigns fresh/);
+    const fork: InlineOptions = { tfBuild: "fork" };
+    expect(reason(def("/test fresh := 4", "/hi%; /echo %fresh"), "/hi%;", fork)).toMatch(/assigns fresh/);
+    // Upstream, the assignment makes a global wherever it runs.
+    expect(inline(def("/test fresh := 4", "/hi%; /echo %fresh"), "/hi%;")).toBeDefined();
     // An assignment to the caller's own /let sets that local either way.
-    expect(inline(def("/test n := n + 1", "/let n=1%; /hi%; /echo %n"), "/hi%;")).toBeDefined();
-    expect(reason(def("/test n := n + 1", "/if (1) /let n=1%; /endif%; /hi%; /echo %n"), "/hi%;")).toMatch(/assigns n/);
+    expect(inline(def("/test n := n + 1", "/let n=1%; /hi%; /echo %n"), "/hi%;", fork)).toBeDefined();
+    expect(reason(def("/test n := n + 1", "/if (1) /let n=1%; /endif%; /hi%; /echo %n"), "/hi%;", fork)).toMatch(/assigns n/);
     expect(reason(def('/test regmatch("b", "abc")', "/hi%; /echo %P0"), "/hi%;")).toMatch(/regmatch\(\)/);
     expect(reason(def("/echo a", "/!hi%; /echo b"), "/!hi")).toMatch(/negates/);
     expect(reason(def("/echo a", "/echo $(/hi)"), "/hi)")).toMatch(/\$\(\.\.\.\)/);
@@ -163,7 +166,8 @@ describe("inline: what the loop and the caller's callers see", () => {
     // In tf, `/let n=$[n+1]` called in a /while gave 1,1,1; inlined it gave 1,2,3.
     const loop = (body: string): string => `/def -i hi = ${body}\n/def -i go = /let i=0%; /while (i<3) /hi%; /test ++i%; /done\n`;
     expect(reason(loop("/let n=$[n+1]%; /echo %n"), "/hi%;")).toMatch(/inside a \/while, and \/hi makes a local n/);
-    expect(reason(loop("/test c := c + 1%; /echo %c"), "/hi%;")).toMatch(/makes a local c/);
+    expect(reason(loop("/test c := c + 1%; /echo %c"), "/hi%;", { tfBuild: "fork" })).toMatch(/makes a local c/);
+    expect(inline(loop("/test c := c + 1%; /echo %c"), "/hi%;")).toBeDefined();
     expect(reason(loop("/if (seen) /echo s%; /endif%; /let seen=1"), "/hi%;")).toMatch(/makes a local seen/);
     expect(inline(loop("/echo a"), "/hi%;")).toBeDefined();
     // An assignment to the caller's own /let sets that local, in the loop or not.

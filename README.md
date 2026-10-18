@@ -923,11 +923,12 @@ Why the call runs the same, proven in real tf (tf-script-check, 2026-10-14):
 
 When it is disabled:
 
-- a `/let` in the selection, or an assignment (`h := 7`, `++c`) to a name the macro has no `/let`
-  of, when the rest of the body names the variable or runs a macro (by name, as a function in an
-  expression, or in `/eval`, `/for` or `/repeat` text) or `/trigger` that might read it: the `/let`
-  would make a local of the new macro, gone when it returns, and so would the assignment if there
-  is no global of that name yet (an assignment makes a local of the running macro then);
+- a `/let` in the selection, or, with `tfscript.tfBuild` set to `fork`, an assignment (`h := 7`,
+  `++c`) to a name the macro has no `/let` of, when the rest of the body names the variable or runs
+  a macro (by name, as a function in an expression, or in `/eval`, `/for` or `/repeat` text) or
+  `/trigger` that might read it: the `/let` would make a local of the new macro, gone when it
+  returns, and in the fork so would the assignment if there is no global of that name yet (the
+  fork's assignment makes a local of the running macro then; upstream's makes a global);
 - `regmatch()` in the selection when the rest of the body reads `%P`: the new macro's match ends
   with it;
 - `/return`, `/result`, `/exit` (they would end the new macro), `/shift` and `getopts()` (they
@@ -1070,8 +1071,8 @@ When it is disabled, each checked in tf where the reason is a behaviour:
   `go("p q", "r")` gave /foo `%1=[p]`, inlined `[p q]`);
 - a `/break` not inside a `/while` of the body: in a macro it ends the macro, inlined it would
   end the loop the call is in;
-- a `/let`, or an assignment to a name with no local (which makes one when no variable of that
-  name exists), when the caller names the variable or runs a macro that might read it: inlined,
+- a `/let`, or, with `tfscript.tfBuild` set to `fork`, an assignment to a name with no local (the
+  fork's makes one when no variable of that name exists; upstream's makes a global), when the caller names the variable or runs a macro that might read it: inlined,
   the local would be the caller's. An assignment to a name the caller has already `/let`, in its
   own body rather than a branch, is fine;
 - `regmatch()` when the caller reads `%P` or runs another macro: a match made in a macro ends with

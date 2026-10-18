@@ -778,6 +778,15 @@ export const SPECIAL_VARIABLES: readonly TfVariable[] = [
     "type": "position"
   },
   {
+    "name": "telnet_offers",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
     "name": "telopt",
     "type": "flag",
     "values": [

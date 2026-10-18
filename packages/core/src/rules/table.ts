@@ -679,8 +679,10 @@ export const RULE_SECTIONS: RuleSection[] = [
         "`/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again.",
       "In a macro, `/set` always writes the global variable, even where the macro made a local of that name with " +
         "`/let`, and the macro's own reads still see the local. `tfread(handle, name)` writes the local where a `/let` " +
-        "made one first, else a global, which outlives the macro. `name := value` makes a local where there is none " +
-        "(with `%local_assign` on, the default). A local is seen by the macros a macro calls, too.",
+        "made one first, else a global, which outlives the macro. `name := value` (and `++`, `+=` and the rest) " +
+        "sets the nearest variable of that name, a local first; where there is none, upstream tf makes a global, and " +
+        "only the fork makes a local (with `%local_assign` on, its default). A local is seen by the macros a macro " +
+        "calls, too.",
       "Whether a variable is a local is the author's intent, which tf can't see: a project that names its locals by a " +
         "rule (a leading `_`, say) can say so with `tfscript.diagnostics.localPrefix`, and a write that would land on a " +
         "global of such a name is then a warning. tf's own library uses names with a leading `_` for globals, so no " +
@@ -696,6 +698,9 @@ export const RULE_SECTIONS: RuleSection[] = [
         "that `send()` runs the `SEND` hook only for `-h`, so `/send` without it skips the hook, from socket.c:2991.",
       "That `/require` is `/let _required=1%; /load %{-L} %{L}`, and that `/loaded` ends the second load of a file, is " +
         "read from lib/tf/stdlib.tf:36-47; which library files run `/loaded` is read from lib/tf (scripts/extract-command-tables.js).",
+      "That an assignment to a name with no variable makes a global upstream is read from upstream's expr.c, whose " +
+        "assign() calls newglobalvar(); that it updates the nearest variable, a local first, from variable.c's " +
+        "hfindnearestvar(). The fork's local_assign, which makes a local instead, is in its CHANGES.",
     ],
     codes: [
       {

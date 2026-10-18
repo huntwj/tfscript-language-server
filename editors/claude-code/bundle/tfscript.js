@@ -8791,6 +8791,9 @@ function codeHref(code2) {
   return `${RULES_DOC_URL}#${code2}`;
 }
 
+// packages/cli/src/plural.ts
+var plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
 // packages/cli/src/settingNames.ts
 var OPTION_FOR_SETTING = {
   entryFiles: "--entry-file",
@@ -8886,13 +8889,13 @@ function toJsonReport(unordered, cwd, problems = [], names = forCommandLine) {
         message: names(d.message),
         codeDescription: findCode(d.code) ? { href: codeHref(d.code) } : null,
         fixes: [d.fix, d.alternative].flatMap((fix) => fix ? [fix.title] : []),
-        related: (d.related ?? []).map((r) => ({ range: range(r.range), message: names(r.message) }))
+        related: (d.related ?? []).map((r) => ({ range: range(r.range), message: names(r.message) })),
+        lint: LINT_CODES.has(d.code)
       })
     );
   });
   return { version: JSON_VERSION, files: files.map((f) => displayPath(f.file, cwd)), diagnostics, problems, summary: summarize(files) };
 }
-var plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 function formatSummary(s) {
   const found = [plural(s.errors, "error", "errors"), plural(s.warnings, "warning", "warnings"), plural(s.information, "note", "notes")];
   return `${found.join(", ")} in ${plural(s.files, "file", "files")}.

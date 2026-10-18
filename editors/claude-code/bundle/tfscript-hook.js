@@ -232,25 +232,7 @@ function findConfig(dir, exists, stopAt) {
   }
 }
 
-// packages/cli/src/settingNames.ts
-var OPTION_FOR_SETTING = {
-  entryFiles: "--entry-file",
-  contexts: "--context",
-  activeContext: "--active-context",
-  libraryPath: "--library-path",
-  tfPath: "--tf-path",
-  workingDirectory: "--working-directory",
-  homeDirectory: "--home-directory",
-  pathMappings: "--path-mapping",
-  variables: "--variable",
-  tfBuild: "--tf-build",
-  "diagnostics.unresolvedLoads": "--no-unresolved-loads",
-  "diagnostics.undefinedMacros": "--no-undefined-macros",
-  "diagnostics.ignoreMacros": "--ignore-macro"
-};
-var TOGGLES = new Set(Object.values(OPTION_FOR_SETTING).filter((o) => o.startsWith("--no-")));
-
-// packages/cli/src/format.ts
+// packages/cli/src/plural.ts
 var plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // packages/cli/src/hook/report.ts
@@ -364,6 +346,36 @@ function terraformSign(file, host) {
 // packages/cli/src/hook/hook.ts
 var DEFAULT_TIMEOUT_SECONDS = 10;
 var RETRY_SECONDS = 5;
+function editedLines(call, text) {
+  const input = call.tool_input ?? {};
+  if (typeof input.content === "string" || text === void 0) return "all";
+  const edits = Array.isArray(input.edits) ? input.edits.map((e) => e?.new_string) : [];
+  const written = [input.new_string, ...edits].filter((s) => typeof s === "string");
+  if (written.length === 0) return "all";
+  const starts = [0];
+  for (let i = text.indexOf("\n"); i >= 0; i = text.indexOf("\n", i + 1)) starts.push(i + 1);
+  const lineOf = (offset) => {
+    let lo = 0;
+    while (lo + 1 < starts.length && starts[lo + 1] <= offset) lo += 1;
+    return lo + 1;
+  };
+  const lines = /* @__PURE__ */ new Set();
+  for (const s of written) {
+    if (s === "") continue;
+    let at = text.indexOf(s);
+    if (at < 0) return "all";
+    for (; at >= 0; at = text.indexOf(s, at + s.length)) {
+      for (let l = lineOf(at); l <= lineOf(at + s.length - 1); l += 1) lines.add(l);
+    }
+  }
+  return lines;
+}
+function editedLintOnly(report, edited) {
+  if (edited === "all") return { report, left: 0 };
+  const kept = report.diagnostics.filter((d) => !d.lint || edited.has(d.range.start.line));
+  return { report: { ...report, diagnostics: kept }, left: report.diagnostics.length - kept.length };
+}
+var leftOutNote = (left) => left === 0 ? void 0 : `${left === 1 ? "1 lint warning" : `${left} lint warnings`} on lines this edit didn't write ${left === 1 ? "isn't" : "aren't"} listed: tfscript reports lint only where an edit writes.`;
 var QUIET = { stdout: "" };
 function kindOf2(file) {
   const name = path4.basename(file);
@@ -427,18 +439,20 @@ function runHook(input, deps) {
   const run = deps.runCli(["check", "--format", "json", ...flags, "--root", root, file], root, seconds * 1e3);
   const fullCommand = `node ${quote(deps.cliPath)} check ${flags.join(" ")} --root ${quote(root)} ${quote(file)}`;
   const options = { warningLimit: claudeCode.warningLimit ?? DEFAULT_WARNING_LIMIT, showInformation: claudeCode.showInformation ?? false };
+  const edited = editedLines(call, deps.readFile(file));
   if (run.timedOut) {
     const quickFlags = flags.includes("--no-undefined-macros") ? flags : [...flags, "--no-undefined-macros"];
     const quick = deps.runCli(["check", "--format", "json", ...quickFlags, "--root", root, file], root, RETRY_SECONDS * 1e3);
-    const quickReport = quick.timedOut || quick.failure !== void 0 ? void 0 : parseReport(quick.stdout);
+    const quickRun = quick.timedOut || quick.failure !== void 0 ? void 0 : parseReport(quick.stdout);
+    const quickReport = quickRun && editedLintOnly(quickRun, edited).report;
     if (quickReport === void 0) {
       return context(
         `tfscript didn't finish checking ${label} within ${seconds} seconds, so it is unchecked. Its root, ${slash(root)}, may hold too many files: put a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`
       );
     }
     const note = `The full check of ${label} didn't finish within ${seconds} seconds (its root, ${slash(root)}, may hold too many files to search for what defines each macro), so this is a quick check without undefined-macro. For the full check, narrow the root with a tfscript.json in the folder that holds the scripts' tfrc, or raise claudeCode.timeoutSeconds in one.`;
-    const problems = quickReport.problems.length > 0 ? `tfscript also couldn't check everything: ${quickReport.problems.join(" ")}` : void 0;
-    const tail = problems === void 0 ? note : `${problems}
+    const problems2 = quickReport.problems.length > 0 ? `tfscript also couldn't check everything: ${quickReport.problems.join(" ")}` : void 0;
+    const tail = problems2 === void 0 ? note : `${problems2}
 ${note}`;
     const shaped2 = shapeReport(quickReport, label, { ...options, budget: DEFAULT_BUDGET - tail.length });
     if (shaped2 === void 0) return context(tail);
@@ -450,17 +464,20 @@ ${tail}`;
     const fix = run.failure.overflow ? `run ${fullCommand} to see it` : `check that node can run ${slash(deps.cliPath)}`;
     return context(`tfscript couldn't check ${label}, because ${run.failure.reason}: ${fix}.`);
   }
-  const report = parseReport(run.stdout);
-  if (report === void 0) {
+  const parsed = parseReport(run.stdout);
+  if (parsed === void 0) {
     const why = run.stderr.replace(/\r/g, "").trim().split("\n")[0] ?? "";
     return context(`tfscript couldn't check ${label}${why ? ` (${why})` : ""}: run ${fullCommand} to see why.`);
   }
-  if (report.problems.length > 0 && report.diagnostics.length === 0) {
-    return context(`tfscript couldn't check ${label}: ${report.problems.join(" ")}`);
+  if (parsed.problems.length > 0 && parsed.diagnostics.length === 0) {
+    return context(`tfscript couldn't check ${label}: ${parsed.problems.join(" ")}`);
   }
-  const also = report.problems.length > 0 ? `tfscript also couldn't check everything: ${report.problems.join(" ")}` : void 0;
+  const { report, left } = editedLintOnly(parsed, edited);
+  const problems = report.problems.length > 0 ? `tfscript also couldn't check everything: ${report.problems.join(" ")}` : void 0;
+  const notes = [problems, leftOutNote(left)].filter((n) => n !== void 0);
+  const also = notes.length > 0 ? notes.join("\n") : void 0;
   const shaped = shapeReport(report, label, { ...options, fullCommand, ...also ? { budget: DEFAULT_BUDGET - also.length } : {} });
-  if (shaped === void 0) return also === void 0 ? QUIET : context(also);
+  if (shaped === void 0) return problems === void 0 ? QUIET : context(problems);
   const text = also === void 0 ? shaped.text : `${shaped.text}
 ${also}`;
   return shaped.errors > 0 ? block(text) : context(text);

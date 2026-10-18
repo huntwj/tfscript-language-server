@@ -55,7 +55,8 @@ var OPTIONS = {
   "tf-build": "value",
   "no-unresolved-loads": "flag",
   "no-undefined-macros": "flag",
-  "ignore-macro": "list"
+  "ignore-macro": "list",
+  "local-prefix": "value"
 };
 var SHORT = { h: "help" };
 function tokenize(argv) {
@@ -146,6 +147,8 @@ function settingsOf(p) {
   if (p.flags.has("no-unresolved-loads")) diagnostics.unresolvedLoads = false;
   if (p.flags.has("no-undefined-macros")) diagnostics.undefinedMacros = false;
   if (all("ignore-macro").length > 0) diagnostics.ignoreMacros = all("ignore-macro");
+  const prefix = one("local-prefix");
+  if (prefix !== void 0) diagnostics.localPrefix = prefix;
   if (Object.keys(diagnostics).length > 0) settings.diagnostics = diagnostics;
   return settings;
 }
@@ -214,7 +217,8 @@ var SETTING_SHAPES = {
 var DIAGNOSTIC_SHAPES = {
   unresolvedLoads: "boolean",
   undefinedMacros: "boolean",
-  ignoreMacros: "names"
+  ignoreMacros: "names",
+  localPrefix: "string"
 };
 var MAX_TIMEOUT_SECONDS = 20;
 var CLAUDE_CODE_SHAPES = {
@@ -350,6 +354,9 @@ function parseConfig(text, file, label = file) {
           else if (want === "boolean") {
             if (typeof v === "boolean") diagnostics[sub] = v;
             else wrong(`diagnostics.${sub}`, v, "true or false", `"${sub}": false`);
+          } else if (want === "string") {
+            if (typeof v === "string") diagnostics.localPrefix = v;
+            else wrong(`diagnostics.${sub}`, v, "text", `"${sub}": "_"`);
           } else if (isStrings(v)) diagnostics.ignoreMacros = v;
           else wrong(`diagnostics.${sub}`, v, "a list of macro names", `"${sub}": ["<name>"]`);
         }
@@ -4082,7 +4089,96 @@ var loadOfLibraryFile = {
     ];
   }
 };
-var LINT_RULES = [emptyMacroBody, loadOfLibraryFile];
+var SET_LET_RE = /^\/[@!]*(set|let)[ \t]+([A-Za-z_][A-Za-z0-9_]*)(=|[ \t]|$)/i;
+var NESTED_TEXT = /* @__PURE__ */ new Set(["def", "edit", "bind", "hook", "trig", "trigc", "trigp", "trigpc", "alias", "eval", "repeat", "quote", "at", "for"]);
+function bodyStatements(entry, file) {
+  if (!(entry.isDefBody || entry.isOtherMacroBody) || refused(entry, file)) return void 0;
+  const body = macroBodyStart(entry.text);
+  if (body < 0) return void 0;
+  const text = entry.text.slice(body);
+  const layout = parseLayout(text, "body");
+  if (layout.stopped) return void 0;
+  const units = layout.units.filter((u) => layout.lists[u.list]?.kind === "body").map((u) => {
+    let s = u.start;
+    while (isTfSpace(text[s])) s += 1;
+    return { start: s, end: u.end, word: u.word };
+  });
+  return { body, text, units: units.sort((a, b) => a.start - b.start) };
+}
+function letsOf(text, units) {
+  const out = /* @__PURE__ */ new Map();
+  for (const u of units) {
+    if (u.word !== "let") continue;
+    const m = SET_LET_RE.exec(text.slice(u.start, u.end));
+    if (m && !out.has(m[2])) out.set(m[2], u.start);
+  }
+  return out;
+}
+var setWritesGlobal = {
+  id: "set-writes-global",
+  severity: "warning",
+  scope: "entry",
+  check(entry, file) {
+    const found = bodyStatements(entry, file);
+    if (!found) return [];
+    const { body, text, units } = found;
+    const lets = letsOf(text, units);
+    const out = [];
+    for (const u of units) {
+      if (u.word !== "set") continue;
+      const m = SET_LET_RE.exec(text.slice(u.start, u.end));
+      if (!m) continue;
+      const name = m[2];
+      const local = (lets.get(name) ?? Infinity) < u.start;
+      const prefixed = file.localPrefix !== void 0 && name.startsWith(file.localPrefix);
+      if (!local && !prefixed) continue;
+      const word = u.start + m[0].toLowerCase().indexOf(m[1].toLowerCase());
+      out.push({
+        start: body + u.start,
+        end: body + u.start + m[0].length - (m[3] ? m[3].length : 0),
+        message: local ? `This /set writes the global ${name}, not the local this macro made with /let, which its own reads go on seeing: write /let ${name}=... to change the local, or ${IGNORE.replace(/`/g, "")} if the global is meant.` : `This /set writes the global ${name}, though names starting with ${file.localPrefix} are locals in this project: write /let ${name}=... for a local, or ${IGNORE.replace(/`/g, "")} if the global is meant.`,
+        label: "writes the global",
+        explanation: `In a macro, ${code("/set")} always writes the global variable, even where a ${code("/let")} made a local of that name, and the macro's reads of the name still see the local. ` + (local ? `This macro has ${code(`/let ${name}`)} before it. ` : `By this project's convention (${code("tfscript.diagnostics.localPrefix")}), a name starting with ${code(file.localPrefix ?? "")} is only ever a local. `) + `${code(`/let ${name}=...`)} sets the local; if the global is meant, ${IGNORE}.`,
+        ...m[3] === "=" ? { fix: { title: "Write /let", edits: [{ start: body + word, end: body + word + 3, newText: "let" }] } } : {}
+      });
+    }
+    return out;
+  }
+};
+var TFREAD_RE = /\btfread[ \t]*\([ \t]*(?:[^,()]*,[ \t]*)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*\)/g;
+var tfreadWithoutLet = {
+  id: "tfread-without-let",
+  severity: "information",
+  scope: "entry",
+  check(entry, file) {
+    const found = bodyStatements(entry, file);
+    if (!found) return [];
+    const { body, text, units } = found;
+    const lets = letsOf(text, units);
+    const out = [];
+    for (const m of text.matchAll(TFREAD_RE)) {
+      const at2 = m.index;
+      const within = units.filter((u) => u.start <= at2 && at2 < u.end);
+      if (within.length === 0 || within.some((u) => NESTED_TEXT.has(u.word))) continue;
+      const statement2 = within[0];
+      const name = m[1];
+      if ((lets.get(name) ?? Infinity) < statement2.start) continue;
+      const prefixed = file.localPrefix !== void 0 && name.startsWith(file.localPrefix);
+      const nameAt = at2 + m[0].lastIndexOf(name);
+      out.push({
+        start: body + nameAt,
+        end: body + nameAt + name.length,
+        ...prefixed ? { severity: "warning" } : {},
+        message: `This tfread writes the global ${name}, as the macro has no local of that name: put /let ${name}= before it for a local, or ${IGNORE.replace(/`/g, "")} if the global is meant.`,
+        label: "writes a global",
+        explanation: `${code("tfread()")} writes the variable it is given by name: the macro's local where a ${code("/let")} made one first, else a global, which is still set after the macro ends.` + (prefixed ? ` By this project's convention (${code("tfscript.diagnostics.localPrefix")}), ${code(name)} is only ever a local.` : "") + ` If the global is meant, ${IGNORE}.`,
+        fix: { title: `Put /let ${name}= before it`, edits: [{ start: body + statement2.start, end: body + statement2.start, newText: `/let ${name}=%; ` }] }
+      });
+    }
+    return out;
+  }
+};
+var LINT_RULES = [emptyMacroBody, loadOfLibraryFile, setWritesGlobal, tfreadWithoutLet];
 var IGNORE_RE = /^[ \t]*[;#].*?\btflint:ignore-nextline\b(.*)$/;
 var CODE_WORD = /^[a-z]+(?:-[a-z]+)+$/;
 function ignoredByComment(lines, line, code2) {
@@ -4217,7 +4313,7 @@ var reportRuleError = (rule, error) => {
   process.stderr.write(`tfscript: rule ${rule} failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}
 `);
 };
-function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD } = {}) {
+function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD, localPrefix } = {}) {
   const entries = splitLogicalEntries(text);
   let diagnostics = [];
   const abort = findAbortEntry(entries);
@@ -4231,7 +4327,7 @@ function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD } =
     const name = definedMacro(entry);
     if (name) macros.add(name.toLowerCase());
   }
-  const facts = { macros, tfBuild };
+  const facts = { macros, tfBuild, ...localPrefix ? { localPrefix } : {} };
   for (const rule of RULES) {
     let failed = false;
     const guarded = (run) => {
@@ -4263,7 +4359,7 @@ function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD } =
   if (abort) diagnostics.push(lineDiagnostic(abort, "not-a-command", "error"));
   diagnostics = consolidateContinuations(text, entries, diagnostics);
   unjoinGluedKeywords(text, entries, diagnostics);
-  if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false, tfBuild }));
+  if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false, tfBuild, ...localPrefix ? { localPrefix } : {} }));
   const rawLines = splitRawLines(text);
   return diagnostics.filter((d) => !(LINT_CODES.has(d.code) && ignoredByComment(rawLines, d.range.start.line, d.code)));
 }
@@ -4345,7 +4441,8 @@ function joinedWord(lines, m) {
 // packages/core/src/workspace/documentDiagnostics.ts
 function documentDiagnostics(text, file, index) {
   const tfBuild = file ? index.tfBuildFor(file) : void 0;
-  return [...getDiagnostics(text, tfBuild ? { tfBuild } : {}), ...file ? index.loadPathDiagnostics(file, text) : []];
+  const localPrefix = file ? index.localPrefixFor(file) : void 0;
+  return [...getDiagnostics(text, { ...tfBuild ? { tfBuild } : {}, ...localPrefix ? { localPrefix } : {} }), ...file ? index.loadPathDiagnostics(file, text) : []];
 }
 
 // packages/core/src/workspace/loadGraph.ts
@@ -7613,6 +7710,11 @@ var WorkspaceIndex = class {
     const folder = inside ? this.folderFor(file) : this.folders[0];
     return folder === void 0 ? DEFAULT_TF_BUILD : this.settingsFor(folder).tfBuild;
   }
+  /** The folder's tfscript.diagnostics.localPrefix for `file`, or undefined for none. */
+  localPrefixFor(file) {
+    const prefix = this.raw.get(fileKey(this.folderFor(file)))?.diagnostics?.localPrefix;
+    return typeof prefix === "string" && prefix !== "" ? prefix : void 0;
+  }
   readAsIs(file) {
     const key2 = fileKey(file);
     const open = this.overlay.get(key2);
@@ -8747,13 +8849,15 @@ var RULE_SECTIONS = [
       "tf runs these without a word, and each may be what its author meant, so they are lint: warnings that don't count as problems tf has, and that a comment turns off. A comment line holding `tflint:ignore-nextline` (`; tflint:ignore-nextline`) turns off every lint warning on the line after it; with codes after it (`; tflint:ignore-nextline empty-macro-body`), only those.",
       "A plain `/def` with an empty body (`/def x =`) sends a blank line to the world when it runs, through the `SEND` hook. A trigger, hook or key binding with an empty body sends nothing when it fires.",
       "Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as `/send -h text` sends it. Neither is flagged: bare text is tf's own idiom, and the fix list says which to write in new code.",
-      "`/require file` loads a file as `/load file` does, options and all, but not again once the file has run `/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again."
+      "`/require file` loads a file as `/load file` does, options and all, but not again once the file has run `/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again.",
+      "In a macro, `/set` always writes the global variable, even where the macro made a local of that name with `/let`, and the macro's own reads still see the local. `tfread(handle, name)` writes the local where a `/let` made one first, else a global, which outlives the macro. `name := value` makes a local where there is none (with `%local_assign` on, the default). A local is seen by the macros a macro calls, too.",
+      "Whether a variable is a local is the author's intent, which tf can't see: a project that names its locals by a rule (a leading `_`, say) can say so with `tfscript.diagnostics.localPrefix`, and a write that would land on a global of such a name is then a warning. tf's own library uses names with a leading `_` for globals, so no prefix is assumed."
     ],
     source: [
       { at: "expand.c:620", what: "text in a body runs the `SEND` hook, then is sent" },
       { at: "socket.c:2991", what: "handle_send_function() runs the `SEND` hook only for `-h`" }
     ],
-    cases: ["lint-empty-body", "lint-empty-trigger-body", "lint-send-h"],
+    cases: ["lint-empty-body", "lint-empty-trigger-body", "lint-send-h", "set-writes-global-over-local", "tfread-writes-global-without-let"],
     sourceOnly: [
       "That `/send` passes `-h` on to `send()` is read from stdlib.tf's `/send` (lib/tf/stdlib.tf:103-115), and that `send()` runs the `SEND` hook only for `-h`, so `/send` without it skips the hook, from socket.c:2991.",
       "That `/require` is `/let _required=1%; /load %{-L} %{L}`, and that `/loaded` ends the second load of a file, is read from lib/tf/stdlib.tf:36-47; which library files run `/loaded` is read from lib/tf (scripts/extract-command-tables.js)."
@@ -8770,11 +8874,24 @@ var RULE_SECTIONS = [
         severity: "warning",
         summary: "The file this `/load`s is one of tf's library files, so `/require` loads it only if it isn't loaded yet. Write `/require`, or put `; tflint:ignore-nextline` on the line before if loading it again is the point.",
         detail: "a top-level `/load` of a library file that runs `/loaded`, named on its own (found through `TFPATH` or `TFLIBDIR`); the fix writes `/require`. A file without `/loaded`, which `/require` would load again anyway, isn't flagged"
+      },
+      {
+        code: "set-writes-global",
+        severity: "warning",
+        summary: "This `/set` writes the global variable, not the macro's local of that name, which its own reads go on seeing. Write `/let name=...` to change the local, or put `; tflint:ignore-nextline` on the line before if the global is meant.",
+        detail: "a `/set` in a macro body of a name the body made local with `/let` before it, or, with `tfscript.diagnostics.localPrefix`, of a name starting with that prefix; the fix writes `/let`"
+      },
+      {
+        code: "tfread-without-let",
+        severity: "information (warning for a name with the project's local prefix)",
+        summary: "This `tfread()` writes a global variable, as the macro has no local of that name, and the global outlives the macro. Put `/let name=` before it for a local, or put `; tflint:ignore-nextline` on the line before if the global is meant.",
+        detail: "a `tfread()` in a macro body whose variable no `/let` before it made local; a warning where the name starts with `tfscript.diagnostics.localPrefix`. The fix puts `/let name=%; ` before the statement"
       }
     ],
     fix: [
       "In code you write, send text to the world with `/send -h text`: it does what bare text does, the `SEND` hook included, and says it is meant. Leave bare text already in a script as it is. Not `/send` alone, which skips the hook, and not where the text starts with `-` or a substitution, which `/send` reads as an option.",
       "Load a library file with `/require`: `/require alias.tf`.",
+      "In code you write, make every variable a macro only uses itself a local with `/let` before it is first written (`/let _line=%; /while (tfread(h, _line) >= 0) ...`), and change it with `/let` or `:=`, never `/set`, which writes the global.",
       "Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before."
     ]
   }
@@ -8808,7 +8925,8 @@ var OPTION_FOR_SETTING = {
   tfBuild: "--tf-build",
   "diagnostics.unresolvedLoads": "--no-unresolved-loads",
   "diagnostics.undefinedMacros": "--no-undefined-macros",
-  "diagnostics.ignoreMacros": "--ignore-macro"
+  "diagnostics.ignoreMacros": "--ignore-macro",
+  "diagnostics.localPrefix": "--local-prefix"
 };
 var TOGGLES = new Set(Object.values(OPTION_FOR_SETTING).filter((o) => o.startsWith("--no-")));
 var IN_PROSE = /(?<=^|\s)(set |in )?tfscript\.([A-Za-z]+(?:\.[A-Za-z]+)*)(?![\w/\\-]|\.\w)( to (?:false\b)?)?/g;
@@ -9481,6 +9599,8 @@ Which diagnostics:
   --no-undefined-macros         leave out undefined-macro (diagnostics.undefinedMacros)
   --ignore-macro <name>         a macro undefined-macro leaves alone, ignoring case, * a
                                 wildcard; repeat for more (diagnostics.ignoreMacros)
+  --local-prefix <text>         names starting with it are only ever locals, by this project's
+                                convention (diagnostics.localPrefix; default: none)
 
   -h, --help                    show this help
   --version                     show the version

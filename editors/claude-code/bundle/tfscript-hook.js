@@ -65,7 +65,8 @@ var SETTING_SHAPES = {
 var DIAGNOSTIC_SHAPES = {
   unresolvedLoads: "boolean",
   undefinedMacros: "boolean",
-  ignoreMacros: "names"
+  ignoreMacros: "names",
+  localPrefix: "string"
 };
 var MAX_TIMEOUT_SECONDS = 20;
 var CLAUDE_CODE_SHAPES = {
@@ -201,6 +202,9 @@ function parseConfig(text, file, label = file) {
           else if (want === "boolean") {
             if (typeof v === "boolean") diagnostics[sub] = v;
             else wrong(`diagnostics.${sub}`, v, "true or false", `"${sub}": false`);
+          } else if (want === "string") {
+            if (typeof v === "string") diagnostics.localPrefix = v;
+            else wrong(`diagnostics.${sub}`, v, "text", `"${sub}": "_"`);
           } else if (isStrings(v)) diagnostics.ignoreMacros = v;
           else wrong(`diagnostics.${sub}`, v, "a list of macro names", `"${sub}": ["<name>"]`);
         }

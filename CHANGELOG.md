@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0
+
 - Two more lint rules on where a macro's writes land. `set-writes-global`: a `/set` of a name the
   macro made local with `/let`, which writes the global instead (the macro goes on reading its
   local); the fix writes `/let`. `tfread-without-let`: a `tfread()` into a name with no `/let`

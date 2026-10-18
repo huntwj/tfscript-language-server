@@ -6366,6 +6366,15 @@ var SPECIAL_VARIABLES = [
     "type": "position"
   },
   {
+    "name": "telnet_offers",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
     "name": "telopt",
     "type": "flag",
     "values": [

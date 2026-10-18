@@ -12831,47 +12831,6 @@ var emptyMacroBody = {
     ];
   }
 };
-var SAFE_SEND_START = /^[^-%$\\{]/;
-var textSentFromBody = {
-  id: "text-sent-from-body",
-  severity: "warning",
-  scope: "entry",
-  check(entry, file) {
-    if (!(entry.isDefBody || entry.isOtherMacroBody) || refused(entry, file)) return [];
-    const text = entry.text;
-    const body = macroBodyStart(text);
-    if (body < 0) return [];
-    const name = entry.isDefBody ? definedMacro(entry) : void 0;
-    if (name && (file.valueMacros.has(name.toLowerCase()) || /[A-Z]/.test(name) && name === name.toUpperCase())) return [];
-    const b = text.slice(body);
-    const layout = parseLayout(b, "body");
-    if (layout.stopped) return [];
-    const out = [];
-    for (const u of layout.units) {
-      if (u.block || u.word !== "" || layout.lists[u.list]?.kind !== "body") continue;
-      const seps = layout.separators.filter((sep) => sep.list === u.list);
-      const before2 = seps.filter((sep) => sep.at < u.start).pop();
-      const after = seps.find((sep) => sep.at >= u.start);
-      if (before2?.char === "|" || after && after.at <= u.end && after.char === "|") continue;
-      let s = u.start;
-      let e = u.end;
-      while (s < e && isTfSpace(b[s])) s += 1;
-      while (e > s && isTfSpace(b[e - 1])) e -= 1;
-      if (s >= e) continue;
-      const said = b.slice(s, e);
-      const safe = SAFE_SEND_START.test(said);
-      out.push({
-        start: body + s,
-        end: body + e,
-        message: `This text is sent to the world: put /send -h in front of it to say so, or ${IGNORE.replace(/`/g, "")}.`,
-        label: "sent to the world",
-        explanation: `Text in a macro body that isn't a command is sent to the world when the macro runs, through the ${code("SEND")} hook. ${code("/send -h")} does exactly that, and says it on purpose. ` + (safe ? "" : `The fix isn't offered here: text starting with ${code("-")} or a substitution could be read as an option of ${code("/send")}. `) + `If sending it bare is the point, ${IGNORE}.`,
-        ...safe ? { fix: { title: "Write it as /send -h", edits: [{ start: body + s, end: body + s, newText: "/send -h " }] } } : {}
-      });
-    }
-    return out;
-  }
-};
 var loadOfLibraryFile = {
   id: "load-of-library-file",
   severity: "warning",
@@ -12897,7 +12856,7 @@ var loadOfLibraryFile = {
     ];
   }
 };
-var LINT_RULES = [emptyMacroBody, textSentFromBody, loadOfLibraryFile];
+var LINT_RULES = [emptyMacroBody, loadOfLibraryFile];
 var IGNORE_RE = /^[ \t]*[;#].*?\btflint:ignore-nextline\b(.*)$/;
 var CODE_WORD = /^[a-z]+(?:-[a-z]+)+$/;
 function ignoredByComment(lines, line, code3) {
@@ -13053,8 +13012,7 @@ function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD } =
     const name = definedMacro(entry);
     if (name) macros.add(name.toLowerCase());
   }
-  const valueMacros = new Set([...text.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((m) => m[1].toLowerCase()));
-  const facts = { macros, tfBuild, valueMacros };
+  const facts = { macros, tfBuild };
   for (const rule of RULES) {
     let failed = false;
     const guarded = (run) => {
@@ -20107,9 +20065,9 @@ var RULE_SECTIONS = [
     id: "L1",
     title: "Shapes that may be deliberate",
     statement: [
-      "tf runs these without a word, and each may be what its author meant, so they are lint: warnings that don't count as problems tf has, and that a comment turns off. A comment line holding `tflint:ignore-nextline` (`; tflint:ignore-nextline`) turns off every lint warning on the line after it; with codes after it (`; tflint:ignore-nextline text-sent-from-body`), only those.",
+      "tf runs these without a word, and each may be what its author meant, so they are lint: warnings that don't count as problems tf has, and that a comment turns off. A comment line holding `tflint:ignore-nextline` (`; tflint:ignore-nextline`) turns off every lint warning on the line after it; with codes after it (`; tflint:ignore-nextline empty-macro-body`), only those.",
       "A plain `/def` with an empty body (`/def x =`) sends a blank line to the world when it runs, through the `SEND` hook. A trigger, hook or key binding with an empty body sends nothing when it fires.",
-      "Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as `/send -h text` sends it.",
+      "Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as `/send -h text` sends it. Neither is flagged: bare text is tf's own idiom, and the fix list says which to write in new code.",
       "`/require file` loads a file as `/load file` does, options and all, but not again once the file has run `/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again."
     ],
     source: [
@@ -20129,12 +20087,6 @@ var RULE_SECTIONS = [
         detail: "a plain `/def` (no `-t`, `-h`, `-b` or `-B`) with nothing after its `=`, which sends an empty line when it runs; a trigger, hook or key binding with an empty body sends nothing, so it isn't flagged"
       },
       {
-        code: "text-sent-from-body",
-        severity: "warning",
-        summary: "This text in a macro body is sent to the world. Put `/send -h` in front of it to say so (it does the same, the `SEND` hook included), or put `; tflint:ignore-nextline` on the line before.",
-        detail: "a statement of a macro body that isn't a command, which tf sends to the world; the fix puts `/send -h ` before it, but not where the text starts with `-` or a substitution, which `/send` could read as an option. Not flagged: a macro that holds a value (read as `${name}`, or named in capitals, as tfrc's `LOGFILE`), and text either side of a `%|`, which tf refuses to pipe, sending nothing"
-      },
-      {
         code: "load-of-library-file",
         severity: "warning",
         summary: "The file this `/load`s is one of tf's library files, so `/require` loads it only if it isn't loaded yet. Write `/require`, or put `; tflint:ignore-nextline` on the line before if loading it again is the point.",
@@ -20142,7 +20094,7 @@ var RULE_SECTIONS = [
       }
     ],
     fix: [
-      "Send text on purpose with `/send -h text`.",
+      "In code you write, send text to the world with `/send -h text`: it does what bare text does, the `SEND` hook included, and says it is meant. Leave bare text already in a script as it is. Not `/send` alone, which skips the hook, and not where the text starts with `-` or a substitution, which `/send` reads as an option.",
       "Load a library file with `/require`: `/require alias.tf`.",
       "Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before."
     ]

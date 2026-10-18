@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.1
+
 - An assignment (`x := 1`, `++x`) to a name with no variable makes a global in upstream tf; only
   the fork's `local_assign` makes it a local. The tf-scripting skill and the rule docs said it
   made a local everywhere. Extract and inline macro now refuse to move such an assignment only

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { timeBudget } from "../../core/test/timeBudget";
 import type { JsonDiagnostic, JsonReport } from "../src/format";
-import { kindOf, RETRY_SECONDS, runHook, type CliFailure, type CliRun, type HookDeps } from "../src/hook/hook";
+import { editedLines, kindOf, RETRY_SECONDS, runHook, type CliFailure, type CliRun, type HookDeps } from "../src/hook/hook";
 import { isSmallFolder, runNode, spawnFailure } from "../src/hook/main";
 import { shapeReport } from "../src/hook/report";
 import { hookRoot, type RootHost } from "../src/hook/root";
@@ -92,6 +92,7 @@ function diagnostic(severity: JsonDiagnostic["severity"], line: number, fixes: s
     codeDescription: null,
     fixes,
     related: [],
+    lint: false,
   };
 }
 
@@ -370,5 +371,39 @@ describe("runNode", () => {
     expect(run.failure).toEqual({ reason: "it couldn't be started: node, or the folder it was to run in, wasn't found (ENOENT)", overflow: false });
     expect(spawnFailure(Object.assign(new Error("x"), { code: "EACCES" }))).toEqual({ reason: "it wasn't allowed to start (EACCES)", overflow: false });
     expect(spawnFailure(Object.assign(new Error("odd"), { code: "EIO" }))).toEqual({ reason: "it couldn't be run (EIO: odd)", overflow: false });
+  });
+});
+
+describe("lint only on the lines an edit wrote", () => {
+  const file = p("proj", "a.tf");
+  const text = "/load alias.tf\n/def a = /echo a\n/def idle =\n/def b = /echo b\n";
+  const lintAt = (line: number): JsonDiagnostic => ({ ...diagnostic("warning", line), code: "lint-code", lint: true });
+  const edit = (tool_input: object) => JSON.stringify({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: file, ...tool_input }, cwd: p("proj") });
+
+  it("finds the lines of each new_string, every occurrence, and all of a Write", () => {
+    expect(editedLines({ tool_input: { new_string: "/def idle =" } }, text)).toEqual(new Set([3]));
+    expect(editedLines({ tool_input: { new_string: "/def a = /echo a\n/def idle =" } }, text)).toEqual(new Set([2, 3]));
+    expect(editedLines({ tool_input: { new_string: "/echo" } }, text)).toEqual(new Set([2, 4]));
+    expect(editedLines({ tool_input: { edits: [{ new_string: "alias.tf" }, { new_string: "b = " }] } }, text)).toEqual(new Set([1, 4]));
+    expect(editedLines({ tool_input: { content: text } }, text)).toBe("all");
+    // Text it can't find (a CRLF file, say) leaves nothing out; a deletion wrote no line.
+    expect(editedLines({ tool_input: { new_string: "nowhere" } }, text)).toBe("all");
+    expect(editedLines({ tool_input: { new_string: "" } }, text)).toEqual(new Set());
+  });
+
+  it("passes on lint on the edited lines only, says how much it left out, and every other diagnostic", () => {
+    const d = deps({ [file]: text }, () => ran(report([lintAt(1), diagnostic("warning", 2), lintAt(3)])));
+    const out = parsed(runHook(edit({ old_string: "/def idle", new_string: "/def idle =" }), d).stdout).hookSpecificOutput.additionalContext ?? "";
+    expect(out).toContain("a.tf:3:1: warning lint-code");
+    expect(out).toContain("a.tf:2:1: warning warning-code");
+    expect(out).not.toContain("a.tf:1:1");
+    expect(out).toContain("1 lint warning on lines this edit didn't write isn't listed");
+  });
+
+  it("says nothing when the only diagnostics are lint on lines it didn't write, and lists it all for a Write", () => {
+    const only = () => ran(report([lintAt(1)]));
+    expect(runHook(edit({ new_string: "/def b = /echo b" }), deps({ [file]: text }, only))).toEqual({ stdout: "" });
+    const written = parsed(runHook(input(file, "Write"), deps({ [file]: text }, only)).stdout);
+    expect(written.hookSpecificOutput.additionalContext).toContain("a.tf:1:1: warning lint-code");
   });
 });

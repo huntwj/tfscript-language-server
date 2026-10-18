@@ -57,12 +57,55 @@ export interface HookResult {
 }
 
 /** The PostToolUse input fields the hook reads. */
-interface ToolCall {
+export interface ToolCall {
   hook_event_name?: string;
   tool_name?: string;
-  tool_input?: { file_path?: unknown };
+  tool_input?: { file_path?: unknown; content?: unknown; new_string?: unknown; edits?: unknown };
   cwd?: unknown;
 }
+
+/**
+ * The lines (1-based) of `text`, the file after the edit, that the call wrote: where each Edit or
+ * MultiEdit `new_string` now is, every occurrence of it; or "all" for a Write (the whole file),
+ * or when an edit's text can't be found (then nothing is left out).
+ */
+export function editedLines(call: ToolCall, text: string | undefined): Set<number> | "all" {
+  const input = call.tool_input ?? {};
+  if (typeof input.content === "string" || text === undefined) return "all";
+  const edits = Array.isArray(input.edits) ? (input.edits as { new_string?: unknown }[]).map((e) => e?.new_string) : [];
+  const written = [input.new_string, ...edits].filter((s): s is string => typeof s === "string");
+  if (written.length === 0) return "all";
+  const starts = [0];
+  for (let i = text.indexOf("\n"); i >= 0; i = text.indexOf("\n", i + 1)) starts.push(i + 1);
+  const lineOf = (offset: number): number => {
+    let lo = 0;
+    while (lo + 1 < starts.length && (starts[lo + 1] as number) <= offset) lo += 1;
+    return lo + 1;
+  };
+  const lines = new Set<number>();
+  for (const s of written) {
+    if (s === "") continue;
+    let at = text.indexOf(s);
+    if (at < 0) return "all";
+    for (; at >= 0; at = text.indexOf(s, at + s.length)) {
+      for (let l = lineOf(at); l <= lineOf(at + s.length - 1); l += 1) lines.add(l);
+    }
+  }
+  return lines;
+}
+
+/** The report without its lint diagnostics on lines the edit didn't write, and how many it left out. */
+function editedLintOnly(report: JsonReport, edited: Set<number> | "all"): { report: JsonReport; left: number } {
+  if (edited === "all") return { report, left: 0 };
+  const kept = report.diagnostics.filter((d) => !d.lint || edited.has(d.range.start.line));
+  return { report: { ...report, diagnostics: kept }, left: report.diagnostics.length - kept.length };
+}
+
+/** What the hook says about the lint warnings it left out, or undefined for none. */
+const leftOutNote = (left: number): string | undefined =>
+  left === 0
+    ? undefined
+    : `${left === 1 ? "1 lint warning" : `${left} lint warnings`} on lines this edit didn't write ${left === 1 ? "isn't" : "aren't"} listed: tfscript reports lint only where an edit writes.`;
 
 const QUIET: HookResult = { stdout: "" };
 
@@ -153,6 +196,9 @@ export function runHook(input: string, deps: HookDeps): HookResult {
   const fullCommand = `node ${quote(deps.cliPath)} check ${flags.join(" ")} --root ${quote(root)} ${quote(file)}`;
 
   const options = { warningLimit: claudeCode.warningLimit ?? DEFAULT_WARNING_LIMIT, showInformation: claudeCode.showInformation ?? false };
+  // Lint is only passed on for the lines this call wrote, so Claude isn't sent off to change code
+  // nobody asked about; a file improves as it is worked on. Errors and the rest are passed on whole.
+  const edited = editedLines(call, deps.readFile(file));
 
   if (run.timedOut) {
     // Try once more, quickly: the same root and the same tfscript.json (so its libraryPath,
@@ -160,7 +206,8 @@ export function runHook(input: string, deps: HookDeps): HookResult {
     // searches the root (for what defines each macro), so without it the check is quick.
     const quickFlags = flags.includes("--no-undefined-macros") ? flags : [...flags, "--no-undefined-macros"];
     const quick = deps.runCli(["check", "--format", "json", ...quickFlags, "--root", root, file], root, RETRY_SECONDS * 1000);
-    const quickReport = quick.timedOut || quick.failure !== undefined ? undefined : parseReport(quick.stdout);
+    const quickRun = quick.timedOut || quick.failure !== undefined ? undefined : parseReport(quick.stdout);
+    const quickReport = quickRun && editedLintOnly(quickRun, edited).report;
     if (quickReport === undefined) {
       return context(
         `tfscript didn't finish checking ${label} within ${seconds} seconds, so it is unchecked. ` +
@@ -182,20 +229,25 @@ export function runHook(input: string, deps: HookDeps): HookResult {
     return context(`tfscript couldn't check ${label}, because ${run.failure.reason}: ${fix}.`);
   }
 
-  const report = parseReport(run.stdout);
-  if (report === undefined) {
+  const parsed = parseReport(run.stdout);
+  if (parsed === undefined) {
     // The first line of what it said, without a Windows line end's \r.
     const why = run.stderr.replace(/\r/g, "").trim().split("\n")[0] ?? "";
     return context(`tfscript couldn't check ${label}${why ? ` (${why})` : ""}: run ${fullCommand} to see why.`);
   }
-  if (report.problems.length > 0 && report.diagnostics.length === 0) {
-    return context(`tfscript couldn't check ${label}: ${report.problems.join(" ")}`);
+  if (parsed.problems.length > 0 && parsed.diagnostics.length === 0) {
+    return context(`tfscript couldn't check ${label}: ${parsed.problems.join(" ")}`);
   }
+  const { report, left } = editedLintOnly(parsed, edited);
 
-  // Problems beside diagnostics (a path it couldn't check, alongside the file) are passed on too.
-  const also = report.problems.length > 0 ? `tfscript also couldn't check everything: ${report.problems.join(" ")}` : undefined;
+  // Problems beside diagnostics (a path it couldn't check, alongside the file) are passed on too,
+  // and the lint left out is counted.
+  const problems = report.problems.length > 0 ? `tfscript also couldn't check everything: ${report.problems.join(" ")}` : undefined;
+  const notes = [problems, leftOutNote(left)].filter((n): n is string => n !== undefined);
+  const also = notes.length > 0 ? notes.join("\n") : undefined;
   const shaped = shapeReport(report, label, { ...options, fullCommand, ...(also ? { budget: DEFAULT_BUDGET - also.length } : {}) });
-  if (shaped === undefined) return also === undefined ? QUIET : context(also);
+  // Lint left out alone is nothing to say.
+  if (shaped === undefined) return problems === undefined ? QUIET : context(problems);
   const text = also === undefined ? shaped.text : `${shaped.text}\n${also}`;
   return shaped.errors > 0 ? block(text) : context(text);
 }

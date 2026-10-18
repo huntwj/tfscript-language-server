@@ -1,5 +1,5 @@
 import type { JsonDiagnostic, JsonReport } from "../format";
-import { plural } from "../format";
+import { plural } from "../plural";
 
 /** How much of a report the hook passes on. */
 export interface ReportOptions {

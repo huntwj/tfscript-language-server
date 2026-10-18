@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,6 +56,16 @@ describe("scripts/cloud-kit.js", () => {
     const stale = kit("--check", dir);
     expect(stale.status).toBe(1);
     expect(stale.stdout).toContain("out of date: .claude/tfscript/tfscript.js");
+    // --check after the repo checks too, and writes nothing.
+    expect(kit(dir, "--check").status).toBe(1);
+    expect(readFileSync(path.join(dir, ".claude", "tfscript", "tfscript.js"), "utf8")).toBe("stale");
+  });
+
+  it("refuses an option it doesn't know, and more than one repo", () => {
+    const dir = scratch();
+    expect(kit("--dry-run", dir).status).toBe(2);
+    expect(kit(dir, dir).status).toBe(2);
+    expect(existsSync(path.join(dir, ".claude"))).toBe(false);
   });
 
   it("keeps a repo's other settings and hooks, and replaces its own hook rather than adding another", () => {

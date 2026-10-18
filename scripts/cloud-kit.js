@@ -83,11 +83,18 @@ function withHook(repo) {
   return `${JSON.stringify(settings, null, 2)}\n`;
 }
 
+// --check anywhere; anything else starting with - is refused, not taken as the repo or ignored.
 const args = process.argv.slice(2);
-const check = args[0] === "--check";
-const target = args[check ? 1 : 0];
-if (!target || !existsSync(target)) {
-  console.error("Give the repo to write the kit into: node scripts/cloud-kit.js [--check] <repo>.");
+const check = args.includes("--check");
+const unknown = args.find((a) => a.startsWith("-") && a !== "--check");
+if (unknown) {
+  console.error(`There's no option ${unknown}: give node scripts/cloud-kit.js [--check] <repo>.`);
+  process.exit(2);
+}
+const repos = args.filter((a) => !a.startsWith("-"));
+const target = repos[0];
+if (repos.length !== 1 || !target || !existsSync(target)) {
+  console.error("Give the one repo to write the kit into: node scripts/cloud-kit.js [--check] <repo>.");
   process.exit(2);
 }
 const repo = path.resolve(target);

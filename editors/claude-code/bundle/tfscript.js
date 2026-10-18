@@ -9556,7 +9556,7 @@ function formatFiles(request, host, write, read = (f) => (0, import_node_fs3.rea
 }
 
 // packages/cli/src/usage.ts
-var VERSION = "0.3.0";
+var VERSION = "0.4.0";
 var USAGE = `Usage: tfscript check [options] <file or folder>...
 
 Checks tf scripts and reports what the tfscript language server would: each file's own

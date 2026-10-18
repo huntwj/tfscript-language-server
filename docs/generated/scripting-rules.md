@@ -211,23 +211,23 @@ Codes and proof:
 
 ### L1. Shapes that may be deliberate
 
-tf runs these without a word, and each may be what its author meant, so they are lint: warnings that don't count as problems tf has, and that a comment turns off. A comment line holding `tflint:ignore-nextline` (`; tflint:ignore-nextline`) turns off every lint warning on the line after it; with codes after it (`; tflint:ignore-nextline text-sent-from-body`), only those.
+tf runs these without a word, and each may be what its author meant, so they are lint: warnings that don't count as problems tf has, and that a comment turns off. A comment line holding `tflint:ignore-nextline` (`; tflint:ignore-nextline`) turns off every lint warning on the line after it; with codes after it (`; tflint:ignore-nextline empty-macro-body`), only those.
 
 A plain `/def` with an empty body (`/def x =`) sends a blank line to the world when it runs, through the `SEND` hook. A trigger, hook or key binding with an empty body sends nothing when it fires.
 
-Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as `/send -h text` sends it.
+Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as `/send -h text` sends it. Neither is flagged: bare text is tf's own idiom, and the fix list says which to write in new code.
 
 `/require file` loads a file as `/load file` does, options and all, but not again once the file has run `/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again.
 
 Fix:
 
-- Send text on purpose with `/send -h text`.
+- In code you write, send text to the world with `/send -h text`: it does what bare text does, the `SEND` hook included, and says it is meant. Leave bare text already in a script as it is. Not `/send` alone, which skips the hook, and not where the text starts with `-` or a substitution, which `/send` reads as an option.
 - Load a library file with `/require`: `/require alias.tf`.
 - Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before.
 
 Codes and proof:
 
-- Language-server codes: [`empty-macro-body`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#empty-macro-body), [`text-sent-from-body`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#text-sent-from-body), [`load-of-library-file`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#load-of-library-file).
+- Language-server codes: [`empty-macro-body`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#empty-macro-body), [`load-of-library-file`](https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#load-of-library-file).
 - Cases: `lint-empty-body`, `lint-empty-trigger-body`, `lint-send-h`.
 - tf source: `expand.c:620` (text in a body runs the `SEND` hook, then is sent); `socket.c:2991` (handle_send_function() runs the `SEND` hook only for `-h`).
 - Not run: That `/send` passes `-h` on to `send()` is read from stdlib.tf's `/send` (lib/tf/stdlib.tf:103-115), and that `send()` runs the `SEND` hook only for `-h`, so `/send` without it skips the hook, from socket.c:2991.

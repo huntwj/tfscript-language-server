@@ -21,7 +21,7 @@ A top-level command of a file runs, and is checked, as the file loads.
 - [R7. Expressions](#r7-expressions): [`expression-syntax`](#expression-syntax), [`substitution-in-expression`](#substitution-in-expression)
 - [R8. Macro names](#r8-macro-names): [`invalid-macro-name`](#invalid-macro-name)
 - [R9. Load paths](#r9-load-paths): [`unresolved-load`](#unresolved-load), [`undefined-macro`](#undefined-macro)
-- [L1. Shapes that may be deliberate](#l1-shapes-that-may-be-deliberate): [`empty-macro-body`](#empty-macro-body), [`text-sent-from-body`](#text-sent-from-body), [`load-of-library-file`](#load-of-library-file)
+- [L1. Shapes that may be deliberate](#l1-shapes-that-may-be-deliberate): [`empty-macro-body`](#empty-macro-body), [`load-of-library-file`](#load-of-library-file)
 
 ## R1. Lines
 
@@ -335,17 +335,17 @@ A `/load` or `/require`, in a file on the load path, whose file tf wouldn't find
 
 ## L1. Shapes that may be deliberate
 
-tf runs these without a word, and each may be what its author meant, so they are lint: warnings that don't count as problems tf has, and that a comment turns off. A comment line holding `tflint:ignore-nextline` (`; tflint:ignore-nextline`) turns off every lint warning on the line after it; with codes after it (`; tflint:ignore-nextline text-sent-from-body`), only those.
+tf runs these without a word, and each may be what its author meant, so they are lint: warnings that don't count as problems tf has, and that a comment turns off. A comment line holding `tflint:ignore-nextline` (`; tflint:ignore-nextline`) turns off every lint warning on the line after it; with codes after it (`; tflint:ignore-nextline empty-macro-body`), only those.
 
 A plain `/def` with an empty body (`/def x =`) sends a blank line to the world when it runs, through the `SEND` hook. A trigger, hook or key binding with an empty body sends nothing when it fires.
 
-Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as `/send -h text` sends it.
+Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as `/send -h text` sends it. Neither is flagged: bare text is tf's own idiom, and the fix list says which to write in new code.
 
 `/require file` loads a file as `/load file` does, options and all, but not again once the file has run `/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again.
 
 **Fix:**
 
-- Send text on purpose with `/send -h text`.
+- In code you write, send text to the world with `/send -h text`: it does what bare text does, the `SEND` hook included, and says it is meant. Leave bare text already in a script as it is. Not `/send` alone, which skips the hook, and not where the text starts with `-` or a substitution, which `/send` reads as an option.
 - Load a library file with `/require`: `/require alias.tf`.
 - Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before.
 
@@ -361,12 +361,6 @@ Text in a macro body that isn't a command is sent to the world when the macro ru
 **Warning.** This macro's body is empty, so running it sends a blank line to the world. Give it a body, or put `; tflint:ignore-nextline` on the line before if that is what you want.
 
 A plain `/def` (no `-t`, `-h`, `-b` or `-B`) with nothing after its `=`, which sends an empty line when it runs; a trigger, hook or key binding with an empty body sends nothing, so it isn't flagged.
-
-### text-sent-from-body
-
-**Warning.** This text in a macro body is sent to the world. Put `/send -h` in front of it to say so (it does the same, the `SEND` hook included), or put `; tflint:ignore-nextline` on the line before.
-
-A statement of a macro body that isn't a command, which tf sends to the world; the fix puts `/send -h ` before it, but not where the text starts with `-` or a substitution, which `/send` could read as an option. Not flagged: a macro that holds a value (read as `${name}`, or named in capitals, as tfrc's `LOGFILE`), and text either side of a `%|`, which tf refuses to pipe, sending nothing.
 
 ### load-of-library-file
 

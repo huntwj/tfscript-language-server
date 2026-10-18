@@ -669,11 +669,12 @@ export const RULE_SECTIONS: RuleSection[] = [
       "tf runs these without a word, and each may be what its author meant, so they are lint: warnings that don't count " +
         "as problems tf has, and that a comment turns off. A comment line holding `tflint:ignore-nextline` (`; " +
         "tflint:ignore-nextline`) turns off every lint warning on the line after it; with codes after it (`; " +
-        "tflint:ignore-nextline text-sent-from-body`), only those.",
+        "tflint:ignore-nextline empty-macro-body`), only those.",
       "A plain `/def` with an empty body (`/def x =`) sends a blank line to the world when it runs, through the `SEND` " +
         "hook. A trigger, hook or key binding with an empty body sends nothing when it fires.",
       "Text in a macro body that isn't a command is sent to the world when the macro runs, through the `SEND` hook, as " +
-        "`/send -h text` sends it.",
+        "`/send -h text` sends it. Neither is flagged: bare text is tf's own idiom, and the fix list says which to write " +
+        "in new code.",
       "`/require file` loads a file as `/load file` does, options and all, but not again once the file has run " +
         "`/loaded`, as most of tf's library files do; for a file without `/loaded`, it loads it again.",
     ],
@@ -700,18 +701,6 @@ export const RULE_SECTIONS: RuleSection[] = [
           "runs; a trigger, hook or key binding with an empty body sends nothing, so it isn't flagged",
       },
       {
-        code: "text-sent-from-body",
-        severity: "warning",
-        summary:
-          "This text in a macro body is sent to the world. Put `/send -h` in front of it to say so (it does the same, " +
-          "the `SEND` hook included), or put `; tflint:ignore-nextline` on the line before.",
-        detail:
-          "a statement of a macro body that isn't a command, which tf sends to the world; the fix puts `/send -h ` " +
-          "before it, but not where the text starts with `-` or a substitution, which `/send` could read as an option. " +
-          "Not flagged: a macro that holds a value (read as `${name}`, or named in capitals, as tfrc's `LOGFILE`), " +
-          "and text either side of a `%|`, which tf refuses to pipe, sending nothing",
-      },
-      {
         code: "load-of-library-file",
         severity: "warning",
         summary:
@@ -724,7 +713,9 @@ export const RULE_SECTIONS: RuleSection[] = [
       },
     ],
     fix: [
-      "Send text on purpose with `/send -h text`.",
+      "In code you write, send text to the world with `/send -h text`: it does what bare text does, the `SEND` hook " +
+        "included, and says it is meant. Leave bare text already in a script as it is. Not `/send` alone, which " +
+        "skips the hook, and not where the text starts with `-` or a substitution, which `/send` reads as an option.",
       "Load a library file with `/require`: `/require alias.tf`.",
       "Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before.",
     ],

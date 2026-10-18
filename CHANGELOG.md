@@ -5,10 +5,11 @@
 - The lint tier (rule section L1): warnings on shapes tf runs without a word that may be
   deliberate, which don't count as problems tf has. `empty-macro-body`: a plain `/def x =`, which
   sends a blank line when it runs (an empty trigger, hook or key binding is left alone).
-  `text-sent-from-body`: text in a body, sent to the world, with a fix that writes `/send -h`
-  (which does the same). `load-of-library-file`: a `/load` of a library file that runs `/loaded`,
+  `load-of-library-file`: a `/load` of a library file that runs `/loaded`,
   with a fix that writes `/require`. A comment line `; tflint:ignore-nextline` turns them off for
-  the line after it, or only the codes it names.
+  the line after it, or only the codes it names. Bare text in a body isn't flagged, as tf's own
+  idiom; the tf-scripting skill says to write `/send -h text` in new code, which does the same.
+  tf's variable list has `telnet_offers`.
 
 - `block-structure` reads a `/break` that leaves a `$(...)` the way the tf named by
   `tfscript.tfBuild` does: with `fork`, tf rejects the macro when it compiles it (as before); with

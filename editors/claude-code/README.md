@@ -39,7 +39,9 @@ session, to load it.
   `.tfrc`, a hook runs `tfscript check` on the file and passes what it finds to Claude, which
   can then fix it. Errors are put to Claude as a problem with the edit; warnings come as a note
   beside the edit's result. Every error is listed, and the first 20 warnings with a count of the
-  rest; information notes are left out unless asked for. Each line has the place, the code, the
+  rest; information notes are left out unless asked for. Lint warnings (rule section L1) are passed
+  on only for the lines the edit wrote (all of them for a Write), with a count of those left out, so
+  Claude isn't sent off to change code nobody asked about. Each line has the place, the code, the
   message and the titles of the quick fixes an editor would offer. Where a message names a
   setting, it names the `tfscript.json` key (`set workingDirectory in tfscript.json`). The hook never changes a file:
   Claude makes any fix itself. A clean file gets no message at all.

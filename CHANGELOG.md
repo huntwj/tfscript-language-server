@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The Claude Code hook passes on lint warnings only for the lines the edit wrote (all of a Write),
+  and counts the rest; errors and other warnings are passed on for the whole file as before. The
+  JSON report marks each diagnostic's `lint`.
+
 - The lint tier (rule section L1): warnings on shapes tf runs without a word that may be
   deliberate, which don't count as problems tf has. `empty-macro-body`: a plain `/def x =`, which
   sends a blank line when it runs (an empty trigger, hook or key binding is left alone).

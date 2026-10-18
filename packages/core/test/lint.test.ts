@@ -36,6 +36,54 @@ it("leaves bare text in a body alone, tf's own idiom (the skill says to write /s
   expect(lint("/def go = /echo a%; kill %{target}%; /if (x) change mood brave%; /endif\n")).toEqual([]);
 });
 
+describe("set-writes-global (case set-writes-global-over-local)", () => {
+  const set = (text: string, localPrefix?: string) =>
+    getDiagnostics(text, localPrefix ? { localPrefix } : {}).filter((d) => d.code === "set-writes-global");
+
+  it("flags a /set of a name the macro made local with /let before it, and writes /let", () => {
+    const text = "/def reader = /let n=%; /set n=5%; /echo %n\n";
+    const [d] = set(text);
+    expect(d?.message).toBe(
+      "This /set writes the global n, not the local this macro made with /let, which its own reads go on seeing: write /let n=... to change the local, or put ; tflint:ignore-nextline on the line before if the global is meant.",
+    );
+    expect(fixed(text, d)).toBe("/def reader = /let n=%; /let n=5%; /echo %n\n");
+  });
+
+  it("leaves a /set of a global alone, and one before the /let, and offers no fix for /set name value", () => {
+    expect(set("/def g = /set wotmud_target=orc\n")).toEqual([]);
+    expect(set("/def g = /set n=1%; /let n=2\n")).toEqual([]);
+    expect(set("/def g = /let n=%; /set n 5\n")[0]?.fix).toBeUndefined();
+  });
+
+  it("with a local prefix, flags a /set of a name that starts with it", () => {
+    expect(set("/def g = /set _tmp=1\n")).toEqual([]);
+    const [d] = set("/def g = /set _tmp=1\n", "_");
+    expect(d?.message).toMatch(/^This \/set writes the global _tmp, though names starting with _ are locals in this project/);
+    expect(set("/def g = /set tmp=1\n", "_")).toEqual([]);
+  });
+});
+
+describe("tfread-without-let (case tfread-writes-global-without-let)", () => {
+  const reads = (text: string, localPrefix?: string) =>
+    getDiagnostics(text, localPrefix ? { localPrefix } : {}).filter((d) => d.code === "tfread-without-let");
+  // tf's own kv-textlog.tf, before its fix: _l was left behind as a global.
+  const kv = '/def scan = /let _h=$[tfopen("x", "r")]%; /while (tfread(_h, _l) >= 0) /echo %{_l}%; /done\n';
+
+  it("notes a tfread into a name with no /let before it, and puts the /let before its statement", () => {
+    const [d] = reads(kv);
+    expect(d?.severity).toBe("information");
+    expect(kv.slice(d?.range.start.character, d?.range.end.character)).toBe("_l");
+    expect(fixed(kv, d)).toBe('/def scan = /let _h=$[tfopen("x", "r")]%; /let _l=%; /while (tfread(_h, _l) >= 0) /echo %{_l}%; /done\n');
+  });
+
+  it("is a warning for a name with the project's local prefix, and leaves a /let one or a nested /def's alone", () => {
+    expect(reads(kv, "_")[0]?.severity).toBe("warning");
+    expect(reads('/def ok = /let _l=%; /test tfread(h, _l)\n')).toEqual([]);
+    expect(reads("/def outer = /def -i inner = /test tfread(h, x)\n")).toEqual([]);
+    expect(reads("/def one = /test tfread(line)\n")).toHaveLength(1);
+  });
+});
+
 describe("load-of-library-file", () => {
   it("flags a top-level /load of a library file that runs /loaded, and writes /require", () => {
     const [d] = lint("/load alias.tf\n", "load-of-library-file");

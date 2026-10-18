@@ -77,7 +77,8 @@ function fromCli(folder: string, files: string[], options: string[]): object[] {
   // The server has no offsets; the rest should be the same.
   const position = ({ line, column }: { line: number; column: number }) => ({ line, column });
   const span = (r: CliDiagnostic["range"]) => ({ start: position(r.start), end: position(r.end) });
-  return (JSON.parse(stdout) as { diagnostics: CliDiagnostic[] }).diagnostics.map((d) => ({
+  // `lint` is the JSON's own marking of a code, which the server shows as the code itself.
+  return (JSON.parse(stdout) as { diagnostics: (CliDiagnostic & { lint?: boolean })[] }).diagnostics.map(({ lint: _lint, ...d }) => ({
     ...d,
     file: path.resolve(folder, d.file),
     range: span(d.range),

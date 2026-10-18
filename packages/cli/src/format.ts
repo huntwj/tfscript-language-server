@@ -1,7 +1,8 @@
 import * as path from "node:path";
-import type { Position, TfDiagnostic } from "@tfscript/core/diagnostics";
+import { LINT_CODES, type Position, type TfDiagnostic } from "@tfscript/core/diagnostics";
 import { codeHref, findCode } from "@tfscript/core/rules/table";
 import type { CheckedFile } from "./check";
+import { plural } from "./plural";
 import { forCommandLine } from "./settingNames";
 
 /** How a message names the settings it mentions (forCommandLine() unless told otherwise). */
@@ -35,6 +36,8 @@ export interface JsonDiagnostic {
   /** The titles of the quick fixes an editor offers for it, likelier first. */
   fixes: string[];
   related: { range: JsonRange; message: string }[];
+  /** Whether it is of the lint tier (rule section L1): a shape tf runs without a word that may be meant. */
+  lint: boolean;
 }
 
 export interface Summary {
@@ -118,13 +121,14 @@ export function toJsonReport(unordered: CheckedFile[], cwd: string, problems: st
         codeDescription: findCode(d.code) ? { href: codeHref(d.code) } : null,
         fixes: [d.fix, d.alternative].flatMap((fix) => (fix ? [fix.title] : [])),
         related: (d.related ?? []).map((r) => ({ range: range(r.range), message: names(r.message) })),
+        lint: LINT_CODES.has(d.code),
       }),
     );
   });
   return { version: JSON_VERSION, files: files.map((f) => displayPath(f.file, cwd)), diagnostics, problems, summary: summarize(files) };
 }
 
-export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+export { plural } from "./plural";
 
 /** The line after the diagnostics, on stderr: what was found in how many files. */
 export function formatSummary(s: Summary): string {

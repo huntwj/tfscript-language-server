@@ -94,6 +94,7 @@ describe("the JSON format", () => {
       codeDescription: { href: "https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#invalid-macro-name" },
       fixes: ["Put = after oops"],
       related: [{ range: { start: { line: 1, column: 1, offset: 0 }, end: { line: 1, column: 3, offset: 2 } }, message: "here" }],
+      lint: false,
     });
     expect(report.diagnostics[2]?.fixes).toEqual(["Add a space", "Escape it"]);
     // The offset is into the text as read, so it finds the diagnostic's text.

@@ -176,7 +176,8 @@ field.
       "message": "This /def has no = after its name, so tf takes all of \"oops /echo the\" as the name, which can't hold a space, and defines nothing: put = after oops.",
       "codeDescription": { "href": "https://github.com/huntwj/tfscript-language-server/blob/main/docs/rules.md#invalid-macro-name" },
       "fixes": ["Put = after oops"],
-      "related": []
+      "related": [],
+      "lint": false
     }
   ],
   "problems": [],
@@ -195,6 +196,7 @@ field.
 | `codeDescription` | `{ "href" }`, the code's entry in docs/rules.md, or `null` for a code with none |
 | `fixes` | the titles of the quick fixes an editor offers for it, in its order (empty when there is none) |
 | `related` | other places the diagnostic points at, each a `range` and a `message` |
+| `lint` | whether it is of the lint tier (rule section L1): a shape tf runs without a word that may be meant |
 | `problems` | the paths that couldn't be checked (missing, unreadable, a folder with no tf scripts) and what is wrong with a `tfscript.json`, each a sentence saying why and what to do; the same lines go to stderr, and any of them makes the exit status 2 |
 | `summary` | how many files were checked, and how many diagnostics of each severity |
 

@@ -12758,6 +12758,58 @@ var bodyContinuesWithoutBackslash = {
   check: check4
 };
 
+// packages/core/src/data/libraryFiles.generated.ts
+var LIBRARY_FILES = [
+  "activity_status.tf",
+  "activity_status2.tf",
+  "alias.tf",
+  "at.tf",
+  "bv.tf",
+  "changes.tf",
+  "color.tf",
+  "complete.tf",
+  "cylon.tf",
+  "factoral.tf",
+  "filexfer.tf",
+  "finger.tf",
+  "grep.tf",
+  "hanoi.tf",
+  "kb-bash.tf",
+  "kb-emacs.tf",
+  "kb-old.tf",
+  "kb_badterm.tf",
+  "kbbind.tf",
+  "kbfunc.tf",
+  "kbregion.tf",
+  "kbstack.tf",
+  "kv-textlog.tf",
+  "kv.tf",
+  "lisp.tf",
+  "local-eg.tf",
+  "map.tf",
+  "pcmd.tf",
+  "psh.tf",
+  "quoter.tf",
+  "relog.tf",
+  "rwho.tf",
+  "savehist.tf",
+  "spc-page.tf",
+  "spedwalk.tf",
+  "spell.tf",
+  "stack-q.tf",
+  "stdlib.tf",
+  "testcolor.tf",
+  "textencode.tf",
+  "textutil.tf",
+  "tfstatus.tf",
+  "tick.tf",
+  "tintin.tf",
+  "tools.tf",
+  "tr.tf",
+  "watch.tf",
+  "world-q.tf"
+];
+
 // packages/core/src/data/libraryLoaded.generated.ts
 var LIBRARY_FILES_WITH_LOADED = [
   "activity_status.tf",
@@ -12798,6 +12850,102 @@ var LIBRARY_FILES_WITH_LOADED = [
   "watch.tf",
   "world-q.tf"
 ];
+
+// packages/core/src/data/upstreamLibraryFiles.generated.ts
+var UPSTREAM_LIBRARY_FILES = [
+  "activity_status.tf",
+  "activity_status2.tf",
+  "alias.tf",
+  "at.tf",
+  "changes.tf",
+  "color.tf",
+  "complete.tf",
+  "cylon.tf",
+  "factoral.tf",
+  "filexfer.tf",
+  "finger.tf",
+  "grep.tf",
+  "hanoi.tf",
+  "kb-bash.tf",
+  "kb-emacs.tf",
+  "kb-old.tf",
+  "kb-os2.tf",
+  "kb_badterm.tf",
+  "kbbind.tf",
+  "kbfunc.tf",
+  "kbregion.tf",
+  "kbstack.tf",
+  "lisp.tf",
+  "local-eg.tf",
+  "map.tf",
+  "pcmd.tf",
+  "psh.tf",
+  "quoter.tf",
+  "relog.tf",
+  "rwho.tf",
+  "savehist.tf",
+  "spc-page.tf",
+  "spedwalk.tf",
+  "spell.tf",
+  "stack-q.tf",
+  "stdlib.tf",
+  "testcolor.tf",
+  "textencode.tf",
+  "textutil.tf",
+  "tfstatus.tf",
+  "tick.tf",
+  "tintin.tf",
+  "tools.tf",
+  "tr.tf",
+  "watch.tf",
+  "world-q.tf"
+];
+
+// packages/core/src/data/upstreamLibraryLoaded.generated.ts
+var UPSTREAM_LIBRARY_FILES_WITH_LOADED = [
+  "activity_status.tf",
+  "activity_status2.tf",
+  "alias.tf",
+  "at.tf",
+  "complete.tf",
+  "filexfer.tf",
+  "grep.tf",
+  "kb-emacs.tf",
+  "kb-old.tf",
+  "kbbind.tf",
+  "kbfunc.tf",
+  "kbregion.tf",
+  "kbstack.tf",
+  "lisp.tf",
+  "local-eg.tf",
+  "map.tf",
+  "pcmd.tf",
+  "psh.tf",
+  "quoter.tf",
+  "relog.tf",
+  "rwho.tf",
+  "savehist.tf",
+  "spedwalk.tf",
+  "spell.tf",
+  "stack-q.tf",
+  "textencode.tf",
+  "textutil.tf",
+  "tfstatus.tf",
+  "tick.tf",
+  "tintin.tf",
+  "tools.tf",
+  "tr.tf",
+  "watch.tf",
+  "world-q.tf"
+];
+
+// packages/core/src/data/library.ts
+function libraryFiles(build) {
+  return build === "fork" ? LIBRARY_FILES : UPSTREAM_LIBRARY_FILES;
+}
+function libraryFilesWithLoaded(build) {
+  return build === "fork" ? LIBRARY_FILES_WITH_LOADED : UPSTREAM_LIBRARY_FILES_WITH_LOADED;
+}
 
 // packages/core/src/data/functions.generated.ts
 var FUNCTIONS = [
@@ -15253,14 +15401,14 @@ var loadOfLibraryFile = {
   id: "load-of-library-file",
   severity: "warning",
   scope: "entry",
-  check(entry) {
+  check(entry, facts) {
     const text = entry.text;
     let start = 0;
     while (isTfSpace(text[start])) start += 1;
     const m = /^\/load((?:[ \t]+-\S+)*)[ \t]+(\S+)[ \t]*$/.exec(text.slice(start));
     if (!m) return [];
     const file = m[2];
-    if (!LIBRARY_FILES_WITH_LOADED.includes(file)) return [];
+    if (!libraryFilesWithLoaded(facts.tfBuild).includes(file)) return [];
     const at2 = start + 1;
     return [
       {
@@ -17591,58 +17739,6 @@ var path3 = __toESM(require("node:path"));
 // packages/core/src/workspace/loadGraph.ts
 var path2 = __toESM(require("node:path"));
 
-// packages/core/src/data/libraryFiles.generated.ts
-var LIBRARY_FILES = [
-  "activity_status.tf",
-  "activity_status2.tf",
-  "alias.tf",
-  "at.tf",
-  "bv.tf",
-  "changes.tf",
-  "color.tf",
-  "complete.tf",
-  "cylon.tf",
-  "factoral.tf",
-  "filexfer.tf",
-  "finger.tf",
-  "grep.tf",
-  "hanoi.tf",
-  "kb-bash.tf",
-  "kb-emacs.tf",
-  "kb-old.tf",
-  "kb_badterm.tf",
-  "kbbind.tf",
-  "kbfunc.tf",
-  "kbregion.tf",
-  "kbstack.tf",
-  "kv-textlog.tf",
-  "kv.tf",
-  "lisp.tf",
-  "local-eg.tf",
-  "map.tf",
-  "pcmd.tf",
-  "psh.tf",
-  "quoter.tf",
-  "relog.tf",
-  "rwho.tf",
-  "savehist.tf",
-  "spc-page.tf",
-  "spedwalk.tf",
-  "spell.tf",
-  "stack-q.tf",
-  "stdlib.tf",
-  "testcolor.tf",
-  "textencode.tf",
-  "textutil.tf",
-  "tfstatus.tf",
-  "tick.tf",
-  "tintin.tf",
-  "tools.tf",
-  "tr.tf",
-  "watch.tf",
-  "world-q.tf"
-];
-
 // packages/core/src/workspace/settings.ts
 var path = __toESM(require("node:path"));
 function toLocalPath(p, mappings) {
@@ -17735,10 +17831,10 @@ function expandVariables(text, vars) {
   );
   return missing ? { ok: false, reason: `%{${missing}} is not set to literal text on this load path`, variable: missing } : { ok: true, value };
 }
-function isLibraryFile(file) {
+function isLibraryFile(file, build) {
   const name = file.replace(/^(?:\.\/)+/, "");
   const fold = (s) => process.platform === "win32" ? s.toLowerCase() : s;
-  return LIBRARY_FILES.some((f) => fold(f) === fold(name));
+  return libraryFiles(build).some((f) => fold(f) === fold(name));
 }
 function resolveLoadPath(file, env) {
   const mappings = env.pathMappings ?? [];
@@ -17846,7 +17942,7 @@ function buildLoadGraph(options) {
       if (namesVariable && !load.pending.includes("full")) return fail("not-substituted", "this path is not substituted here; prefix the command with /eval", searched);
       const user = /^~([^/]+)/.exec(file)?.[1];
       if (user) return fail("user-home", `~${user} is user ${user}'s home directory, unless there is no such user`, searched);
-      if (isLibraryFile(file) && !vars.get("TFLIBDIR") && local.has("TFLIBDIR") && !vars.get("TFPATH")) {
+      if (isLibraryFile(file, options.tfBuild ?? DEFAULT_TF_BUILD) && !vars.get("TFLIBDIR") && local.has("TFLIBDIR") && !vars.get("TFPATH")) {
         return fail("unknown-library", "tf's library folder isn't known here", searched);
       }
       return fail("not-found", "file not found", searched);
@@ -20277,7 +20373,7 @@ var RULE_SECTIONS = [
         code: "load-of-library-file",
         severity: "warning",
         summary: "The file this `/load`s is one of tf's library files, so `/require` loads it only if it isn't loaded yet. Write `/require`, or put `; tflint:ignore-nextline` on the line before if loading it again is the point.",
-        detail: "a top-level `/load` of a library file that runs `/loaded`, named on its own (found through `TFPATH` or `TFLIBDIR`); the fix writes `/require`. A file without `/loaded`, which `/require` would load again anyway, isn't flagged"
+        detail: "a top-level `/load` of a library file that runs `/loaded` (in the library of the tf `tfscript.tfBuild` names), named on its own (found through `TFPATH` or `TFLIBDIR`); the fix writes `/require`. A file without `/loaded`, which `/require` would load again anyway, isn't flagged"
       },
       {
         code: "set-writes-global",
@@ -21056,6 +21152,7 @@ var WorkspaceIndex = class {
       home: settings.home,
       pathMappings: settings.pathMappings,
       variables: settings.variables,
+      tfBuild: settings.tfBuild,
       readFile: this.readerFor(settings.tfBuild)
     });
     const built = { settings, graph };

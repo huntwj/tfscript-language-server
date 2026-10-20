@@ -4029,818 +4029,6 @@ var LIBRARY_FILES_WITH_LOADED = [
   "world-q.tf"
 ];
 
-// packages/core/src/rules/lint.ts
-var IGNORE = `put ${"`; tflint:ignore-nextline`"} on the line before`;
-var refused = (entry, file) => invalidMacroName.check(entry, file).length > 0;
-function defStart(text) {
-  let start = 0;
-  while (isTfSpace(text[start])) start += 1;
-  const { prefix, word } = commandParts(text, start);
-  if (word !== "def" || !/^!*@?$/.test(prefix)) return -1;
-  const after = start + 1 + prefix.length + word.length;
-  return after < text.length && !isTfSpace(text[after]) ? -1 : after;
-}
-var emptyMacroBody = {
-  id: "empty-macro-body",
-  severity: "warning",
-  scope: "entry",
-  check(entry, file) {
-    if (!entry.isDefBody || refused(entry, file)) return [];
-    const text = entry.text;
-    const after = defStart(text);
-    if (after < 0 || defHasInvalidOption(text, after) || defFiresOnEvent(text, after)) return [];
-    const body = macroBodyStart(text);
-    if (body < 0 || text.slice(body).trim() !== "") return [];
-    let end = body;
-    while (end > 0 && isTfSpace(text[end - 1])) end -= 1;
-    return [
-      {
-        start: end - 1,
-        end,
-        message: `This macro's body is empty, so running it sends a blank line to the world: give it a body, or ${IGNORE.replace(/`/g, "")} if that is what you want.`,
-        label: "empty body",
-        explanation: `tf defines a macro with nothing after its ${code("=")} without a word, and running it sends an empty line to the world (through the ${code("SEND")} hook, as text in a body is sent). A trigger, hook or key binding with an empty body sends nothing when it fires, so those aren't flagged. If the blank line is the point, ${IGNORE}.`
-      }
-    ];
-  }
-};
-var loadOfLibraryFile = {
-  id: "load-of-library-file",
-  severity: "warning",
-  scope: "entry",
-  check(entry) {
-    const text = entry.text;
-    let start = 0;
-    while (isTfSpace(text[start])) start += 1;
-    const m = /^\/load((?:[ \t]+-\S+)*)[ \t]+(\S+)[ \t]*$/.exec(text.slice(start));
-    if (!m) return [];
-    const file = m[2];
-    if (!LIBRARY_FILES_WITH_LOADED.includes(file)) return [];
-    const at2 = start + 1;
-    return [
-      {
-        start,
-        end: start + 5,
-        message: `${file} is one of tf's library files, so /require loads it only if it isn't loaded yet: write /require, or ${IGNORE.replace(/`/g, "")} if loading it again is the point.`,
-        label: "a library file",
-        explanation: `${code(file)} is installed with tf and runs ${code("/loaded")}, so ${code("/require")} loads it just as ${code("/load")} does (options and all) the first time, and skips it once it is loaded. ${code("/load")} reads it again each time, redefining its macros. If that is the point, ${IGNORE}.`,
-        fix: { title: "Write /require", edits: [{ start: at2, end: at2 + 4, newText: "require" }] }
-      }
-    ];
-  }
-};
-var SET_LET_RE = /^\/[@!]*(set|let)[ \t]+([A-Za-z_][A-Za-z0-9_]*)(=|[ \t]|$)/i;
-var NESTED_TEXT = /* @__PURE__ */ new Set(["def", "edit", "bind", "hook", "trig", "trigc", "trigp", "trigpc", "alias", "eval", "repeat", "quote", "at", "for"]);
-function bodyStatements(entry, file) {
-  if (!(entry.isDefBody || entry.isOtherMacroBody) || refused(entry, file)) return void 0;
-  const body = macroBodyStart(entry.text);
-  if (body < 0) return void 0;
-  const text = entry.text.slice(body);
-  const layout = parseLayout(text, "body");
-  if (layout.stopped) return void 0;
-  const units = layout.units.filter((u) => layout.lists[u.list]?.kind === "body").map((u) => {
-    let s = u.start;
-    while (isTfSpace(text[s])) s += 1;
-    return { start: s, end: u.end, word: u.word };
-  });
-  return { body, text, units: units.sort((a, b) => a.start - b.start) };
-}
-function letsOf(text, units) {
-  const out = /* @__PURE__ */ new Map();
-  for (const u of units) {
-    if (u.word !== "let") continue;
-    const m = SET_LET_RE.exec(text.slice(u.start, u.end));
-    if (m && !out.has(m[2])) out.set(m[2], u.start);
-  }
-  return out;
-}
-var setWritesGlobal = {
-  id: "set-writes-global",
-  severity: "warning",
-  scope: "entry",
-  check(entry, file) {
-    const found = bodyStatements(entry, file);
-    if (!found) return [];
-    const { body, text, units } = found;
-    const lets = letsOf(text, units);
-    const out = [];
-    for (const u of units) {
-      if (u.word !== "set") continue;
-      const m = SET_LET_RE.exec(text.slice(u.start, u.end));
-      if (!m) continue;
-      const name = m[2];
-      const local = (lets.get(name) ?? Infinity) < u.start;
-      const prefixed = file.localPrefix !== void 0 && name.startsWith(file.localPrefix);
-      if (!local && !prefixed) continue;
-      const word = u.start + m[0].toLowerCase().indexOf(m[1].toLowerCase());
-      out.push({
-        start: body + u.start,
-        end: body + u.start + m[0].length - (m[3] ? m[3].length : 0),
-        message: local ? `This /set writes the global ${name}, not the local this macro made with /let, which its own reads go on seeing: write /let ${name}=... to change the local, or ${IGNORE.replace(/`/g, "")} if the global is meant.` : `This /set writes the global ${name}, though names starting with ${file.localPrefix} are locals in this project: write /let ${name}=... for a local, or ${IGNORE.replace(/`/g, "")} if the global is meant.`,
-        label: "writes the global",
-        explanation: `In a macro, ${code("/set")} always writes the global variable, even where a ${code("/let")} made a local of that name, and the macro's reads of the name still see the local. ` + (local ? `This macro has ${code(`/let ${name}`)} before it. ` : `By this project's convention (${code("tfscript.diagnostics.localPrefix")}), a name starting with ${code(file.localPrefix ?? "")} is only ever a local. `) + `${code(`/let ${name}=...`)} sets the local; if the global is meant, ${IGNORE}.`,
-        ...m[3] === "=" ? { fix: { title: "Write /let", edits: [{ start: body + word, end: body + word + 3, newText: "let" }] } } : {}
-      });
-    }
-    return out;
-  }
-};
-var TFREAD_RE = /\btfread[ \t]*\([ \t]*(?:[^,()]*,[ \t]*)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*\)/g;
-var tfreadWithoutLet = {
-  id: "tfread-without-let",
-  severity: "information",
-  scope: "entry",
-  check(entry, file) {
-    const found = bodyStatements(entry, file);
-    if (!found) return [];
-    const { body, text, units } = found;
-    const lets = letsOf(text, units);
-    const out = [];
-    for (const m of text.matchAll(TFREAD_RE)) {
-      const at2 = m.index;
-      const within = units.filter((u) => u.start <= at2 && at2 < u.end);
-      if (within.length === 0 || within.some((u) => NESTED_TEXT.has(u.word))) continue;
-      const statement2 = within[0];
-      const name = m[1];
-      if ((lets.get(name) ?? Infinity) < statement2.start) continue;
-      const prefixed = file.localPrefix !== void 0 && name.startsWith(file.localPrefix);
-      const nameAt = at2 + m[0].lastIndexOf(name);
-      out.push({
-        start: body + nameAt,
-        end: body + nameAt + name.length,
-        ...prefixed ? { severity: "warning" } : {},
-        message: `This tfread writes the global ${name}, as the macro has no local of that name: put /let ${name}= before it for a local, or ${IGNORE.replace(/`/g, "")} if the global is meant.`,
-        label: "writes a global",
-        explanation: `${code("tfread()")} writes the variable it is given by name: the macro's local where a ${code("/let")} made one first, else a global, which is still set after the macro ends.` + (prefixed ? ` By this project's convention (${code("tfscript.diagnostics.localPrefix")}), ${code(name)} is only ever a local.` : "") + ` If the global is meant, ${IGNORE}.`,
-        fix: { title: `Put /let ${name}= before it`, edits: [{ start: body + statement2.start, end: body + statement2.start, newText: `/let ${name}=%; ` }] }
-      });
-    }
-    return out;
-  }
-};
-var LINT_RULES = [emptyMacroBody, loadOfLibraryFile, setWritesGlobal, tfreadWithoutLet];
-var IGNORE_RE = /^[ \t]*[;#].*?\btflint:ignore-nextline\b(.*)$/;
-var CODE_WORD = /^[a-z]+(?:-[a-z]+)+$/;
-function ignoredByComment(lines, line, code2) {
-  const m = IGNORE_RE.exec(lines[line - 1] ?? "");
-  if (!m) return false;
-  const codes = (m[1] ?? "").split(/[\s,]+/).filter((w) => CODE_WORD.test(w));
-  return codes.length === 0 || codes.includes(code2);
-}
-
-// packages/core/src/rules/index.ts
-var RULES = [
-  missingContinuation,
-  notSubstitutedHere,
-  keywordMidStatement,
-  substitutionInExpression,
-  indentedLineAfterCommand,
-  backslashNotLast,
-  substitutionSyntax,
-  invalidMacroName,
-  blockStructure,
-  conditionListText,
-  keywordNeedsSpace,
-  expressionSyntax,
-  emptyStatement,
-  nestingTooDeep,
-  incompleteContinuation,
-  bodyContinuesWithoutBackslash,
-  ...LINT_RULES
-];
-
-// packages/core/src/rules/notACommand.ts
-function findAbortEntry(entries) {
-  for (let idx = 0; idx < entries.length; idx += 1) {
-    const entry = entries[idx];
-    if (!entry) continue;
-    if (entry.incomplete) continue;
-    const leadingLen = leadingWhitespaceLength(entry.text);
-    const firstChar = entry.text[leadingLen];
-    if (firstChar === void 0) continue;
-    if (firstChar === "/") continue;
-    const start = entry.offsetMap[leadingLen];
-    if (!start) continue;
-    let end = leadingLen;
-    while (end < entry.offsetMap.length && entry.offsetMap[end]?.line === start.line) {
-      end += 1;
-    }
-    const lastChar = entry.offsetMap[end - 1] ?? start;
-    const firsts = /* @__PURE__ */ new Map();
-    for (const at2 of entry.offsetMap) if (!firsts.has(at2.line)) firsts.set(at2.line, at2.character);
-    const after = entry.text.slice(leadingLen + 1);
-    const rest = after[leadingWhitespaceLength(after)];
-    if (firstChar === "\uFEFF" && (rest === "/" || rest === ";" || rest === "#")) {
-      return {
-        entryIndex: idx,
-        line: start.line,
-        startChar: start.character,
-        endChar: start.character + 1,
-        message: "This line starts with a byte order mark (U+FEFF), which tf reads as text, so it stops loading the file here: delete the mark.",
-        label: "byte order mark",
-        explanation: `Some editors save UTF-8 files with an invisible byte order mark at the start. tf doesn't skip it, so the line doesn't start with ${code("/")}, ${code(";")} or ${code("#")}: tf reports ${code("Invalid command. Aborting.")} and reads nothing after it. Save the file as UTF-8 without a BOM.`,
-        fix: { title: "Delete the byte order mark", edits: [{ line: start.line, startChar: start.character, endChar: start.character + 1, newText: "" }] }
-      };
-    }
-    return {
-      entryIndex: idx,
-      line: start.line,
-      startChar: start.character,
-      endChar: lastChar.character + 1,
-      message: "This line isn't a command, so tf stops loading the file here: comment it out, or start it with /.",
-      label: "not a command",
-      explanation: `tf joins the lines of a file that end in ${code("\\")} onto the line after, and runs each resulting command. Apart from blank lines and comments (starting with ${code(";")} or ${code("#")}), each command has to start with ${code("/")}; at any other command tf reports ${code("Invalid command. Aborting.")} and reads nothing after it. If the line belongs to the command above it, end that command's last line with ${code("\\")}; if it is a note, make it a comment.`,
-      fix: {
-        title: firsts.size > 1 ? "Comment out these lines" : "Comment out the line",
-        edits: [...firsts].map(([line, character]) => ({ line, startChar: character, endChar: character, newText: "; " }))
-      }
-    };
-  }
-  return null;
-}
-
-// packages/core/src/diagnostics.ts
-var LINT_CODES = new Set(LINT_RULES.map((r) => r.id));
-function positionOf(entry, offset) {
-  const at2 = entry.offsetMap[offset];
-  if (at2) return { line: at2.line, character: at2.character };
-  const last = entry.offsetMap[offset - 1];
-  return last ? { line: last.line, character: last.character + 1 } : void 0;
-}
-function rangeOf(entry, start, end) {
-  const from = positionOf(entry, start);
-  if (end <= start) return from && { start: from, end: from };
-  const lastChar = entry.offsetMap[end - 1];
-  return from && lastChar ? { start: from, end: { line: lastChar.line, character: lastChar.character + 1 } } : void 0;
-}
-function entryDiagnostic(entry, match, code2, severity) {
-  if (match.end <= match.start) return void 0;
-  const range = rangeOf(entry, match.start, match.end);
-  if (!range) return void 0;
-  const d = { range, message: match.message, code: code2, severity: match.severity ?? severity };
-  if (match.label) d.label = match.label;
-  if (match.explanation) d.explanation = match.explanation;
-  const related = (match.related ?? []).flatMap((n) => {
-    const r = rangeOf(entry, n.start, n.end);
-    return r ? [{ range: r, message: n.message }] : [];
-  });
-  if (related.length > 0) d.related = related;
-  const mapped = (fix2) => {
-    const edits = fix2.edits.map((e) => {
-      const r = rangeOf(entry, e.start, e.end);
-      return r && { range: r, newText: e.newText };
-    });
-    return edits.length > 0 && edits.every((e) => e) ? { title: fix2.title, edits } : void 0;
-  };
-  const fix = match.fix && mapped(match.fix);
-  if (fix) d.fix = fix;
-  const alternative = match.alternative && mapped(match.alternative);
-  if (alternative) d.alternative = alternative;
-  return d;
-}
-function spanRange(s) {
-  return { start: { line: s.line, character: s.startChar }, end: { line: s.line, character: s.endChar } };
-}
-function lineDiagnostic(match, code2, severity) {
-  const d = { range: spanRange(match), message: match.message, code: code2, severity };
-  if (match.label) d.label = match.label;
-  if (match.explanation) d.explanation = match.explanation;
-  if (match.related && match.related.length > 0) d.related = match.related.map((n) => ({ range: spanRange(n), message: n.message }));
-  if (match.fix) d.fix = { title: match.fix.title, edits: match.fix.edits.map((e) => ({ range: spanRange(e), newText: e.newText })) };
-  return d;
-}
-var reportRuleError = (rule, error) => {
-  process.stderr.write(`tfscript: rule ${rule} failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}
-`);
-};
-function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD, localPrefix } = {}) {
-  const entries = splitLogicalEntries(text);
-  let diagnostics = [];
-  const abort = findAbortEntry(entries);
-  const usableEntries = (abort ? entries.slice(0, abort.entryIndex) : entries).filter(
-    (entry) => !entry.incomplete
-  );
-  const readableLineCount = abort ? (entries[abort.entryIndex]?.endLine ?? abort.line) + 1 : void 0;
-  const textForFileRules = readableLineCount !== void 0 ? splitRawLines(text).slice(0, readableLineCount).join("\n") : text;
-  const macros = /* @__PURE__ */ new Set();
-  for (const entry of usableEntries) {
-    const name = definedMacro(entry);
-    if (name) macros.add(name.toLowerCase());
-  }
-  const facts = { macros, tfBuild, ...localPrefix ? { localPrefix } : {} };
-  for (const rule of RULES) {
-    let failed = false;
-    const guarded = (run) => {
-      try {
-        run();
-      } catch (error) {
-        if (!failed) reportRuleError(rule.id, error);
-        failed = true;
-      }
-    };
-    if (rule.scope === "entry") {
-      for (const entry of usableEntries) {
-        guarded(() => {
-          const found = [];
-          for (const match of rule.check(entry, facts)) {
-            const d = entryDiagnostic(entry, match, rule.id, rule.severity);
-            if (d) found.push(d);
-          }
-          for (const d of found) diagnostics.push(d);
-        });
-      }
-    } else {
-      guarded(() => {
-        const found = rule.check(textForFileRules).map((match) => lineDiagnostic(match, rule.id, rule.severity));
-        for (const d of found) diagnostics.push(d);
-      });
-    }
-  }
-  if (abort) diagnostics.push(lineDiagnostic(abort, "not-a-command", "error"));
-  diagnostics = consolidateContinuations(text, entries, diagnostics);
-  unjoinGluedKeywords(text, entries, diagnostics);
-  if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false, tfBuild, ...localPrefix ? { localPrefix } : {} }));
-  const rawLines = splitRawLines(text);
-  return diagnostics.filter((d) => !(LINT_CODES.has(d.code) && ignoredByComment(rawLines, d.range.start.line, d.code)));
-}
-function unjoinGluedKeywords(text, entries, diagnostics) {
-  let lines;
-  for (const d of diagnostics) {
-    if (d.code !== "keyword-needs-space" || d.range.end.line <= d.range.start.line) continue;
-    lines ??= splitRawLines(text);
-    const n = d.range.start.line;
-    const raw = lines[n] ?? "";
-    const keyword = raw.slice(d.range.start.character, raw.length - 1);
-    if (!raw.endsWith("\\") || !/^\/@?[A-Za-z]+$/.test(keyword)) continue;
-    const line = n + 1;
-    let m = n + 1;
-    while (m < lines.length && isCommentLine(lines[m] ?? "")) m += 1;
-    const next = lines[m] ?? "";
-    const glued = keyword + joinedWord(lines, m);
-    const at2 = { line: n, character: raw.length - 1 };
-    const word = keyword.replace(/^\/@?/, "").toLowerCase();
-    const keep = { title: `Put %; before the \\ on line ${line}`, edits: [{ range: { start: at2, end: at2 }, newText: "%;" }] };
-    if (word === "endif" || word === "done") {
-      d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put %; before the \\, or remove the \\.`;
-      const split = {
-        title: `Remove the \\ at the end of line ${line}`,
-        edits: [{ range: { start: at2, end: { line: n, character: raw.length } }, newText: "" }]
-      };
-      const entry = entries.find((e) => e.startLine <= n && n <= e.endLine);
-      const defined = entry && definedMacro(entry)?.toLowerCase();
-      const calls = next.endsWith("\\") ? void 0 : /^\/([^\s%@\\]+)/.exec(next)?.[1]?.toLowerCase();
-      const ownCommand = /^\/@?def\b/i.test(next) || !!defined && calls === defined;
-      const sameBody = !ownCommand && (/^[ \t\f\v]/.test(next) || next.endsWith("\\") || !!entry?.isDefBody || !!entry?.isOtherMacroBody);
-      d.fix = sameBody ? keep : split;
-      d.alternative = sameBody ? split : keep;
-    } else if (word === "break") {
-      d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put %; before the \\.`;
-      d.fix = keep;
-      delete d.alternative;
-    } else if (!d.fix) {
-      const rest = next.trimStart();
-      const paren = rest.startsWith("(") ? parenthesized(rest) : "";
-      const head = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command`;
-      if (paren && word === "else") d.message = `${head}: did you mean /elseif ${paren}? Then put a space before the \\.`;
-      else if (paren && (word === "then" || word === "do")) d.message = `${head}: /${word} takes no (condition).`;
-      else if (paren && /^[ \t]*%[;|\\]/.test(rest.slice(paren.length))) d.message = `${head}: put a space before the \\, and a command between the ${paren} and the %;.`;
-      else if (paren) d.message = `${head}: put a space before the \\.`;
-      else d.message = `${head}: unless a macro named ${glued.slice(1)} is defined elsewhere, put a space before the \\.`;
-    } else {
-      d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put a space before the \\.`;
-      d.fix = { title: `Put a space before the \\ on line ${line}`, edits: [{ range: { start: at2, end: at2 }, newText: " " }] };
-      delete d.alternative;
-    }
-  }
-}
-function parenthesized(text) {
-  let depth = 0;
-  for (let p = 0; p < text.length; p += 1) {
-    const ch = text[p];
-    if (ch === '"' || ch === "'" || ch === "`") {
-      p += 1;
-      while (p < text.length && text[p] !== ch) p += text[p] === "\\" ? 2 : 1;
-    } else if (ch === "(") depth += 1;
-    else if (ch === ")" && --depth === 0) return text.slice(0, p + 1);
-  }
-  return "";
-}
-function joinedWord(lines, m) {
-  let word = "";
-  for (let k = m; k < lines.length; ) {
-    const rest = (lines[k] ?? "").trimStart();
-    const part = /^[^\s%]*/.exec(rest)?.[0] ?? "";
-    if (!part.endsWith("\\") || part.length !== rest.length) return word + part;
-    word += part.slice(0, -1);
-    k += 1;
-    while (k < lines.length && isCommentLine(lines[k] ?? "")) k += 1;
-  }
-  return word;
-}
-
-// packages/core/src/workspace/documentDiagnostics.ts
-function documentDiagnostics(text, file, index) {
-  const tfBuild = file ? index.tfBuildFor(file) : void 0;
-  const localPrefix = file ? index.localPrefixFor(file) : void 0;
-  return [...getDiagnostics(text, { ...tfBuild ? { tfBuild } : {}, ...localPrefix ? { localPrefix } : {} }), ...file ? index.loadPathDiagnostics(file, text) : []];
-}
-
-// packages/core/src/workspace/loadGraph.ts
-var path3 = __toESM(require("node:path"));
-
-// packages/core/src/data/libraryFiles.generated.ts
-var LIBRARY_FILES = [
-  "activity_status.tf",
-  "activity_status2.tf",
-  "alias.tf",
-  "at.tf",
-  "changes.tf",
-  "color.tf",
-  "complete.tf",
-  "cylon.tf",
-  "factoral.tf",
-  "filexfer.tf",
-  "finger.tf",
-  "grep.tf",
-  "hanoi.tf",
-  "kb-bash.tf",
-  "kb-emacs.tf",
-  "kb-old.tf",
-  "kb_badterm.tf",
-  "kbbind.tf",
-  "kbfunc.tf",
-  "kbregion.tf",
-  "kbstack.tf",
-  "kv-textlog.tf",
-  "kv.tf",
-  "lisp.tf",
-  "local-eg.tf",
-  "map.tf",
-  "pcmd.tf",
-  "psh.tf",
-  "quoter.tf",
-  "relog.tf",
-  "rwho.tf",
-  "savehist.tf",
-  "spc-page.tf",
-  "spedwalk.tf",
-  "spell.tf",
-  "stack-q.tf",
-  "stdlib.tf",
-  "testcolor.tf",
-  "textencode.tf",
-  "textutil.tf",
-  "tfstatus.tf",
-  "tick.tf",
-  "tintin.tf",
-  "tools.tf",
-  "tr.tf",
-  "vbind.tf",
-  "watch.tf",
-  "world-q.tf"
-];
-
-// packages/core/src/workspace/settings.ts
-var path2 = __toESM(require("node:path"));
-function toLocalPath(p, mappings) {
-  if (mappings.length === 0 || /^[\\/]{2}/.test(p)) return p;
-  const forward = path2.posix.normalize(p.replace(/\\/g, "/"));
-  for (const m of mappings) {
-    if (forward === m.tf || forward.startsWith(m.tf === "/" ? "/" : `${m.tf}/`)) {
-      return path2.join(m.local, forward.slice(m.tf === "/" ? 1 : m.tf.length));
-    }
-  }
-  return p;
-}
-function toTfPath(p, mappings) {
-  for (const m of mappings) {
-    const rel = path2.relative(m.local, p);
-    if (rel === "" || !rel.startsWith("..") && !path2.isAbsolute(rel)) {
-      const tail = rel.replace(/\\/g, "/");
-      return tail === "" ? m.tf : `${m.tf === "/" ? "" : m.tf}/${tail}`;
-    }
-  }
-  return void 0;
-}
-function mappingsOf(raw, folder, home) {
-  return (raw.pathMappings ?? []).filter((m) => typeof m?.tf === "string" && typeof m?.local === "string" && m.tf.startsWith("/") && m.local.trim() !== "").map((m) => ({ tf: path2.posix.normalize(m.tf.replace(/\\/g, "/")).replace(/\/+$/, "") || "/", local: absolute(m.local, folder, home, []) })).sort((a, b) => b.tf.length - a.tf.length);
-}
-function absolute(p, folder, home, mappings) {
-  const expanded = p === "~" || p.startsWith("~/") || p.startsWith("~\\") ? home + p.slice(1) : p;
-  return path2.resolve(folder, toLocalPath(expanded, mappings));
-}
-function resolveSettings(raw, folder, environment) {
-  const userHome = environment.homedir;
-  const pathMappings = mappingsOf(raw, folder, userHome);
-  const home = raw.homeDirectory ? absolute(raw.homeDirectory, folder, userHome, pathMappings) : userHome;
-  const abs = (p) => absolute(p, folder, home, pathMappings);
-  let entryFiles = (raw.entryFiles ?? []).filter((f) => f.trim() !== "").map(abs);
-  if (entryFiles.length === 0) {
-    const candidates = [
-      path2.join(folder, ".tfrc"),
-      path2.join(folder, "tfrc"),
-      path2.join(folder, "tfrc.tf"),
-      path2.join(home, ".tfrc"),
-      path2.join(home, "tfrc")
-    ];
-    const found = candidates.find((c) => environment.exists(c));
-    entryFiles = found ? [found] : [];
-  }
-  const library = raw.libraryPath?.trim() || environment.env.TFLIBDIR;
-  const tfPath = raw.tfPath && raw.tfPath.length > 0 ? raw.tfPath.map(abs) : (environment.env.TFPATH ?? "").split(/\s+/).filter(Boolean);
-  const named = Object.entries(raw.contexts ?? {}).map(([name, files]) => ({ name, entryFiles: (Array.isArray(files) ? files : [files]).filter((f) => typeof f === "string").filter((f) => f.trim() !== "").map(abs) })).filter((c) => c.entryFiles.length > 0);
-  const contexts = named.length > 0 ? named : [{ name: "default", entryFiles }];
-  const active = contexts.find((c) => c.name === raw.activeContext) ?? contexts[0];
-  return {
-    entryFiles: contexts[0].entryFiles,
-    contexts,
-    activeContext: active.name,
-    libraryDir: library ? abs(library) : void 0,
-    tfPath,
-    workingDir: raw.workingDirectory ? abs(raw.workingDirectory) : folder,
-    home,
-    pathMappings,
-    variables: Object.fromEntries(
-      Object.entries(raw.variables ?? {}).filter(([name, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && typeof value === "string")
-    ),
-    tfBuild: TF_BUILDS.find((b) => b === raw.tfBuild) ?? DEFAULT_TF_BUILD
-  };
-}
-
-// packages/core/src/workspace/loadGraph.ts
-var LOADED_RE = /^\s*\/loaded\s+(\S+)/i;
-function isForeignPath(p) {
-  return process.platform === "win32" && /^[\\/](?![\\/])/.test(p);
-}
-function fileKey(file) {
-  const resolved = path3.resolve(file);
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-}
-function expandVariables(text, vars) {
-  let missing;
-  const value = text.replace(
-    /%(%+)|%\{([^}-]+)(?:-([^}]*))?\}|%([A-Za-z_][A-Za-z0-9_]*)/g,
-    (_whole, percents2, braced, fallback, bare) => {
-      if (percents2 !== void 0) return percents2;
-      const name = braced ?? bare;
-      const v = vars.get(name);
-      if (v !== void 0 && v !== "") return v;
-      if (fallback !== void 0) return fallback;
-      missing ??= name;
-      return "";
-    }
-  );
-  return missing ? { ok: false, reason: `%{${missing}} is not set to literal text on this load path`, variable: missing } : { ok: true, value };
-}
-function isLibraryFile(file) {
-  const name = file.replace(/^(?:\.\/)+/, "");
-  const fold = (s) => process.platform === "win32" ? s.toLowerCase() : s;
-  return LIBRARY_FILES.some((f) => fold(f) === fold(name));
-}
-function resolveLoadPath(file, env) {
-  const mappings = env.pathMappings ?? [];
-  const under = (dir, rel, local) => local ? path3.join(dir, rel) : path3.normalize(toLocalPath(`${dir}/${rel}`, mappings));
-  if (file.startsWith("~")) {
-    const underHome = file === "~" || file.startsWith("~/");
-    const named = underHome ? env.home + file.slice(1) : file;
-    const mapped = underHome && env.local?.home ? named : toLocalPath(named, mappings);
-    const target2 = mapped === named ? path3.resolve(env.workingDir, named) : path3.normalize(mapped);
-    return { found: env.readFile(target2) !== void 0 ? target2 : void 0, searched: [target2] };
-  }
-  const target = file;
-  const candidates = [];
-  if (path3.isAbsolute(target)) {
-    candidates.push(path3.normalize(toLocalPath(target, mappings)));
-  } else {
-    candidates.push(path3.join(env.workingDir, target));
-    if (env.tfPath.length > 0) {
-      for (const dir of env.tfPath) if (path3.isAbsolute(dir)) candidates.push(under(dir, target, env.local?.tfPath));
-    } else if (env.libraryDir && path3.isAbsolute(env.libraryDir)) {
-      candidates.push(under(env.libraryDir, target, env.local?.libraryDir));
-    }
-  }
-  return { found: candidates.find((c) => env.readFile(c) !== void 0), searched: candidates };
-}
-function buildLoadGraph(options) {
-  const vars = /* @__PURE__ */ new Map([
-    ["TFLIBDIR", options.libraryDir ?? ""],
-    ["TFPATH", (options.tfPath ?? []).join(" ")],
-    ["HOME", options.home ?? ""]
-  ]);
-  const unknown = /* @__PURE__ */ new Set();
-  const guarded = /* @__PURE__ */ new Set();
-  const local = new Set(vars.keys());
-  const seeded = /* @__PURE__ */ new Set();
-  function searchEnv() {
-    const libraryDir = vars.get("TFLIBDIR") || void 0;
-    return {
-      home: vars.get("HOME") ?? "",
-      tfPath: (vars.get("TFPATH") ?? "").split(/\s+/).filter(Boolean),
-      ...libraryDir === void 0 ? {} : { libraryDir },
-      local: { home: local.has("HOME"), tfPath: local.has("TFPATH"), libraryDir: local.has("TFLIBDIR") }
-    };
-  }
-  const files = /* @__PURE__ */ new Map();
-  const tokens = /* @__PURE__ */ new Set();
-  const unresolved = [];
-  const resolved = [];
-  let seq = 0;
-  let inStdlib = false;
-  function resolve6(file) {
-    const env = searchEnv();
-    const tfPath = env.tfPath;
-    const result = resolveLoadPath(file, {
-      ...env,
-      workingDir: options.workingDir,
-      ...options.pathMappings ? { pathMappings: options.pathMappings } : {},
-      readFile: options.readFile
-    });
-    if (result.found !== void 0 && result.found === result.searched[0] && !/^~(?:\/|$)/.test(file)) return result;
-    const needs = /^~(?:\/|$)/.test(file) ? ["HOME"] : file.startsWith("~") || path3.isAbsolute(file) ? [] : ["TFPATH", ...tfPath.length > 0 ? [] : ["TFLIBDIR"]];
-    const unknownVar = needs.find((v) => unknown.has(v));
-    return unknownVar ? { searched: result.searched, unknownVar } : result;
-  }
-  function valueAfter(text, pending) {
-    let value = text;
-    for (const level of pending) {
-      if (level === "newline") value = shortenPercents(value);
-      if (level !== "full") continue;
-      const expanded = expandVariables(value, vars);
-      if (!expanded.ok) return expanded;
-      value = expanded.value;
-    }
-    return { ok: true, value };
-  }
-  function unknownValue(variable, reason) {
-    return guarded.has(variable) ? { kind: "guarded-variable", reason: `%{${variable}} is set inside an /if or /while on the load path` } : { kind: "unknown-variable", reason };
-  }
-  function handleLoad(entry, load, from) {
-    const line = entry.startLine;
-    const raw = entry.text.slice(load.start, load.end);
-    let file = load.file;
-    const fail = (k, reason, searched2 = [], variable) => {
-      unresolved.push({ from, line, start: load.start, end: load.end, kind: k, raw, file, reason, searched: searched2, ...variable ? { variable } : {} });
-    };
-    const namesVariable = /%\{|%[A-Za-z_]/.test(raw.replace(/%%+/g, ""));
-    if (load.plain && namesVariable) {
-      return fail("not-substituted", "a top-level path is not substituted; prefix the line with /eval");
-    }
-    const value = valueAfter(file, load.pending);
-    if (!value.ok) {
-      const why = unknownValue(value.variable, value.reason);
-      return fail(why.kind, why.reason, [], value.variable);
-    }
-    file = value.value;
-    file = load.kind === "require" ? file.trim().split(/[ \t\r\f\v]+/).join(" ") : file.trim();
-    if (!file) return;
-    const { found, searched, unknownVar } = resolve6(file);
-    if (unknownVar) {
-      const why = unknownValue(unknownVar, `%{${unknownVar}} is not set to literal text on this load path`);
-      return fail(why.kind, why.reason, searched, unknownVar);
-    }
-    if (!found) {
-      if (/^~(?:\/|$)/.test(file) && !vars.get("HOME")) return fail("unknown-variable", "HOME isn't known on this load path", [], "HOME");
-      if (namesVariable && !load.pending.includes("full")) return fail("not-substituted", "this path is not substituted here; prefix the command with /eval", searched);
-      const user = /^~([^/]+)/.exec(file)?.[1];
-      if (user) return fail("user-home", `~${user} is user ${user}'s home directory, unless there is no such user`, searched);
-      if (isLibraryFile(file) && !vars.get("TFLIBDIR") && local.has("TFLIBDIR") && !vars.get("TFPATH")) {
-        return fail("unknown-library", "tf's library folder isn't known here", searched);
-      }
-      return fail("not-found", "file not found", searched);
-    }
-    resolved.push({ from, line, offset: load.start, raw, file: path3.resolve(found), kind: load.kind });
-    walk2(found, { kind: load.kind, from, line });
-  }
-  function walk2(file, site) {
-    const key2 = fileKey(file);
-    const existing = files.get(key2);
-    if (existing) {
-      existing.sites.push(site);
-      return;
-    }
-    const text = options.readFile(file);
-    if (text === void 0) return;
-    const loaded = { path: path3.resolve(file), text, sites: [site], defs: [], stdlib: inStdlib, searchEnv: searchEnv() };
-    files.set(key2, loaded);
-    const entries = splitLogicalEntries(text);
-    const abort = findAbortEntry(entries);
-    const usable = (abort ? entries.slice(0, abort.entryIndex) : entries).filter((e) => !e.incomplete);
-    const defsByLine = /* @__PURE__ */ new Map();
-    for (const s of getDocumentSymbols(text)) if (s.kind === "def") defsByLine.set(s.range.start.line, s);
-    for (const entry of usable) {
-      if (entry.isDefBody || entry.isOtherMacroBody) {
-        const symbol = defsByLine.get(entry.startLine);
-        if (symbol) loaded.defs.push({ file: loaded.path, symbol, seq: seq++ });
-        continue;
-      }
-      const token = LOADED_RE.exec(entry.text)?.[1];
-      if (token !== void 0) {
-        if (tokens.has(token) && site.kind === "require") break;
-        tokens.add(token);
-        continue;
-      }
-      if (entry.isForLoop) continue;
-      for (const command2 of entryCommands(entry)) {
-        if (!command2.topLevel) continue;
-        if (command2.kind !== "set") {
-          handleLoad(entry, command2, loaded.path);
-          continue;
-        }
-        if (command2.name === "TFPATH" || command2.name === "TFLIBDIR" || command2.name === "HOME") local.delete(command2.name);
-        if (command2.conditional && seeded.has(command2.name)) continue;
-        const value = valueAfter(command2.value, command2.pending);
-        if (value.ok && !command2.conditional) {
-          vars.set(command2.name, value.value);
-          unknown.delete(command2.name);
-          guarded.delete(command2.name);
-          seeded.delete(command2.name);
-        } else if (!value.ok || vars.get(command2.name) !== value.value) {
-          vars.delete(command2.name);
-          unknown.add(command2.name);
-          if (command2.conditional) guarded.add(command2.name);
-          else guarded.delete(command2.name);
-        }
-      }
-    }
-  }
-  if (options.libraryDir) {
-    const stdlib = path3.join(options.libraryDir, "stdlib.tf");
-    if (options.readFile(stdlib) !== void 0) {
-      inStdlib = true;
-      walk2(stdlib, { kind: "stdlib" });
-      inStdlib = false;
-    }
-  }
-  for (const [name, value] of Object.entries(options.variables ?? {})) {
-    vars.set(name, value);
-    unknown.delete(name);
-    guarded.delete(name);
-    local.delete(name);
-    seeded.add(name);
-  }
-  for (const entry of options.entryFiles) walk2(entry, { kind: "entry" });
-  return { files: [...files.values()], unresolved, resolved };
-}
-
-// packages/core/src/workspace/nodeFileSystem.ts
-var import_node_fs = require("node:fs");
-var import_node_os = require("node:os");
-var path4 = __toESM(require("node:path"));
-var SKIP_DIRS = /* @__PURE__ */ new Set([".git", ".jj", "node_modules"]);
-function isSkippedDir(name) {
-  return SKIP_DIRS.has(process.platform === "win32" ? name.toLowerCase() : name);
-}
-function readFile(file) {
-  try {
-    return (0, import_node_fs.readFileSync)(file, "utf8");
-  } catch {
-    return void 0;
-  }
-}
-function listTfFiles(dir) {
-  try {
-    return (0, import_node_fs.readdirSync)(dir).filter((f) => f.endsWith(".tf")).map((f) => path4.join(dir, f));
-  } catch {
-    return [];
-  }
-}
-function walkTfFiles(dir, limit = Infinity) {
-  const out = [];
-  const visit = (d) => {
-    let entries;
-    try {
-      entries = (0, import_node_fs.readdirSync)(d, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      if (out.length >= limit) return;
-      const full = path4.join(d, e.name);
-      if (e.isDirectory()) {
-        if (!isSkippedDir(e.name)) visit(full);
-      } else if (e.name.endsWith(".tf") || e.name === "tfrc" || e.name === ".tfrc") {
-        out.push(full);
-      }
-    }
-  };
-  visit(dir);
-  return out;
-}
-function mtime(file) {
-  try {
-    return (0, import_node_fs.statSync)(file).mtimeMs;
-  } catch {
-    return void 0;
-  }
-}
-var nodeFileSystem = { readFile, listTfFiles, walkTfFiles, mtime };
-function nodeEnvironment() {
-  return { env: process.env, homedir: (0, import_node_os.homedir)(), exists: import_node_fs.existsSync };
-}
-
-// packages/core/src/workspace/workspaceIndex.ts
-var path6 = __toESM(require("node:path"));
-
 // packages/core/src/data/functions.generated.ts
 var FUNCTIONS = [
   {
@@ -7246,12 +6434,860 @@ function scan(text) {
   }
   return result;
 }
+function findVariables(text) {
+  return scan(text).variables;
+}
 function findMacroCalls(text) {
   return scan(text).calls;
 }
 function findFunctionCalls(text) {
   return scan(text).functionCalls;
 }
+
+// packages/core/src/rules/lint.ts
+var IGNORE = `put ${"`; tflint:ignore-nextline`"} on the line before`;
+var refused = (entry, file) => invalidMacroName.check(entry, file).length > 0;
+function defStart(text) {
+  let start = 0;
+  while (isTfSpace(text[start])) start += 1;
+  const { prefix, word } = commandParts(text, start);
+  if (word !== "def" || !/^!*@?$/.test(prefix)) return -1;
+  const after = start + 1 + prefix.length + word.length;
+  return after < text.length && !isTfSpace(text[after]) ? -1 : after;
+}
+var emptyMacroBody = {
+  id: "empty-macro-body",
+  severity: "warning",
+  scope: "entry",
+  check(entry, file) {
+    if (!entry.isDefBody || refused(entry, file)) return [];
+    const text = entry.text;
+    const after = defStart(text);
+    if (after < 0 || defHasInvalidOption(text, after) || defFiresOnEvent(text, after)) return [];
+    const body = macroBodyStart(text);
+    if (body < 0 || text.slice(body).trim() !== "") return [];
+    let end = body;
+    while (end > 0 && isTfSpace(text[end - 1])) end -= 1;
+    return [
+      {
+        start: end - 1,
+        end,
+        message: `This macro's body is empty, so running it sends a blank line to the world: give it a body, or ${IGNORE.replace(/`/g, "")} if that is what you want.`,
+        label: "empty body",
+        explanation: `tf defines a macro with nothing after its ${code("=")} without a word, and running it sends an empty line to the world (through the ${code("SEND")} hook, as text in a body is sent). A trigger, hook or key binding with an empty body sends nothing when it fires, so those aren't flagged. If the blank line is the point, ${IGNORE}.`
+      }
+    ];
+  }
+};
+var loadOfLibraryFile = {
+  id: "load-of-library-file",
+  severity: "warning",
+  scope: "entry",
+  check(entry) {
+    const text = entry.text;
+    let start = 0;
+    while (isTfSpace(text[start])) start += 1;
+    const m = /^\/load((?:[ \t]+-\S+)*)[ \t]+(\S+)[ \t]*$/.exec(text.slice(start));
+    if (!m) return [];
+    const file = m[2];
+    if (!LIBRARY_FILES_WITH_LOADED.includes(file)) return [];
+    const at2 = start + 1;
+    return [
+      {
+        start,
+        end: start + 5,
+        message: `${file} is one of tf's library files, so /require loads it only if it isn't loaded yet: write /require, or ${IGNORE.replace(/`/g, "")} if loading it again is the point.`,
+        label: "a library file",
+        explanation: `${code(file)} is installed with tf and runs ${code("/loaded")}, so ${code("/require")} loads it just as ${code("/load")} does (options and all) the first time, and skips it once it is loaded. ${code("/load")} reads it again each time, redefining its macros. If that is the point, ${IGNORE}.`,
+        fix: { title: "Write /require", edits: [{ start: at2, end: at2 + 4, newText: "require" }] }
+      }
+    ];
+  }
+};
+var SET_LET_RE = /^\/[@!]*(set|let)[ \t]+([A-Za-z_][A-Za-z0-9_]*)(=|[ \t]|$)/i;
+var NESTED_TEXT = /* @__PURE__ */ new Set(["def", "edit", "bind", "hook", "trig", "trigc", "trigp", "trigpc", "alias", "eval", "repeat", "quote", "at", "for"]);
+function bodyStatements(entry, file) {
+  if (!(entry.isDefBody || entry.isOtherMacroBody) || refused(entry, file)) return void 0;
+  const body = macroBodyStart(entry.text);
+  if (body < 0) return void 0;
+  const text = entry.text.slice(body);
+  const layout = parseLayout(text, "body");
+  if (layout.stopped) return void 0;
+  const units = layout.units.filter((u) => layout.lists[u.list]?.kind === "body").map((u) => {
+    let s = u.start;
+    while (isTfSpace(text[s])) s += 1;
+    return { start: s, end: u.end, word: u.word };
+  });
+  return { body, text, units: units.sort((a, b) => a.start - b.start) };
+}
+function letsOf(text, units) {
+  const out = /* @__PURE__ */ new Map();
+  for (const u of units) {
+    if (u.word !== "let") continue;
+    const m = SET_LET_RE.exec(text.slice(u.start, u.end));
+    if (m && !out.has(m[2])) out.set(m[2], u.start);
+  }
+  return out;
+}
+var setWritesGlobal = {
+  id: "set-writes-global",
+  severity: "warning",
+  scope: "entry",
+  check(entry, file) {
+    const found = bodyStatements(entry, file);
+    if (!found) return [];
+    const { body, text, units } = found;
+    const lets = letsOf(text, units);
+    const out = [];
+    for (const u of units) {
+      if (u.word !== "set") continue;
+      const m = SET_LET_RE.exec(text.slice(u.start, u.end));
+      if (!m) continue;
+      const name = m[2];
+      const local = (lets.get(name) ?? Infinity) < u.start;
+      const prefixed = file.localPrefix !== void 0 && name.startsWith(file.localPrefix);
+      if (!local && !prefixed) continue;
+      const word = u.start + m[0].toLowerCase().indexOf(m[1].toLowerCase());
+      out.push({
+        start: body + u.start,
+        end: body + u.start + m[0].length - (m[3] ? m[3].length : 0),
+        message: local ? `This /set writes the global ${name}, not the local this macro made with /let, which its own reads go on seeing: write /let ${name}=... to change the local, or ${IGNORE.replace(/`/g, "")} if the global is meant.` : `This /set writes the global ${name}, though names starting with ${file.localPrefix} are locals in this project: write /let ${name}=... for a local, or ${IGNORE.replace(/`/g, "")} if the global is meant.`,
+        label: "writes the global",
+        explanation: `In a macro, ${code("/set")} always writes the global variable, even where a ${code("/let")} made a local of that name, and the macro's reads of the name still see the local. ` + (local ? `This macro has ${code(`/let ${name}`)} before it. ` : `By this project's convention (${code("tfscript.diagnostics.localPrefix")}), a name starting with ${code(file.localPrefix ?? "")} is only ever a local. `) + `${code(`/let ${name}=...`)} sets the local; if the global is meant, ${IGNORE}.`,
+        ...m[3] === "=" ? { fix: { title: "Write /let", edits: [{ start: body + word, end: body + word + 3, newText: "let" }] } } : {}
+      });
+    }
+    return out;
+  }
+};
+var TFREAD_RE = /\btfread[ \t]*\([ \t]*(?:[^,()]*,[ \t]*)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*\)/g;
+var tfreadWithoutLet = {
+  id: "tfread-without-let",
+  severity: "information",
+  scope: "entry",
+  check(entry, file) {
+    const found = bodyStatements(entry, file);
+    if (!found) return [];
+    const { body, text, units } = found;
+    const lets = letsOf(text, units);
+    const out = [];
+    for (const m of text.matchAll(TFREAD_RE)) {
+      const at2 = m.index;
+      const within = units.filter((u) => u.start <= at2 && at2 < u.end);
+      if (within.length === 0 || within.some((u) => NESTED_TEXT.has(u.word))) continue;
+      const statement2 = within[0];
+      const name = m[1];
+      if ((lets.get(name) ?? Infinity) < statement2.start) continue;
+      const prefixed = file.localPrefix !== void 0 && name.startsWith(file.localPrefix);
+      const nameAt = at2 + m[0].lastIndexOf(name);
+      out.push({
+        start: body + nameAt,
+        end: body + nameAt + name.length,
+        ...prefixed ? { severity: "warning" } : {},
+        message: `This tfread writes the global ${name}, as the macro has no local of that name: put /let ${name}= before it for a local, or ${IGNORE.replace(/`/g, "")} if the global is meant.`,
+        label: "writes a global",
+        explanation: `${code("tfread()")} writes the variable it is given by name: the macro's local where a ${code("/let")} made one first, else a global, which is still set after the macro ends.` + (prefixed ? ` By this project's convention (${code("tfscript.diagnostics.localPrefix")}), ${code(name)} is only ever a local.` : "") + ` If the global is meant, ${IGNORE}.`,
+        fix: { title: `Put /let ${name}= before it`, edits: [{ start: body + statement2.start, end: body + statement2.start, newText: `/let ${name}=%; ` }] }
+      });
+    }
+    return out;
+  }
+};
+var assignWritesGlobal = {
+  id: "assign-writes-global",
+  severity: "warning",
+  scope: "entry",
+  check(entry, file) {
+    const prefix = file.localPrefix;
+    if (prefix === void 0 || file.tfBuild === "fork") return [];
+    const found = bodyStatements(entry, file);
+    if (!found) return [];
+    const { body, units } = found;
+    const out = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const o of findVariables(entry.text)) {
+      if (o.access !== "assign" || o.scope !== "global" || o.offset < body || !o.name.startsWith(prefix)) continue;
+      const at2 = o.offset - body;
+      const within = units.filter((u) => u.start <= at2 && at2 < u.end);
+      if (within.length === 0 || within.some((u) => NESTED_TEXT.has(u.word))) continue;
+      const statement2 = within[0];
+      const key2 = `${o.name}@${statement2.start}`;
+      if (seen.has(key2)) continue;
+      seen.add(key2);
+      out.push({
+        start: o.offset,
+        end: o.offset + o.name.length,
+        message: `This assignment writes the global ${o.name}, as the macro has no local of that name, though names starting with ${prefix} are locals in this project: put /let ${o.name}= before it, or ${IGNORE.replace(/`/g, "")} if the global is meant.`,
+        label: "writes a global",
+        explanation: `In upstream tf, an assignment to a name with no variable makes a global, which is still set after the macro ends; only the fork's ${code("%local_assign")} makes it a local. Where a ${code("/let")} made a local first, the assignment sets that local. By this project's convention (${code("tfscript.diagnostics.localPrefix")}), ${code(o.name)} is only ever a local. If the global is meant, ${IGNORE}.`,
+        fix: { title: `Put /let ${o.name}= before it`, edits: [{ start: body + statement2.start, end: body + statement2.start, newText: `/let ${o.name}=%; ` }] }
+      });
+    }
+    return out;
+  }
+};
+var LINT_RULES = [emptyMacroBody, loadOfLibraryFile, setWritesGlobal, tfreadWithoutLet, assignWritesGlobal];
+var IGNORE_RE = /^[ \t]*[;#].*?\btflint:ignore-nextline\b(.*)$/;
+var CODE_WORD = /^[a-z]+(?:-[a-z]+)+$/;
+function ignoredByComment(lines, line, code2) {
+  const m = IGNORE_RE.exec(lines[line - 1] ?? "");
+  if (!m) return false;
+  const codes = (m[1] ?? "").split(/[\s,]+/).filter((w) => CODE_WORD.test(w));
+  return codes.length === 0 || codes.includes(code2);
+}
+
+// packages/core/src/rules/index.ts
+var RULES = [
+  missingContinuation,
+  notSubstitutedHere,
+  keywordMidStatement,
+  substitutionInExpression,
+  indentedLineAfterCommand,
+  backslashNotLast,
+  substitutionSyntax,
+  invalidMacroName,
+  blockStructure,
+  conditionListText,
+  keywordNeedsSpace,
+  expressionSyntax,
+  emptyStatement,
+  nestingTooDeep,
+  incompleteContinuation,
+  bodyContinuesWithoutBackslash,
+  ...LINT_RULES
+];
+
+// packages/core/src/rules/notACommand.ts
+function findAbortEntry(entries) {
+  for (let idx = 0; idx < entries.length; idx += 1) {
+    const entry = entries[idx];
+    if (!entry) continue;
+    if (entry.incomplete) continue;
+    const leadingLen = leadingWhitespaceLength(entry.text);
+    const firstChar = entry.text[leadingLen];
+    if (firstChar === void 0) continue;
+    if (firstChar === "/") continue;
+    const start = entry.offsetMap[leadingLen];
+    if (!start) continue;
+    let end = leadingLen;
+    while (end < entry.offsetMap.length && entry.offsetMap[end]?.line === start.line) {
+      end += 1;
+    }
+    const lastChar = entry.offsetMap[end - 1] ?? start;
+    const firsts = /* @__PURE__ */ new Map();
+    for (const at2 of entry.offsetMap) if (!firsts.has(at2.line)) firsts.set(at2.line, at2.character);
+    const after = entry.text.slice(leadingLen + 1);
+    const rest = after[leadingWhitespaceLength(after)];
+    if (firstChar === "\uFEFF" && (rest === "/" || rest === ";" || rest === "#")) {
+      return {
+        entryIndex: idx,
+        line: start.line,
+        startChar: start.character,
+        endChar: start.character + 1,
+        message: "This line starts with a byte order mark (U+FEFF), which tf reads as text, so it stops loading the file here: delete the mark.",
+        label: "byte order mark",
+        explanation: `Some editors save UTF-8 files with an invisible byte order mark at the start. tf doesn't skip it, so the line doesn't start with ${code("/")}, ${code(";")} or ${code("#")}: tf reports ${code("Invalid command. Aborting.")} and reads nothing after it. Save the file as UTF-8 without a BOM.`,
+        fix: { title: "Delete the byte order mark", edits: [{ line: start.line, startChar: start.character, endChar: start.character + 1, newText: "" }] }
+      };
+    }
+    return {
+      entryIndex: idx,
+      line: start.line,
+      startChar: start.character,
+      endChar: lastChar.character + 1,
+      message: "This line isn't a command, so tf stops loading the file here: comment it out, or start it with /.",
+      label: "not a command",
+      explanation: `tf joins the lines of a file that end in ${code("\\")} onto the line after, and runs each resulting command. Apart from blank lines and comments (starting with ${code(";")} or ${code("#")}), each command has to start with ${code("/")}; at any other command tf reports ${code("Invalid command. Aborting.")} and reads nothing after it. If the line belongs to the command above it, end that command's last line with ${code("\\")}; if it is a note, make it a comment.`,
+      fix: {
+        title: firsts.size > 1 ? "Comment out these lines" : "Comment out the line",
+        edits: [...firsts].map(([line, character]) => ({ line, startChar: character, endChar: character, newText: "; " }))
+      }
+    };
+  }
+  return null;
+}
+
+// packages/core/src/diagnostics.ts
+var LINT_CODES = new Set(LINT_RULES.map((r) => r.id));
+function positionOf(entry, offset) {
+  const at2 = entry.offsetMap[offset];
+  if (at2) return { line: at2.line, character: at2.character };
+  const last = entry.offsetMap[offset - 1];
+  return last ? { line: last.line, character: last.character + 1 } : void 0;
+}
+function rangeOf(entry, start, end) {
+  const from = positionOf(entry, start);
+  if (end <= start) return from && { start: from, end: from };
+  const lastChar = entry.offsetMap[end - 1];
+  return from && lastChar ? { start: from, end: { line: lastChar.line, character: lastChar.character + 1 } } : void 0;
+}
+function entryDiagnostic(entry, match, code2, severity) {
+  if (match.end <= match.start) return void 0;
+  const range = rangeOf(entry, match.start, match.end);
+  if (!range) return void 0;
+  const d = { range, message: match.message, code: code2, severity: match.severity ?? severity };
+  if (match.label) d.label = match.label;
+  if (match.explanation) d.explanation = match.explanation;
+  const related = (match.related ?? []).flatMap((n) => {
+    const r = rangeOf(entry, n.start, n.end);
+    return r ? [{ range: r, message: n.message }] : [];
+  });
+  if (related.length > 0) d.related = related;
+  const mapped = (fix2) => {
+    const edits = fix2.edits.map((e) => {
+      const r = rangeOf(entry, e.start, e.end);
+      return r && { range: r, newText: e.newText };
+    });
+    return edits.length > 0 && edits.every((e) => e) ? { title: fix2.title, edits } : void 0;
+  };
+  const fix = match.fix && mapped(match.fix);
+  if (fix) d.fix = fix;
+  const alternative = match.alternative && mapped(match.alternative);
+  if (alternative) d.alternative = alternative;
+  return d;
+}
+function spanRange(s) {
+  return { start: { line: s.line, character: s.startChar }, end: { line: s.line, character: s.endChar } };
+}
+function lineDiagnostic(match, code2, severity) {
+  const d = { range: spanRange(match), message: match.message, code: code2, severity };
+  if (match.label) d.label = match.label;
+  if (match.explanation) d.explanation = match.explanation;
+  if (match.related && match.related.length > 0) d.related = match.related.map((n) => ({ range: spanRange(n), message: n.message }));
+  if (match.fix) d.fix = { title: match.fix.title, edits: match.fix.edits.map((e) => ({ range: spanRange(e), newText: e.newText })) };
+  return d;
+}
+var reportRuleError = (rule, error) => {
+  process.stderr.write(`tfscript: rule ${rule} failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}
+`);
+};
+function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD, localPrefix } = {}) {
+  const entries = splitLogicalEntries(text);
+  let diagnostics = [];
+  const abort = findAbortEntry(entries);
+  const usableEntries = (abort ? entries.slice(0, abort.entryIndex) : entries).filter(
+    (entry) => !entry.incomplete
+  );
+  const readableLineCount = abort ? (entries[abort.entryIndex]?.endLine ?? abort.line) + 1 : void 0;
+  const textForFileRules = readableLineCount !== void 0 ? splitRawLines(text).slice(0, readableLineCount).join("\n") : text;
+  const macros = /* @__PURE__ */ new Set();
+  for (const entry of usableEntries) {
+    const name = definedMacro(entry);
+    if (name) macros.add(name.toLowerCase());
+  }
+  const facts = { macros, tfBuild, ...localPrefix ? { localPrefix } : {} };
+  for (const rule of RULES) {
+    let failed = false;
+    const guarded = (run) => {
+      try {
+        run();
+      } catch (error) {
+        if (!failed) reportRuleError(rule.id, error);
+        failed = true;
+      }
+    };
+    if (rule.scope === "entry") {
+      for (const entry of usableEntries) {
+        guarded(() => {
+          const found = [];
+          for (const match of rule.check(entry, facts)) {
+            const d = entryDiagnostic(entry, match, rule.id, rule.severity);
+            if (d) found.push(d);
+          }
+          for (const d of found) diagnostics.push(d);
+        });
+      }
+    } else {
+      guarded(() => {
+        const found = rule.check(textForFileRules).map((match) => lineDiagnostic(match, rule.id, rule.severity));
+        for (const d of found) diagnostics.push(d);
+      });
+    }
+  }
+  if (abort) diagnostics.push(lineDiagnostic(abort, "not-a-command", "error"));
+  diagnostics = consolidateContinuations(text, entries, diagnostics);
+  unjoinGluedKeywords(text, entries, diagnostics);
+  if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false, tfBuild, ...localPrefix ? { localPrefix } : {} }));
+  const rawLines = splitRawLines(text);
+  return diagnostics.filter((d) => !(LINT_CODES.has(d.code) && ignoredByComment(rawLines, d.range.start.line, d.code)));
+}
+function unjoinGluedKeywords(text, entries, diagnostics) {
+  let lines;
+  for (const d of diagnostics) {
+    if (d.code !== "keyword-needs-space" || d.range.end.line <= d.range.start.line) continue;
+    lines ??= splitRawLines(text);
+    const n = d.range.start.line;
+    const raw = lines[n] ?? "";
+    const keyword = raw.slice(d.range.start.character, raw.length - 1);
+    if (!raw.endsWith("\\") || !/^\/@?[A-Za-z]+$/.test(keyword)) continue;
+    const line = n + 1;
+    let m = n + 1;
+    while (m < lines.length && isCommentLine(lines[m] ?? "")) m += 1;
+    const next = lines[m] ?? "";
+    const glued = keyword + joinedWord(lines, m);
+    const at2 = { line: n, character: raw.length - 1 };
+    const word = keyword.replace(/^\/@?/, "").toLowerCase();
+    const keep = { title: `Put %; before the \\ on line ${line}`, edits: [{ range: { start: at2, end: at2 }, newText: "%;" }] };
+    if (word === "endif" || word === "done") {
+      d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put %; before the \\, or remove the \\.`;
+      const split = {
+        title: `Remove the \\ at the end of line ${line}`,
+        edits: [{ range: { start: at2, end: { line: n, character: raw.length } }, newText: "" }]
+      };
+      const entry = entries.find((e) => e.startLine <= n && n <= e.endLine);
+      const defined = entry && definedMacro(entry)?.toLowerCase();
+      const calls = next.endsWith("\\") ? void 0 : /^\/([^\s%@\\]+)/.exec(next)?.[1]?.toLowerCase();
+      const ownCommand = /^\/@?def\b/i.test(next) || !!defined && calls === defined;
+      const sameBody = !ownCommand && (/^[ \t\f\v]/.test(next) || next.endsWith("\\") || !!entry?.isDefBody || !!entry?.isOtherMacroBody);
+      d.fix = sameBody ? keep : split;
+      d.alternative = sameBody ? split : keep;
+    } else if (word === "break") {
+      d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put %; before the \\.`;
+      d.fix = keep;
+      delete d.alternative;
+    } else if (!d.fix) {
+      const rest = next.trimStart();
+      const paren = rest.startsWith("(") ? parenthesized(rest) : "";
+      const head = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command`;
+      if (paren && word === "else") d.message = `${head}: did you mean /elseif ${paren}? Then put a space before the \\.`;
+      else if (paren && (word === "then" || word === "do")) d.message = `${head}: /${word} takes no (condition).`;
+      else if (paren && /^[ \t]*%[;|\\]/.test(rest.slice(paren.length))) d.message = `${head}: put a space before the \\, and a command between the ${paren} and the %;.`;
+      else if (paren) d.message = `${head}: put a space before the \\.`;
+      else d.message = `${head}: unless a macro named ${glued.slice(1)} is defined elsewhere, put a space before the \\.`;
+    } else {
+      d.message = `Line ${line} ends in \\, so tf joins the next line on and reads ${glued} as one command: put a space before the \\.`;
+      d.fix = { title: `Put a space before the \\ on line ${line}`, edits: [{ range: { start: at2, end: at2 }, newText: " " }] };
+      delete d.alternative;
+    }
+  }
+}
+function parenthesized(text) {
+  let depth = 0;
+  for (let p = 0; p < text.length; p += 1) {
+    const ch = text[p];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      p += 1;
+      while (p < text.length && text[p] !== ch) p += text[p] === "\\" ? 2 : 1;
+    } else if (ch === "(") depth += 1;
+    else if (ch === ")" && --depth === 0) return text.slice(0, p + 1);
+  }
+  return "";
+}
+function joinedWord(lines, m) {
+  let word = "";
+  for (let k = m; k < lines.length; ) {
+    const rest = (lines[k] ?? "").trimStart();
+    const part = /^[^\s%]*/.exec(rest)?.[0] ?? "";
+    if (!part.endsWith("\\") || part.length !== rest.length) return word + part;
+    word += part.slice(0, -1);
+    k += 1;
+    while (k < lines.length && isCommentLine(lines[k] ?? "")) k += 1;
+  }
+  return word;
+}
+
+// packages/core/src/workspace/documentDiagnostics.ts
+function documentDiagnostics(text, file, index) {
+  const tfBuild = file ? index.tfBuildFor(file) : void 0;
+  const localPrefix = file ? index.localPrefixFor(file) : void 0;
+  return [...getDiagnostics(text, { ...tfBuild ? { tfBuild } : {}, ...localPrefix ? { localPrefix } : {} }), ...file ? index.loadPathDiagnostics(file, text) : []];
+}
+
+// packages/core/src/workspace/loadGraph.ts
+var path3 = __toESM(require("node:path"));
+
+// packages/core/src/data/libraryFiles.generated.ts
+var LIBRARY_FILES = [
+  "activity_status.tf",
+  "activity_status2.tf",
+  "alias.tf",
+  "at.tf",
+  "changes.tf",
+  "color.tf",
+  "complete.tf",
+  "cylon.tf",
+  "factoral.tf",
+  "filexfer.tf",
+  "finger.tf",
+  "grep.tf",
+  "hanoi.tf",
+  "kb-bash.tf",
+  "kb-emacs.tf",
+  "kb-old.tf",
+  "kb_badterm.tf",
+  "kbbind.tf",
+  "kbfunc.tf",
+  "kbregion.tf",
+  "kbstack.tf",
+  "kv-textlog.tf",
+  "kv.tf",
+  "lisp.tf",
+  "local-eg.tf",
+  "map.tf",
+  "pcmd.tf",
+  "psh.tf",
+  "quoter.tf",
+  "relog.tf",
+  "rwho.tf",
+  "savehist.tf",
+  "spc-page.tf",
+  "spedwalk.tf",
+  "spell.tf",
+  "stack-q.tf",
+  "stdlib.tf",
+  "testcolor.tf",
+  "textencode.tf",
+  "textutil.tf",
+  "tfstatus.tf",
+  "tick.tf",
+  "tintin.tf",
+  "tools.tf",
+  "tr.tf",
+  "vbind.tf",
+  "watch.tf",
+  "world-q.tf"
+];
+
+// packages/core/src/workspace/settings.ts
+var path2 = __toESM(require("node:path"));
+function toLocalPath(p, mappings) {
+  if (mappings.length === 0 || /^[\\/]{2}/.test(p)) return p;
+  const forward = path2.posix.normalize(p.replace(/\\/g, "/"));
+  for (const m of mappings) {
+    if (forward === m.tf || forward.startsWith(m.tf === "/" ? "/" : `${m.tf}/`)) {
+      return path2.join(m.local, forward.slice(m.tf === "/" ? 1 : m.tf.length));
+    }
+  }
+  return p;
+}
+function toTfPath(p, mappings) {
+  for (const m of mappings) {
+    const rel = path2.relative(m.local, p);
+    if (rel === "" || !rel.startsWith("..") && !path2.isAbsolute(rel)) {
+      const tail = rel.replace(/\\/g, "/");
+      return tail === "" ? m.tf : `${m.tf === "/" ? "" : m.tf}/${tail}`;
+    }
+  }
+  return void 0;
+}
+function mappingsOf(raw, folder, home) {
+  return (raw.pathMappings ?? []).filter((m) => typeof m?.tf === "string" && typeof m?.local === "string" && m.tf.startsWith("/") && m.local.trim() !== "").map((m) => ({ tf: path2.posix.normalize(m.tf.replace(/\\/g, "/")).replace(/\/+$/, "") || "/", local: absolute(m.local, folder, home, []) })).sort((a, b) => b.tf.length - a.tf.length);
+}
+function absolute(p, folder, home, mappings) {
+  const expanded = p === "~" || p.startsWith("~/") || p.startsWith("~\\") ? home + p.slice(1) : p;
+  return path2.resolve(folder, toLocalPath(expanded, mappings));
+}
+function resolveSettings(raw, folder, environment) {
+  const userHome = environment.homedir;
+  const pathMappings = mappingsOf(raw, folder, userHome);
+  const home = raw.homeDirectory ? absolute(raw.homeDirectory, folder, userHome, pathMappings) : userHome;
+  const abs = (p) => absolute(p, folder, home, pathMappings);
+  let entryFiles = (raw.entryFiles ?? []).filter((f) => f.trim() !== "").map(abs);
+  if (entryFiles.length === 0) {
+    const candidates = [
+      path2.join(folder, ".tfrc"),
+      path2.join(folder, "tfrc"),
+      path2.join(folder, "tfrc.tf"),
+      path2.join(home, ".tfrc"),
+      path2.join(home, "tfrc")
+    ];
+    const found = candidates.find((c) => environment.exists(c));
+    entryFiles = found ? [found] : [];
+  }
+  const library = raw.libraryPath?.trim() || environment.env.TFLIBDIR;
+  const tfPath = raw.tfPath && raw.tfPath.length > 0 ? raw.tfPath.map(abs) : (environment.env.TFPATH ?? "").split(/\s+/).filter(Boolean);
+  const named = Object.entries(raw.contexts ?? {}).map(([name, files]) => ({ name, entryFiles: (Array.isArray(files) ? files : [files]).filter((f) => typeof f === "string").filter((f) => f.trim() !== "").map(abs) })).filter((c) => c.entryFiles.length > 0);
+  const contexts = named.length > 0 ? named : [{ name: "default", entryFiles }];
+  const active = contexts.find((c) => c.name === raw.activeContext) ?? contexts[0];
+  return {
+    entryFiles: contexts[0].entryFiles,
+    contexts,
+    activeContext: active.name,
+    libraryDir: library ? abs(library) : void 0,
+    tfPath,
+    workingDir: raw.workingDirectory ? abs(raw.workingDirectory) : folder,
+    home,
+    pathMappings,
+    variables: Object.fromEntries(
+      Object.entries(raw.variables ?? {}).filter(([name, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && typeof value === "string")
+    ),
+    tfBuild: TF_BUILDS.find((b) => b === raw.tfBuild) ?? DEFAULT_TF_BUILD
+  };
+}
+
+// packages/core/src/workspace/loadGraph.ts
+var LOADED_RE = /^\s*\/loaded\s+(\S+)/i;
+function isForeignPath(p) {
+  return process.platform === "win32" && /^[\\/](?![\\/])/.test(p);
+}
+function fileKey(file) {
+  const resolved = path3.resolve(file);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+function expandVariables(text, vars) {
+  let missing;
+  const value = text.replace(
+    /%(%+)|%\{([^}-]+)(?:-([^}]*))?\}|%([A-Za-z_][A-Za-z0-9_]*)/g,
+    (_whole, percents2, braced, fallback, bare) => {
+      if (percents2 !== void 0) return percents2;
+      const name = braced ?? bare;
+      const v = vars.get(name);
+      if (v !== void 0 && v !== "") return v;
+      if (fallback !== void 0) return fallback;
+      missing ??= name;
+      return "";
+    }
+  );
+  return missing ? { ok: false, reason: `%{${missing}} is not set to literal text on this load path`, variable: missing } : { ok: true, value };
+}
+function isLibraryFile(file) {
+  const name = file.replace(/^(?:\.\/)+/, "");
+  const fold = (s) => process.platform === "win32" ? s.toLowerCase() : s;
+  return LIBRARY_FILES.some((f) => fold(f) === fold(name));
+}
+function resolveLoadPath(file, env) {
+  const mappings = env.pathMappings ?? [];
+  const under = (dir, rel, local) => local ? path3.join(dir, rel) : path3.normalize(toLocalPath(`${dir}/${rel}`, mappings));
+  if (file.startsWith("~")) {
+    const underHome = file === "~" || file.startsWith("~/");
+    const named = underHome ? env.home + file.slice(1) : file;
+    const mapped = underHome && env.local?.home ? named : toLocalPath(named, mappings);
+    const target2 = mapped === named ? path3.resolve(env.workingDir, named) : path3.normalize(mapped);
+    return { found: env.readFile(target2) !== void 0 ? target2 : void 0, searched: [target2] };
+  }
+  const target = file;
+  const candidates = [];
+  if (path3.isAbsolute(target)) {
+    candidates.push(path3.normalize(toLocalPath(target, mappings)));
+  } else {
+    candidates.push(path3.join(env.workingDir, target));
+    if (env.tfPath.length > 0) {
+      for (const dir of env.tfPath) if (path3.isAbsolute(dir)) candidates.push(under(dir, target, env.local?.tfPath));
+    } else if (env.libraryDir && path3.isAbsolute(env.libraryDir)) {
+      candidates.push(under(env.libraryDir, target, env.local?.libraryDir));
+    }
+  }
+  return { found: candidates.find((c) => env.readFile(c) !== void 0), searched: candidates };
+}
+function buildLoadGraph(options) {
+  const vars = /* @__PURE__ */ new Map([
+    ["TFLIBDIR", options.libraryDir ?? ""],
+    ["TFPATH", (options.tfPath ?? []).join(" ")],
+    ["HOME", options.home ?? ""]
+  ]);
+  const unknown = /* @__PURE__ */ new Set();
+  const guarded = /* @__PURE__ */ new Set();
+  const local = new Set(vars.keys());
+  const seeded = /* @__PURE__ */ new Set();
+  function searchEnv() {
+    const libraryDir = vars.get("TFLIBDIR") || void 0;
+    return {
+      home: vars.get("HOME") ?? "",
+      tfPath: (vars.get("TFPATH") ?? "").split(/\s+/).filter(Boolean),
+      ...libraryDir === void 0 ? {} : { libraryDir },
+      local: { home: local.has("HOME"), tfPath: local.has("TFPATH"), libraryDir: local.has("TFLIBDIR") }
+    };
+  }
+  const files = /* @__PURE__ */ new Map();
+  const tokens = /* @__PURE__ */ new Set();
+  const unresolved = [];
+  const resolved = [];
+  let seq = 0;
+  let inStdlib = false;
+  function resolve6(file) {
+    const env = searchEnv();
+    const tfPath = env.tfPath;
+    const result = resolveLoadPath(file, {
+      ...env,
+      workingDir: options.workingDir,
+      ...options.pathMappings ? { pathMappings: options.pathMappings } : {},
+      readFile: options.readFile
+    });
+    if (result.found !== void 0 && result.found === result.searched[0] && !/^~(?:\/|$)/.test(file)) return result;
+    const needs = /^~(?:\/|$)/.test(file) ? ["HOME"] : file.startsWith("~") || path3.isAbsolute(file) ? [] : ["TFPATH", ...tfPath.length > 0 ? [] : ["TFLIBDIR"]];
+    const unknownVar = needs.find((v) => unknown.has(v));
+    return unknownVar ? { searched: result.searched, unknownVar } : result;
+  }
+  function valueAfter(text, pending) {
+    let value = text;
+    for (const level of pending) {
+      if (level === "newline") value = shortenPercents(value);
+      if (level !== "full") continue;
+      const expanded = expandVariables(value, vars);
+      if (!expanded.ok) return expanded;
+      value = expanded.value;
+    }
+    return { ok: true, value };
+  }
+  function unknownValue(variable, reason) {
+    return guarded.has(variable) ? { kind: "guarded-variable", reason: `%{${variable}} is set inside an /if or /while on the load path` } : { kind: "unknown-variable", reason };
+  }
+  function handleLoad(entry, load, from) {
+    const line = entry.startLine;
+    const raw = entry.text.slice(load.start, load.end);
+    let file = load.file;
+    const fail = (k, reason, searched2 = [], variable) => {
+      unresolved.push({ from, line, start: load.start, end: load.end, kind: k, raw, file, reason, searched: searched2, ...variable ? { variable } : {} });
+    };
+    const namesVariable = /%\{|%[A-Za-z_]/.test(raw.replace(/%%+/g, ""));
+    if (load.plain && namesVariable) {
+      return fail("not-substituted", "a top-level path is not substituted; prefix the line with /eval");
+    }
+    const value = valueAfter(file, load.pending);
+    if (!value.ok) {
+      const why = unknownValue(value.variable, value.reason);
+      return fail(why.kind, why.reason, [], value.variable);
+    }
+    file = value.value;
+    file = load.kind === "require" ? file.trim().split(/[ \t\r\f\v]+/).join(" ") : file.trim();
+    if (!file) return;
+    const { found, searched, unknownVar } = resolve6(file);
+    if (unknownVar) {
+      const why = unknownValue(unknownVar, `%{${unknownVar}} is not set to literal text on this load path`);
+      return fail(why.kind, why.reason, searched, unknownVar);
+    }
+    if (!found) {
+      if (/^~(?:\/|$)/.test(file) && !vars.get("HOME")) return fail("unknown-variable", "HOME isn't known on this load path", [], "HOME");
+      if (namesVariable && !load.pending.includes("full")) return fail("not-substituted", "this path is not substituted here; prefix the command with /eval", searched);
+      const user = /^~([^/]+)/.exec(file)?.[1];
+      if (user) return fail("user-home", `~${user} is user ${user}'s home directory, unless there is no such user`, searched);
+      if (isLibraryFile(file) && !vars.get("TFLIBDIR") && local.has("TFLIBDIR") && !vars.get("TFPATH")) {
+        return fail("unknown-library", "tf's library folder isn't known here", searched);
+      }
+      return fail("not-found", "file not found", searched);
+    }
+    resolved.push({ from, line, offset: load.start, raw, file: path3.resolve(found), kind: load.kind });
+    walk2(found, { kind: load.kind, from, line });
+  }
+  function walk2(file, site) {
+    const key2 = fileKey(file);
+    const existing = files.get(key2);
+    if (existing) {
+      existing.sites.push(site);
+      return;
+    }
+    const text = options.readFile(file);
+    if (text === void 0) return;
+    const loaded = { path: path3.resolve(file), text, sites: [site], defs: [], stdlib: inStdlib, searchEnv: searchEnv() };
+    files.set(key2, loaded);
+    const entries = splitLogicalEntries(text);
+    const abort = findAbortEntry(entries);
+    const usable = (abort ? entries.slice(0, abort.entryIndex) : entries).filter((e) => !e.incomplete);
+    const defsByLine = /* @__PURE__ */ new Map();
+    for (const s of getDocumentSymbols(text)) if (s.kind === "def") defsByLine.set(s.range.start.line, s);
+    for (const entry of usable) {
+      if (entry.isDefBody || entry.isOtherMacroBody) {
+        const symbol = defsByLine.get(entry.startLine);
+        if (symbol) loaded.defs.push({ file: loaded.path, symbol, seq: seq++ });
+        continue;
+      }
+      const token = LOADED_RE.exec(entry.text)?.[1];
+      if (token !== void 0) {
+        if (tokens.has(token) && site.kind === "require") break;
+        tokens.add(token);
+        continue;
+      }
+      if (entry.isForLoop) continue;
+      for (const command2 of entryCommands(entry)) {
+        if (!command2.topLevel) continue;
+        if (command2.kind !== "set") {
+          handleLoad(entry, command2, loaded.path);
+          continue;
+        }
+        if (command2.name === "TFPATH" || command2.name === "TFLIBDIR" || command2.name === "HOME") local.delete(command2.name);
+        if (command2.conditional && seeded.has(command2.name)) continue;
+        const value = valueAfter(command2.value, command2.pending);
+        if (value.ok && !command2.conditional) {
+          vars.set(command2.name, value.value);
+          unknown.delete(command2.name);
+          guarded.delete(command2.name);
+          seeded.delete(command2.name);
+        } else if (!value.ok || vars.get(command2.name) !== value.value) {
+          vars.delete(command2.name);
+          unknown.add(command2.name);
+          if (command2.conditional) guarded.add(command2.name);
+          else guarded.delete(command2.name);
+        }
+      }
+    }
+  }
+  if (options.libraryDir) {
+    const stdlib = path3.join(options.libraryDir, "stdlib.tf");
+    if (options.readFile(stdlib) !== void 0) {
+      inStdlib = true;
+      walk2(stdlib, { kind: "stdlib" });
+      inStdlib = false;
+    }
+  }
+  for (const [name, value] of Object.entries(options.variables ?? {})) {
+    vars.set(name, value);
+    unknown.delete(name);
+    guarded.delete(name);
+    local.delete(name);
+    seeded.add(name);
+  }
+  for (const entry of options.entryFiles) walk2(entry, { kind: "entry" });
+  return { files: [...files.values()], unresolved, resolved };
+}
+
+// packages/core/src/workspace/nodeFileSystem.ts
+var import_node_fs = require("node:fs");
+var import_node_os = require("node:os");
+var path4 = __toESM(require("node:path"));
+var SKIP_DIRS = /* @__PURE__ */ new Set([".git", ".jj", "node_modules"]);
+function isSkippedDir(name) {
+  return SKIP_DIRS.has(process.platform === "win32" ? name.toLowerCase() : name);
+}
+function readFile(file) {
+  try {
+    return (0, import_node_fs.readFileSync)(file, "utf8");
+  } catch {
+    return void 0;
+  }
+}
+function listTfFiles(dir) {
+  try {
+    return (0, import_node_fs.readdirSync)(dir).filter((f) => f.endsWith(".tf")).map((f) => path4.join(dir, f));
+  } catch {
+    return [];
+  }
+}
+function walkTfFiles(dir, limit = Infinity) {
+  const out = [];
+  const visit = (d) => {
+    let entries;
+    try {
+      entries = (0, import_node_fs.readdirSync)(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (out.length >= limit) return;
+      const full = path4.join(d, e.name);
+      if (e.isDirectory()) {
+        if (!isSkippedDir(e.name)) visit(full);
+      } else if (e.name.endsWith(".tf") || e.name === "tfrc" || e.name === ".tfrc") {
+        out.push(full);
+      }
+    }
+  };
+  visit(dir);
+  return out;
+}
+function mtime(file) {
+  try {
+    return (0, import_node_fs.statSync)(file).mtimeMs;
+  } catch {
+    return void 0;
+  }
+}
+var nodeFileSystem = { readFile, listTfFiles, walkTfFiles, mtime };
+function nodeEnvironment() {
+  return { env: process.env, homedir: (0, import_node_os.homedir)(), exists: import_node_fs.existsSync };
+}
+
+// packages/core/src/workspace/workspaceIndex.ts
+var path6 = __toESM(require("node:path"));
 
 // packages/core/src/documentLinks.ts
 function findLoadPaths(text) {
@@ -8887,12 +8923,18 @@ var RULE_SECTIONS = [
         severity: "information (warning for a name with the project's local prefix)",
         summary: "This `tfread()` writes a global variable, as the macro has no local of that name, and the global outlives the macro. Put `/let name=` before it for a local, or put `; tflint:ignore-nextline` on the line before if the global is meant.",
         detail: "a `tfread()` in a macro body whose variable no `/let` before it made local; a warning where the name starts with `tfscript.diagnostics.localPrefix`. The fix puts `/let name=%; ` before the statement"
+      },
+      {
+        code: "assign-writes-global",
+        severity: "warning",
+        summary: "This assignment writes a global variable, as the macro has no local of that name, though the project's names of that shape are locals. Put `/let name=` before it, or put `; tflint:ignore-nextline` on the line before if the global is meant.",
+        detail: "only with `tfscript.diagnostics.localPrefix`, and only where `tfscript.tfBuild` is `upstream`: an assignment (`:=`, `++`, `+=` and the rest) in a macro body to a name starting with the prefix that no `/let` before it made local. Upstream, it makes a global; the fork's `%local_assign` makes a local. The fix puts `/let name=%; ` before the statement"
       }
     ],
     fix: [
       "In code you write, send text to the world with `/send -h text`: it does what bare text does, the `SEND` hook included, and says it is meant. Leave bare text already in a script as it is. Not `/send` alone, which skips the hook, and not where the text starts with `-` or a substitution, which `/send` reads as an option.",
       "Load a library file with `/require`: `/require alias.tf`.",
-      "In code you write, make every variable a macro only uses itself a local with `/let` before it is first written (`/let _line=%; /while (tfread(h, _line) >= 0) ...`), and change it with `/let` or `:=`, never `/set`, which writes the global.",
+      "In code you write, make every variable a macro only uses itself a local with `/let` before it is first written (`/let _line=%; /while (tfread(h, _line) >= 0) ...`), and change it with `/let` or `:=`, never `/set`, which writes the global. Without the `/let` first, upstream's `:=` makes a global too.",
       "Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before."
     ]
   }

@@ -84,6 +84,46 @@ describe("tfread-without-let (case tfread-writes-global-without-let)", () => {
   });
 });
 
+describe("assign-writes-global", () => {
+  const assigns = (text: string, localPrefix?: string, tfBuild?: "upstream" | "fork") =>
+    getDiagnostics(text, { ...(localPrefix ? { localPrefix } : {}), ...(tfBuild ? { tfBuild } : {}) }).filter((d) => d.code === "assign-writes-global");
+
+  it("with a local prefix, flags an assignment to such a name with no /let, and puts the /let before its statement", () => {
+    const text = "/def count = /test _n := _n + 1%; /echo %_n\n";
+    const [d, more] = assigns(text, "_");
+    expect(more).toBeUndefined();
+    expect(d?.severity).toBe("warning");
+    expect(d?.message).toBe(
+      "This assignment writes the global _n, as the macro has no local of that name, though names starting with _ are locals in this project: put /let _n= before it, or put ; tflint:ignore-nextline on the line before if the global is meant.",
+    );
+    expect(text.slice(d?.range.start.character, d?.range.end.character)).toBe("_n");
+    expect(fixed(text, d)).toBe("/def count = /let _n=%; /test _n := _n + 1%; /echo %_n\n");
+    expect(assigns("/def c = /test ++_i\n", "_")).toHaveLength(1);
+    expect(assigns("/def c = /while (_i += 1) /done\n", "_")).toHaveLength(1);
+  });
+
+  it("finds the name on its own line of a body laid out over several", () => {
+    const text = "/def count = \\\n    /echo a%;\\\n    /test _n := 1\n";
+    const [d] = assigns(text, "_");
+    expect(d?.range.start).toEqual({ line: 2, character: 10 });
+    expect(fixed(text, d)).toBe("/def count = \\\n    /echo a%;\\\n    /let _n=%; /test _n := 1\n");
+  });
+
+  it("leaves alone a name the macro /lets first, one without the prefix, no prefix, the fork, and a nested /def", () => {
+    expect(assigns("/def c = /let _n=0%; /test _n := _n + 1\n", "_")).toEqual([]);
+    expect(assigns("/def c = /test wotmud_n := 1\n", "_")).toEqual([]);
+    expect(assigns("/def c = /test _n := 1\n")).toEqual([]);
+    expect(assigns("/def c = /test _n := 1\n", "_", "fork")).toEqual([]);
+    expect(assigns("/def c = /test _n := 1\n", "_", "upstream")).toHaveLength(1);
+    expect(assigns("/def outer = /def -i inner = /test _n := 1\n", "_")).toEqual([]);
+    expect(assigns("/test _n := 1\n", "_")).toEqual([]);
+  });
+
+  it("is turned off by the ignore comment", () => {
+    expect(assigns("; tflint:ignore-nextline assign-writes-global\n/def c = /test _n := 1\n", "_")).toEqual([]);
+  });
+});
+
 describe("load-of-library-file", () => {
   it("flags a top-level /load of a library file that runs /loaded, and writes /require", () => {
     const [d] = lint("/load alias.tf\n", "load-of-library-file");

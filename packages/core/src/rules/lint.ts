@@ -2,6 +2,7 @@ import { LIBRARY_FILES_WITH_LOADED } from "../data/libraryLoaded.generated";
 import { isTfSpace } from "../logicalEntries";
 import { code, commandParts, macroBodyStart, parseLayout } from "../structure";
 import { defFiresOnEvent, defHasInvalidOption } from "../symbols";
+import { findVariables } from "../variables";
 import { invalidMacroName } from "./invalidMacroName";
 import type { EntryMatch, EntryRule, FileFacts } from "./types";
 import type { LogicalEntry } from "../logicalEntries";
@@ -226,7 +227,53 @@ export const tfreadWithoutLet: EntryRule = {
   },
 };
 
-export const LINT_RULES = [emptyMacroBody, loadOfLibraryFile, setWritesGlobal, tfreadWithoutLet];
+/**
+ * An assignment (`_x := 1`, `++_x`, `_x += 1`) to a name with no variable makes a global in
+ * upstream tf (expr.c's assign() calls newglobalvar()); the fork's local_assign makes a local
+ * instead. So upstream, with tfscript.diagnostics.localPrefix, an assignment in a macro body to a
+ * name the project keeps for locals, with no `/let` of it before, leaves a global behind. The fix
+ * puts the `/let` before the statement, as tfread-without-let's does.
+ */
+export const assignWritesGlobal: EntryRule = {
+  id: "assign-writes-global",
+  severity: "warning",
+  scope: "entry",
+  check(entry, file): EntryMatch[] {
+    const prefix = file.localPrefix;
+    if (prefix === undefined || file.tfBuild === "fork") return [];
+    const found = bodyStatements(entry, file);
+    if (!found) return [];
+    const { body, units } = found;
+    const out: EntryMatch[] = [];
+    const seen = new Set<string>();
+    for (const o of findVariables(entry.text)) {
+      if (o.access !== "assign" || o.scope !== "global" || o.offset < body || !o.name.startsWith(prefix)) continue;
+      const at = o.offset - body;
+      const within = units.filter((u) => u.start <= at && at < u.end);
+      if (within.length === 0 || within.some((u) => NESTED_TEXT.has(u.word))) continue;
+      const statement = within[0] as BodyStatement;
+      // One per name and statement: `_n := _n + 1` is one write.
+      const key = `${o.name}@${statement.start}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        start: o.offset,
+        end: o.offset + o.name.length,
+        message: `This assignment writes the global ${o.name}, as the macro has no local of that name, though names starting with ${prefix} are locals in this project: put /let ${o.name}= before it, or ${IGNORE.replace(/`/g, "")} if the global is meant.`,
+        label: "writes a global",
+        explanation:
+          `In upstream tf, an assignment to a name with no variable makes a global, which is still set after the macro ` +
+          `ends; only the fork's ${code("%local_assign")} makes it a local. Where a ${code("/let")} made a local first, the ` +
+          `assignment sets that local. By this project's convention (${code("tfscript.diagnostics.localPrefix")}), ` +
+          `${code(o.name)} is only ever a local. If the global is meant, ${IGNORE}.`,
+        fix: { title: `Put /let ${o.name}= before it`, edits: [{ start: body + statement.start, end: body + statement.start, newText: `/let ${o.name}=%; ` }] },
+      });
+    }
+    return out;
+  },
+};
+
+export const LINT_RULES = [emptyMacroBody, loadOfLibraryFile, setWritesGlobal, tfreadWithoutLet, assignWritesGlobal];
 
 /**
  * A comment that turns the lint tier off for the line after it: all of it, or the codes it names

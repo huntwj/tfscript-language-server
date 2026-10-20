@@ -746,6 +746,19 @@ export const RULE_SECTIONS: RuleSection[] = [
           "a `tfread()` in a macro body whose variable no `/let` before it made local; a warning where the name starts " +
           "with `tfscript.diagnostics.localPrefix`. The fix puts `/let name=%; ` before the statement",
       },
+      {
+        code: "assign-writes-global",
+        severity: "warning",
+        summary:
+          "This assignment writes a global variable, as the macro has no local of that name, though the project's " +
+          "names of that shape are locals. Put `/let name=` before it, or put `; tflint:ignore-nextline` on the line " +
+          "before if the global is meant.",
+        detail:
+          "only with `tfscript.diagnostics.localPrefix`, and only where `tfscript.tfBuild` is `upstream`: an assignment " +
+          "(`:=`, `++`, `+=` and the rest) in a macro body to a name starting with the prefix that no `/let` before it " +
+          "made local. Upstream, it makes a global; the fork's `%local_assign` makes a local. The fix puts " +
+          "`/let name=%; ` before the statement",
+      },
     ],
     fix: [
       "In code you write, send text to the world with `/send -h text`: it does what bare text does, the `SEND` hook " +
@@ -754,7 +767,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       "Load a library file with `/require`: `/require alias.tf`.",
       "In code you write, make every variable a macro only uses itself a local with `/let` before it is first " +
         "written (`/let _line=%; /while (tfread(h, _line) >= 0) ...`), and change it with `/let` or `:=`, never " +
-        "`/set`, which writes the global.",
+        "`/set`, which writes the global. Without the `/let` first, upstream's `:=` makes a global too.",
       "Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before.",
     ],
   },

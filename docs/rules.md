@@ -21,7 +21,7 @@ A top-level command of a file runs, and is checked, as the file loads.
 - [R7. Expressions](#r7-expressions): [`expression-syntax`](#expression-syntax), [`substitution-in-expression`](#substitution-in-expression)
 - [R8. Macro names](#r8-macro-names): [`invalid-macro-name`](#invalid-macro-name)
 - [R9. Load paths](#r9-load-paths): [`unresolved-load`](#unresolved-load), [`undefined-macro`](#undefined-macro)
-- [L1. Shapes that may be deliberate](#l1-shapes-that-may-be-deliberate): [`empty-macro-body`](#empty-macro-body), [`load-of-library-file`](#load-of-library-file), [`set-writes-global`](#set-writes-global), [`tfread-without-let`](#tfread-without-let)
+- [L1. Shapes that may be deliberate](#l1-shapes-that-may-be-deliberate): [`empty-macro-body`](#empty-macro-body), [`load-of-library-file`](#load-of-library-file), [`set-writes-global`](#set-writes-global), [`tfread-without-let`](#tfread-without-let), [`assign-writes-global`](#assign-writes-global)
 
 ## R1. Lines
 
@@ -351,7 +351,7 @@ Whether a variable is a local is the author's intent, which tf can't see: a proj
 
 - In code you write, send text to the world with `/send -h text`: it does what bare text does, the `SEND` hook included, and says it is meant. Leave bare text already in a script as it is. Not `/send` alone, which skips the hook, and not where the text starts with `-` or a substitution, which `/send` reads as an option.
 - Load a library file with `/require`: `/require alias.tf`.
-- In code you write, make every variable a macro only uses itself a local with `/let` before it is first written (`/let _line=%; /while (tfread(h, _line) >= 0) ...`), and change it with `/let` or `:=`, never `/set`, which writes the global.
+- In code you write, make every variable a macro only uses itself a local with `/let` before it is first written (`/let _line=%; /while (tfread(h, _line) >= 0) ...`), and change it with `/let` or `:=`, never `/set`, which writes the global. Without the `/let` first, upstream's `:=` makes a global too.
 - Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before.
 
 **Proof:**
@@ -385,3 +385,9 @@ A `/set` in a macro body of a name the body made local with `/let` before it, or
 **Information (warning for a name with the project's local prefix).** This `tfread()` writes a global variable, as the macro has no local of that name, and the global outlives the macro. Put `/let name=` before it for a local, or put `; tflint:ignore-nextline` on the line before if the global is meant.
 
 A `tfread()` in a macro body whose variable no `/let` before it made local; a warning where the name starts with `tfscript.diagnostics.localPrefix`. The fix puts `/let name=%; ` before the statement.
+
+### assign-writes-global
+
+**Warning.** This assignment writes a global variable, as the macro has no local of that name, though the project's names of that shape are locals. Put `/let name=` before it, or put `; tflint:ignore-nextline` on the line before if the global is meant.
+
+Only with `tfscript.diagnostics.localPrefix`, and only where `tfscript.tfBuild` is `upstream`: an assignment (`:=`, `++`, `+=` and the rest) in a macro body to a name starting with the prefix that no `/let` before it made local. Upstream, it makes a global; the fork's `%local_assign` makes a local. The fix puts `/let name=%; ` before the statement.

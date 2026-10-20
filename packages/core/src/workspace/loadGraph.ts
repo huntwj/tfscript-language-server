@@ -1,11 +1,12 @@
 import * as path from "node:path";
-import { LIBRARY_FILES } from "../data/libraryFiles.generated";
+import { libraryFiles } from "../data/library";
 import { entryCommands, shortenPercents, type LoadCommand } from "../loadCommands";
 import type { SubLevel } from "../structure";
 import { splitLogicalEntries, type LogicalEntry } from "../logicalEntries";
 import { findAbortEntry } from "../rules/notACommand";
 import { getDocumentSymbols, type TfSymbol } from "../symbols";
 import { toLocalPath, type PathMapping } from "./settings";
+import { DEFAULT_TF_BUILD, type TfBuild } from "../tfBuild";
 /**
  * Replays tf's startup load order statically: stdlib.tf (tinyfugue/src/main.c's
  * read_configuration() loads TFLIBRARY first), then each entry file in turn, following every
@@ -143,6 +144,8 @@ export interface LoadGraphOptions {
   pathMappings?: readonly PathMapping[];
   /** Variables with a value as tf starts, as tf sees them (settings.ts `variables`). */
   variables?: Readonly<Record<string, string>>;
+  /** Which tf runs the scripts (tfBuild.ts), whose library holds different files. Default upstream. */
+  tfBuild?: TfBuild;
   readFile(file: string): string | undefined;
 }
 
@@ -202,13 +205,13 @@ export interface LoadPathEnvironment {
 }
 
 /**
- * Whether tf would find relative path `file` among the files it installs in TFLIBDIR: a library
+ * Whether tf would find relative path `file` among the files `build` installs in TFLIBDIR: a library
  * file's name, maybe after `./`, in any case where file names ignore it (Windows).
  */
-function isLibraryFile(file: string): boolean {
+function isLibraryFile(file: string, build: TfBuild): boolean {
   const name = file.replace(/^(?:\.\/)+/, "");
   const fold = (s: string) => (process.platform === "win32" ? s.toLowerCase() : s);
-  return LIBRARY_FILES.some((f) => fold(f) === fold(name));
+  return libraryFiles(build).some((f) => fold(f) === fold(name));
 }
 
 /**
@@ -356,7 +359,7 @@ export function buildLoadGraph(options: LoadGraphOptions): LoadGraph {
       // tf would look in TFLIBDIR next, which may well hold it: this check just doesn't know where that is.
       // Only while TFLIBDIR is still the settings' (empty) one: a script's own /set TFLIBDIR= really
       // leaves tf nowhere to look (command.c:530-534).
-      if (isLibraryFile(file) && !vars.get("TFLIBDIR") && local.has("TFLIBDIR") && !vars.get("TFPATH")) {
+      if (isLibraryFile(file, options.tfBuild ?? DEFAULT_TF_BUILD) && !vars.get("TFLIBDIR") && local.has("TFLIBDIR") && !vars.get("TFPATH")) {
         return fail("unknown-library", "tf's library folder isn't known here", searched);
       }
       return fail("not-found", "file not found", searched);

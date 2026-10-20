@@ -1,5 +1,5 @@
 import { ALL_COMMANDS } from "../data/commands";
-import { LIBRARY_FILES_WITH_LOADED } from "../data/libraryLoaded.generated";
+import { libraryFilesWithLoaded } from "../data/library";
 import { isTfSpace } from "../logicalEntries";
 import { code, commandParts, macroBodyStart, parseLayout } from "../structure";
 import { defFiresOnEvent, defHasInvalidOption } from "../symbols";
@@ -73,14 +73,14 @@ export const loadOfLibraryFile: EntryRule = {
   id: "load-of-library-file",
   severity: "warning",
   scope: "entry",
-  check(entry): EntryMatch[] {
+  check(entry, facts): EntryMatch[] {
     const text = entry.text;
     let start = 0;
     while (isTfSpace(text[start])) start += 1;
     const m = /^\/load((?:[ \t]+-\S+)*)[ \t]+(\S+)[ \t]*$/.exec(text.slice(start));
     if (!m) return [];
     const file = m[2] as string;
-    if (!LIBRARY_FILES_WITH_LOADED.includes(file)) return [];
+    if (!libraryFilesWithLoaded(facts.tfBuild).includes(file)) return [];
     const at = start + 1;
     return [
       {

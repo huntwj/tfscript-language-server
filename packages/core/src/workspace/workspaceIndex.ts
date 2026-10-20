@@ -284,6 +284,7 @@ export class WorkspaceIndex {
       home: settings.home,
       pathMappings: settings.pathMappings,
       variables: settings.variables,
+      tfBuild: settings.tfBuild,
       readFile: this.readerFor(settings.tfBuild),
     });
     const built = { settings, graph };

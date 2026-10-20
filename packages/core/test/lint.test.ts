@@ -166,6 +166,13 @@ describe("load-of-library-file", () => {
     expect(fixed("/load -q alias.tf\n", lint("/load -q alias.tf\n", "load-of-library-file")[0])).toBe("/require -q alias.tf\n");
   });
 
+  it("knows the library of the tf it runs in: kv.tf is only the fork's", () => {
+    const loads = (tfBuild: "upstream" | "fork") => getDiagnostics("/load kv.tf\n", { tfBuild }).filter((d) => d.code === "load-of-library-file");
+    expect(loads("fork")).toHaveLength(1);
+    expect(loads("upstream")).toEqual([]);
+    expect(lint("/load kv.tf\n", "load-of-library-file")).toEqual([]);
+  });
+
   it("leaves a file without /loaded, a path and a file that isn't tf's alone", () => {
     for (const text of ["/load stdlib.tf\n", "/load lib/alias.tf\n", "/load mine.tf\n", "/require alias.tf\n"]) {
       expect(lint(text, "load-of-library-file"), text).toEqual([]);

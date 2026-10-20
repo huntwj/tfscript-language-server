@@ -43,6 +43,15 @@ describe("path resolution (proven against real tf)", () => {
     expect(defNames(g)).toEqual(["cwd_a"]);
   });
 
+  it("knows a library file by the tf it runs in: kv.tf is only the fork's, kb-os2.tf only upstream's", () => {
+    const reason = (file: string, tfBuild?: "upstream" | "fork") => graph({ [p("tfrc")]: `/load ${file}\n` }, tfBuild ? { tfBuild } : {}).unresolved[0]?.reason;
+    expect(reason("kv.tf")).toBe("file not found");
+    expect(reason("kv.tf", "fork")).toBe("tf's library folder isn't known here");
+    expect(reason("kb-os2.tf")).toBe("tf's library folder isn't known here");
+    expect(reason("kb-os2.tf", "fork")).toBe("file not found");
+    expect(reason("alias.tf")).toBe(reason("alias.tf", "fork"));
+  });
+
   it("does not look beside the loading file", () => {
     const g = graph({ [p("tfrc")]: "/load b.tf\n", [p("b.tf")]: "/def b = 1\n" });
     expect(defNames(g)).toEqual([]);

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Which files are tf's library follows `tfscript.tfBuild`. `kv.tf`, `bv.tf` and `kv-textlog.tf`
+  are only in the fork's, so with `upstream` (the default) a `/load kv.tf` gets no
+  `load-of-library-file` warning, and one that can't be followed says the file isn't found
+  rather than asking for tf's library. Upstream's `kb-os2.tf`, which the fork dropped, is the
+  other way round.
+
 ## 0.4.3
 
 - A lint warning, `missing-slash`: a macro-body statement with no `/` whose first word is a tf

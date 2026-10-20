@@ -8,6 +8,9 @@
   and shell words that are also tf commands (`kill`, `rest`, `quit`, `cat` ...) and tf's library
   macros (`alias`) are left alone.
 
+- The fork's `bv.tf`, `kv.tf` and `kv-textlog.tf` now run `/loaded`, so a `/load` of one gets the
+  `load-of-library-file` warning, as for tf's other library files.
+
 ## 0.4.2
 
 - A lint warning, `assign-writes-global`: with `tfscript.diagnostics.localPrefix` and

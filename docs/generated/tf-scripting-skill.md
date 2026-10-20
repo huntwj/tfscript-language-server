@@ -169,7 +169,7 @@ Fix:
 - In code you write, make every variable a macro only uses itself a local with `/let` before it is first written (`/let _line=%; /while (tfread(h, _line) >= 0) ...`), and change it with `/let` or `:=`, never `/set`, which writes the global. Without the `/let` first, upstream's `:=` makes a global too.
 - Turn a lint warning off where the shape is meant: `; tflint:ignore-nextline` on the line before.
 
-Codes: `empty-macro-body`, `load-of-library-file`, `set-writes-global`, `tfread-without-let`, `assign-writes-global`. Cases: `lint-empty-body`, `lint-empty-trigger-body`, `lint-send-h`, `set-writes-global-over-local`, `tfread-writes-global-without-let`.
+Codes: `empty-macro-body`, `load-of-library-file`, `set-writes-global`, `tfread-without-let`, `assign-writes-global`, `missing-slash`. Cases: `lint-empty-body`, `lint-empty-trigger-body`, `lint-send-h`, `set-writes-global-over-local`, `tfread-writes-global-without-let`.
 
 Not run: That `/send` passes `-h` on to `send()` is read from stdlib.tf's `/send` (lib/tf/stdlib.tf:103-115), and that `send()` runs the `SEND` hook only for `-h`, so `/send` without it skips the hook, from socket.c:2991.
 

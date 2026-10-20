@@ -21,7 +21,7 @@ A top-level command of a file runs, and is checked, as the file loads.
 - [R7. Expressions](#r7-expressions): [`expression-syntax`](#expression-syntax), [`substitution-in-expression`](#substitution-in-expression)
 - [R8. Macro names](#r8-macro-names): [`invalid-macro-name`](#invalid-macro-name)
 - [R9. Load paths](#r9-load-paths): [`unresolved-load`](#unresolved-load), [`undefined-macro`](#undefined-macro)
-- [L1. Shapes that may be deliberate](#l1-shapes-that-may-be-deliberate): [`empty-macro-body`](#empty-macro-body), [`load-of-library-file`](#load-of-library-file), [`set-writes-global`](#set-writes-global), [`tfread-without-let`](#tfread-without-let), [`assign-writes-global`](#assign-writes-global)
+- [L1. Shapes that may be deliberate](#l1-shapes-that-may-be-deliberate): [`empty-macro-body`](#empty-macro-body), [`load-of-library-file`](#load-of-library-file), [`set-writes-global`](#set-writes-global), [`tfread-without-let`](#tfread-without-let), [`assign-writes-global`](#assign-writes-global), [`missing-slash`](#missing-slash)
 
 ## R1. Lines
 
@@ -391,3 +391,9 @@ A `tfread()` in a macro body whose variable no `/let` before it made local; a wa
 **Warning.** This assignment writes a global variable, as the macro has no local of that name, though the project's names of that shape are locals. Put `/let name=` before it, or put `; tflint:ignore-nextline` on the line before if the global is meant.
 
 Only with `tfscript.diagnostics.localPrefix`, and only where `tfscript.tfBuild` is `upstream`: an assignment (`:=`, `++`, `+=` and the rest) in a macro body to a name starting with the prefix that no `/let` before it made local. Upstream, it makes a global; the fork's `%local_assign` makes a local. The fix puts `/let name=%; ` before the statement.
+
+### missing-slash
+
+**Warning.** This line sends its first word to the world as text, with no `/` before it, though the word is a tf command or a macro the project defines. Write the `/`, or put `; tflint:ignore-nextline` on the line before if the text is meant.
+
+A statement in a macro body, not starting with `/`, whose first word is a tf command no MUD or shell is likely to take (`echo`, `let`, `def`, `test`, `if` ...; not `kill`, `rest`, `quit`, `cat` and the like) or a macro defined in the file or the project (not in tf's library). The fix writes the `/`.

@@ -759,6 +759,18 @@ export const RULE_SECTIONS: RuleSection[] = [
           "made local. Upstream, it makes a global; the fork's `%local_assign` makes a local. The fix puts " +
           "`/let name=%; ` before the statement",
       },
+      {
+        code: "missing-slash",
+        severity: "warning",
+        summary:
+          "This line sends its first word to the world as text, with no `/` before it, though the word is a tf command " +
+          "or a macro the project defines. Write the `/`, or put `; tflint:ignore-nextline` on the line before if the " +
+          "text is meant.",
+        detail:
+          "a statement in a macro body, not starting with `/`, whose first word is a tf command no MUD or shell is " +
+          "likely to take (`echo`, `let`, `def`, `test`, `if` ...; not `kill`, `rest`, `quit`, `cat` and the like) or a " +
+          "macro defined in the file or the project (not in tf's library). The fix writes the `/`",
+      },
     ],
     fix: [
       "In code you write, send text to the world with `/send -h text`: it does what bare text does, the `SEND` hook " +

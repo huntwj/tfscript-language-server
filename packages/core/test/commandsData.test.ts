@@ -6,6 +6,8 @@ import { KEYWORD_COMMANDS } from "../src/data/keywordCommands.generated";
 import { STDLIB_COMMANDS } from "../src/data/stdlibCommands.generated";
 import { LIBRARY_FILES } from "../src/data/libraryFiles.generated";
 import { LIBRARY_FILES_WITH_LOADED } from "../src/data/libraryLoaded.generated";
+import { UPSTREAM_LIBRARY_FILES } from "../src/data/upstreamLibraryFiles.generated";
+import { UPSTREAM_LIBRARY_FILES_WITH_LOADED } from "../src/data/upstreamLibraryLoaded.generated";
 import { ALL_COMMANDS } from "../src/data/commands";
 import { COMMAND_DESCRIPTIONS } from "../src/data/commandDescriptions";
 import { COMMAND_USAGES } from "../src/data/commandUsages.generated";
@@ -56,9 +58,18 @@ describeOrSkip("command tables (vs. the sibling tinyfugue checkout)", () => {
   });
 
   it("matches lib/tf's library files that run /loaded", () => {
-    expect([...LIBRARY_FILES_WITH_LOADED]).toEqual(extractor.extractLibraryLoaded(join(TINYFUGUE_DIR, "lib", "tf"), [...LIBRARY_FILES]));
+    expect([...LIBRARY_FILES_WITH_LOADED]).toEqual(extractor.extractLibraryLoaded(extractor.libraryReader(join(TINYFUGUE_DIR, "lib", "tf")), [...LIBRARY_FILES]));
     expect(LIBRARY_FILES_WITH_LOADED).toContain("alias.tf");
     expect(LIBRARY_FILES_WITH_LOADED).not.toContain("stdlib.tf");
+  });
+
+  it("matches upstream's library, the checkout's main, and its files that run /loaded", () => {
+    const upstream = (file: string): string => extractor.readUpstream(TINYFUGUE_DIR, file);
+    expect([...UPSTREAM_LIBRARY_FILES]).toEqual(extractor.extractLibraryFiles(upstream("unix/unix.mak")));
+    expect([...UPSTREAM_LIBRARY_FILES_WITH_LOADED]).toEqual(
+      extractor.extractLibraryLoaded((f: string) => upstream(`lib/tf/${f}`), [...UPSTREAM_LIBRARY_FILES]),
+    );
+    expect(UPSTREAM_LIBRARY_FILES).toContain("alias.tf");
   });
 
   it("matches htmldoc/commands/*.html's usage synopses", () => {

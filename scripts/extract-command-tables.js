@@ -254,8 +254,23 @@ function extractLibraryFiles(unixMakText) {
  * Of tf's library files, those that run `/loaded` (a line starting `/loaded`), which /require then
  * loads only once (stdlib.tf's /require and /loaded); for the rest /require is a plain /load.
  */
-function extractLibraryLoaded(libDir, files) {
-  return files.filter((f) => /^\/loaded\s/m.test(readFileSync(path.join(libDir, f), "utf8"))).sort();
+function extractLibraryLoaded(read, files) {
+  return files.filter((f) => /^\/loaded\s/m.test(read(f))).sort();
+}
+
+/** A library file's text from a lib/tf folder on disk. */
+function libraryReader(libDir) {
+  return (f) => readFileSync(path.join(libDir, f), "utf8");
+}
+
+/**
+ * A file's text as upstream has it: the tinyfugue checkout's `main`, an exact mirror of
+ * upstream/main, read through jj without touching its working copy. The checkout itself is the
+ * fork's `dev`, whose library has files upstream's lacks (kv.tf, bv.tf ...).
+ */
+function readUpstream(tinyfugueDir, file) {
+  const args = ["--ignore-working-copy", "-R", tinyfugueDir, "file", "show", "-r", "main", `root:"${file}"`];
+  return require("node:child_process").execFileSync("jj", args, { encoding: "utf8" });
 }
 
 function writeDataFile(fileName, exportName, sourceNote, names) {
@@ -290,6 +305,8 @@ module.exports = {
   extractStdlibMacros,
   extractLibraryFiles,
   extractLibraryLoaded,
+  libraryReader,
+  readUpstream,
   extractCommandUsages,
   readCommandPages,
   tokenize,
@@ -337,7 +354,21 @@ if (require.main === module) {
     "libraryLoaded.generated.ts",
     "LIBRARY_FILES_WITH_LOADED",
     "tinyfugue/lib/tf: the library files (LIBRARY_FILES) that run /loaded, which /require loads only once",
-    extractLibraryLoaded(path.join(MUD_DIR, "tinyfugue", "lib", "tf"), libraryFiles),
+    extractLibraryLoaded(libraryReader(path.join(MUD_DIR, "tinyfugue", "lib", "tf")), libraryFiles),
+  );
+  const upstream = (file) => readUpstream(path.join(MUD_DIR, "tinyfugue"), file);
+  const upstreamLibraryFiles = extractLibraryFiles(upstream("unix/unix.mak"));
+  writeDataFile(
+    "upstreamLibraryFiles.generated.ts",
+    "UPSTREAM_LIBRARY_FILES",
+    "tinyfugue's main (upstream) unix/unix.mak's LIBRARY rule, for tfscript.tfBuild upstream",
+    upstreamLibraryFiles,
+  );
+  writeDataFile(
+    "upstreamLibraryLoaded.generated.ts",
+    "UPSTREAM_LIBRARY_FILES_WITH_LOADED",
+    "tinyfugue's main (upstream) lib/tf: the library files (UPSTREAM_LIBRARY_FILES) that run /loaded",
+    extractLibraryLoaded((f) => upstream(`lib/tf/${f}`), upstreamLibraryFiles),
   );
 
   const usages = extractCommandUsages(readCommandPages(HTMLDOC_COMMANDS));

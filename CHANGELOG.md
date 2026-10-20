@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.3
+
 - A lint warning, `missing-slash`: a macro-body statement with no `/` whose first word is a tf
   command no MUD or shell is likely to take (`echo hi`, `let x=1`), or a macro the project defines
   (`heal` where `/heal` exists), which tf sends to the world as text. The fix writes the `/`. MUD

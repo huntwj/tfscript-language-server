@@ -6626,7 +6626,41 @@ var assignWritesGlobal = {
     return out;
   }
 };
-var LINT_RULES = [emptyMacroBody, loadOfLibraryFile, setWritesGlobal, tfreadWithoutLet, assignWritesGlobal];
+var TF_ONLY_WORDS = new Set(
+  "def undef undefn undeft redef let setenv unset export eval test expr echo _echo kecho mecho qecho require loaded repeat trig trigc trigp trigpc untrig hook unhook bind unbind dokey result send hilite nohilite partial substitute ismacro isvar listvar listdef listtrig listbind listgag listhilite listhook listworlds listsockets liststreams listfullhilite listpartial purgedef purgedeft purgetrig purgehook purgebind purgegag purgehilite purgeworld purgelua addworld unworld histsize localecho lpquote watchdog watchname wrapspace status_add status_clear status_edit status_rm calllua loadlua python python_call python_call_unsafe python_kill python_load recordline loadhist sockmload vercmp relimit unlimit if elseif endif while done".split(" ")
+);
+var COMMAND_WORDS = new Set(ALL_COMMANDS.map((c) => c.name.toLowerCase()));
+var missingSlash = {
+  id: "missing-slash",
+  severity: "warning",
+  scope: "entry",
+  check(entry, file) {
+    const found = bodyStatements(entry, file);
+    if (!found) return [];
+    const { body, text, units } = found;
+    const out = [];
+    for (const u of units) {
+      const m = /^([A-Za-z_][A-Za-z0-9_]*)(?=[ \t]|$)/.exec(text.slice(u.start, u.end));
+      if (!m) continue;
+      const word = m[1];
+      const name = word.toLowerCase();
+      const command2 = TF_ONLY_WORDS.has(name);
+      const macro = !COMMAND_WORDS.has(name) && (file.macros.has(name) || (file.projectMacro?.(name) ?? false));
+      if (!command2 && !macro) continue;
+      const what = command2 ? "tf's command" : "the macro";
+      out.push({
+        start: body + u.start,
+        end: body + u.start + word.length,
+        message: `This line sends "${word}" to the world as text, with no / before it: write /${word} to run ${what}, or ${IGNORE.replace(/`/g, "")} if the text is meant.`,
+        label: "no slash",
+        explanation: `In a macro body, a statement that doesn't start with ${code("/")} is text tf sends to the world (through the ${code("SEND")} hook), not a command it runs. ${code(word)} is ` + (command2 ? `one of tf's commands, which no MUD is likely to take` : `the name of a macro this project defines`) + `, so a slash was probably forgotten. If the text is meant, ${code(`/send -h ${word} ...`)} says so, or ${IGNORE}.`,
+        fix: { title: `Write /${word}`, edits: [{ start: body + u.start, end: body + u.start, newText: "/" }] }
+      });
+    }
+    return out;
+  }
+};
+var LINT_RULES = [emptyMacroBody, loadOfLibraryFile, setWritesGlobal, tfreadWithoutLet, assignWritesGlobal, missingSlash];
 var IGNORE_RE = /^[ \t]*[;#].*?\btflint:ignore-nextline\b(.*)$/;
 var CODE_WORD = /^[a-z]+(?:-[a-z]+)+$/;
 function ignoredByComment(lines, line, code2) {
@@ -6761,7 +6795,12 @@ var reportRuleError = (rule, error) => {
   process.stderr.write(`tfscript: rule ${rule} failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}
 `);
 };
-function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD, localPrefix } = {}) {
+function getDiagnostics(text, {
+  joinFixes = true,
+  tfBuild = DEFAULT_TF_BUILD,
+  localPrefix,
+  projectMacro
+} = {}) {
   const entries = splitLogicalEntries(text);
   let diagnostics = [];
   const abort = findAbortEntry(entries);
@@ -6775,7 +6814,7 @@ function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD, lo
     const name = definedMacro(entry);
     if (name) macros.add(name.toLowerCase());
   }
-  const facts = { macros, tfBuild, ...localPrefix ? { localPrefix } : {} };
+  const facts = { macros, tfBuild, ...localPrefix ? { localPrefix } : {}, ...projectMacro ? { projectMacro } : {} };
   for (const rule of RULES) {
     let failed = false;
     const guarded = (run) => {
@@ -6807,7 +6846,10 @@ function getDiagnostics(text, { joinFixes = true, tfBuild = DEFAULT_TF_BUILD, lo
   if (abort) diagnostics.push(lineDiagnostic(abort, "not-a-command", "error"));
   diagnostics = consolidateContinuations(text, entries, diagnostics);
   unjoinGluedKeywords(text, entries, diagnostics);
-  if (joinFixes) addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, { joinFixes: false, tfBuild, ...localPrefix ? { localPrefix } : {} }));
+  if (joinFixes) {
+    const again = { joinFixes: false, tfBuild, ...localPrefix ? { localPrefix } : {}, ...projectMacro ? { projectMacro } : {} };
+    addJoinFixes(text, diagnostics, (t) => getDiagnostics(t, again));
+  }
   const rawLines = splitRawLines(text);
   return diagnostics.filter((d) => !(LINT_CODES.has(d.code) && ignoredByComment(rawLines, d.range.start.line, d.code)));
 }
@@ -6890,7 +6932,12 @@ function joinedWord(lines, m) {
 function documentDiagnostics(text, file, index) {
   const tfBuild = file ? index.tfBuildFor(file) : void 0;
   const localPrefix = file ? index.localPrefixFor(file) : void 0;
-  return [...getDiagnostics(text, { ...tfBuild ? { tfBuild } : {}, ...localPrefix ? { localPrefix } : {} }), ...file ? index.loadPathDiagnostics(file, text) : []];
+  const own = getDiagnostics(text, {
+    ...tfBuild ? { tfBuild } : {},
+    ...localPrefix ? { localPrefix } : {},
+    ...file ? { projectMacro: index.projectMacroDefined(file, text) } : {}
+  });
+  return [...own, ...file ? index.loadPathDiagnostics(file, text) : []];
 }
 
 // packages/core/src/workspace/loadGraph.ts
@@ -7963,6 +8010,18 @@ var WorkspaceIndex = class {
     return (name) => sets.some((d) => d.names.has(name) || d.prefixes.some((p) => name.startsWith(p)));
   }
   /**
+   * Whether a macro name (lower case) is defined by the project `file` is in: in it, on its load
+   * path or anywhere else in its workspace folder, but not in tf's library. For the
+   * missing-slash lint, which leaves library names (`/alias`) alone, as a MUD may take them too.
+   */
+  projectMacroDefined(file, text) {
+    const { folder, graph, settings } = this.contextFor(file);
+    const sets = [this.macroNamesOf(file, text)];
+    for (const f of graph.files) if (!this.isLibraryFile(f.path)) sets.push(this.macroNamesOf(f.path, f.text));
+    for (const e of this.macroContext(file, folder, graph, settings).elsewhere ?? []) if (!e.library) sets.push(e.defs);
+    return (name) => sets.some((d) => d.names.has(name));
+  }
+  /**
    * Whether a macro name (lower case) may be defined in a file other than `file`: on its load path
    * (tf's library among them), or anywhere in its workspace folder, by name or by a name built
    * when the /def runs. For inlining, which needs the one /def a call runs.
@@ -8935,6 +8994,12 @@ var RULE_SECTIONS = [
         severity: "warning",
         summary: "This assignment writes a global variable, as the macro has no local of that name, though the project's names of that shape are locals. Put `/let name=` before it, or put `; tflint:ignore-nextline` on the line before if the global is meant.",
         detail: "only with `tfscript.diagnostics.localPrefix`, and only where `tfscript.tfBuild` is `upstream`: an assignment (`:=`, `++`, `+=` and the rest) in a macro body to a name starting with the prefix that no `/let` before it made local. Upstream, it makes a global; the fork's `%local_assign` makes a local. The fix puts `/let name=%; ` before the statement"
+      },
+      {
+        code: "missing-slash",
+        severity: "warning",
+        summary: "This line sends its first word to the world as text, with no `/` before it, though the word is a tf command or a macro the project defines. Write the `/`, or put `; tflint:ignore-nextline` on the line before if the text is meant.",
+        detail: "a statement in a macro body, not starting with `/`, whose first word is a tf command no MUD or shell is likely to take (`echo`, `let`, `def`, `test`, `if` ...; not `kill`, `rest`, `quit`, `cat` and the like) or a macro defined in the file or the project (not in tf's library). The fix writes the `/`"
       }
     ],
     fix: [

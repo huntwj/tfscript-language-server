@@ -7416,6 +7416,12 @@ function unfollowedOnPath(graph, label = (f) => path5.basename(f)) {
     (u) => u.kind === "unknown-variable" || u.kind === "guarded-variable" || u.kind === "user-home" || u.kind === "unknown-library" || u.searched.some(isForeignPath)
   ).map((u) => ({ raw: u.raw, label: label(u.from), line: u.line }));
 }
+function likelyDefiner(unfollowed, name) {
+  return unfollowed.find((u) => {
+    const stem = path5.basename(u.raw).replace(/\.tf$/i, "").toLowerCase();
+    return stem !== "" && (name === stem || name.startsWith(`${stem}_`));
+  });
+}
 function onPathNames(graph, file, ownText, namesOf) {
   const names = new Map([...COMMAND_NAMES2].map((n) => [n, n]));
   const prefixes = [];
@@ -7599,7 +7605,7 @@ function undefinedMacros(file, text, lines, graph, onPath, { elsewhere = [], unf
     }
     const close = nearestName(name, visible.names.keys());
     const nearest = close === void 0 ? void 0 : visible.names.get(close) ?? close;
-    const blind = unfollowed[0];
+    const blind = likelyDefiner(unfollowed, name) ?? unfollowed[0];
     const d = blind ? {
       // A load this check can't follow may well define it: say so, quietly.
       range: call.range,

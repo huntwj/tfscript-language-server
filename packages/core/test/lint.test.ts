@@ -124,6 +124,38 @@ describe("assign-writes-global", () => {
   });
 });
 
+describe("missing-slash", () => {
+  const slash = (text: string, projectMacro?: (name: string) => boolean) =>
+    getDiagnostics(text, projectMacro ? { projectMacro } : {}).filter((d) => d.code === "missing-slash");
+
+  it("flags a body statement that starts with a tf-only command word and no slash, and writes the slash", () => {
+    const text = "/def greet = echo hi%; /send -h hello\n";
+    const [d, more] = slash(text);
+    expect(more).toBeUndefined();
+    expect(d?.severity).toBe("warning");
+    expect(d?.message).toBe(
+      'This line sends "echo" to the world as text, with no / before it: write /echo to run tf\'s command, or put ; tflint:ignore-nextline on the line before if the text is meant.',
+    );
+    expect(fixed(text, d)).toBe("/def greet = /echo hi%; /send -h hello\n");
+    expect(slash("/def g = /if (x) let y=1%; /endif\n")).toHaveLength(1);
+  });
+
+  it("flags a macro the file or the project defines, and leaves MUD and shell words, library macros and text alone", () => {
+    expect(slash("/def heal = cast 'heal'\n/def go = heal\n").map((d) => d.message)).toEqual([
+      'This line sends "heal" to the world as text, with no / before it: write /heal to run the macro, or put ; tflint:ignore-nextline on the line before if the text is meant.',
+    ]);
+    expect(slash("/def go = buff me\n", (n) => n === "buff")).toHaveLength(1);
+    for (const text of ["/def t = kill %{target}\n", "/def t = rest\n", "/def t = cat x; echo DONE\n", "/def t = alias x y\n", "/def t = say hi\n", "/def t = echoes\n"]) {
+      expect(slash(text), text).toEqual([]);
+    }
+    expect(slash("/def heal = cast 'heal'\n")).toEqual([]);
+  });
+
+  it("is turned off by the ignore comment", () => {
+    expect(slash("; tflint:ignore-nextline missing-slash\n/def t = echo hi\n")).toEqual([]);
+  });
+});
+
 describe("load-of-library-file", () => {
   it("flags a top-level /load of a library file that runs /loaded, and writes /require", () => {
     const [d] = lint("/load alias.tf\n", "load-of-library-file");

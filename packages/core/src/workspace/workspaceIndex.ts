@@ -398,6 +398,19 @@ export class WorkspaceIndex {
   }
 
   /**
+   * Whether a macro name (lower case) is defined by the project `file` is in: in it, on its load
+   * path or anywhere else in its workspace folder, but not in tf's library. For the
+   * missing-slash lint, which leaves library names (`/alias`) alone, as a MUD may take them too.
+   */
+  projectMacroDefined(file: string, text: string): (name: string) => boolean {
+    const { folder, graph, settings } = this.contextFor(file);
+    const sets: MacroNames[] = [this.macroNamesOf(file, text)];
+    for (const f of graph.files) if (!this.isLibraryFile(f.path)) sets.push(this.macroNamesOf(f.path, f.text));
+    for (const e of this.macroContext(file, folder, graph, settings).elsewhere ?? []) if (!e.library) sets.push(e.defs);
+    return (name) => sets.some((d) => d.names.has(name));
+  }
+
+  /**
    * Whether a macro name (lower case) may be defined in a file other than `file`: on its load path
    * (tf's library among them), or anywhere in its workspace folder, by name or by a name built
    * when the /def runs. For inlining, which needs the one /def a call runs.

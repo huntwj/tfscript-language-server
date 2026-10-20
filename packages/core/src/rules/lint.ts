@@ -1,3 +1,4 @@
+import { ALL_COMMANDS } from "../data/commands";
 import { LIBRARY_FILES_WITH_LOADED } from "../data/libraryLoaded.generated";
 import { isTfSpace } from "../logicalEntries";
 import { code, commandParts, macroBodyStart, parseLayout } from "../structure";
@@ -273,7 +274,71 @@ export const assignWritesGlobal: EntryRule = {
   },
 };
 
-export const LINT_RULES = [emptyMacroBody, loadOfLibraryFile, setWritesGlobal, tfreadWithoutLet, assignWritesGlobal];
+/**
+ * tf commands no MUD or shell is likely to take as a command of its own: a body statement starting
+ * with one of these words but no `/` is most likely a forgotten slash. Left out on purpose, since
+ * bare text with them is ordinary MUD or shell input: kill, rest, recall, reply, split, quit, help,
+ * save, time, toggle, prompt, purge, list, log, quote, return, edit, gag, cat, cd, pwd, ps, sh and
+ * the like (a survey of WoTMUD's, tf's library's and the tf-* repos' bodies found only those).
+ */
+const TF_ONLY_WORDS: ReadonlySet<string> = new Set(
+  (
+    "def undef undefn undeft redef let setenv unset export eval test expr echo _echo kecho mecho qecho require " +
+    "loaded repeat trig trigc trigp trigpc untrig hook unhook bind unbind dokey result send hilite nohilite " +
+    "partial substitute ismacro isvar listvar listdef listtrig listbind listgag listhilite listhook listworlds " +
+    "listsockets liststreams listfullhilite listpartial purgedef purgedeft purgetrig purgehook purgebind purgegag " +
+    "purgehilite purgeworld purgelua addworld unworld histsize localecho lpquote watchdog watchname wrapspace " +
+    "status_add status_clear status_edit status_rm calllua loadlua python python_call python_call_unsafe " +
+    "python_kill python_load recordline loadhist sockmload vercmp relimit unlimit if elseif endif while done"
+  ).split(" "),
+);
+
+/** Every tf command name, lower case. */
+const COMMAND_WORDS: ReadonlySet<string> = new Set(ALL_COMMANDS.map((c) => c.name.toLowerCase()));
+
+/**
+ * A body statement that starts with a tf-only command word (TF_ONLY_WORDS) or the name of a macro
+ * the project defines, but no `/`: tf sends it to the world as text (through the SEND hook), where
+ * the author most likely meant to run the command. The fix writes the slash. A word tf's library
+ * defines (`alias`) is left alone, as a MUD may take it too.
+ */
+export const missingSlash: EntryRule = {
+  id: "missing-slash",
+  severity: "warning",
+  scope: "entry",
+  check(entry, file): EntryMatch[] {
+    const found = bodyStatements(entry, file);
+    if (!found) return [];
+    const { body, text, units } = found;
+    const out: EntryMatch[] = [];
+    for (const u of units) {
+      const m = /^([A-Za-z_][A-Za-z0-9_]*)(?=[ \t]|$)/.exec(text.slice(u.start, u.end));
+      if (!m) continue;
+      const word = m[1] as string;
+      const name = word.toLowerCase();
+      const command = TF_ONLY_WORDS.has(name);
+      // A tf command off the list (`telnet`, which stdlib.tf defines) stays left alone where a file defines it too.
+      const macro = !COMMAND_WORDS.has(name) && (file.macros.has(name) || (file.projectMacro?.(name) ?? false));
+      if (!command && !macro) continue;
+      const what = command ? "tf's command" : "the macro";
+      out.push({
+        start: body + u.start,
+        end: body + u.start + word.length,
+        message: `This line sends "${word}" to the world as text, with no / before it: write /${word} to run ${what}, or ${IGNORE.replace(/`/g, "")} if the text is meant.`,
+        label: "no slash",
+        explanation:
+          `In a macro body, a statement that doesn't start with ${code("/")} is text tf sends to the world (through the ` +
+          `${code("SEND")} hook), not a command it runs. ${code(word)} is ` +
+          (command ? `one of tf's commands, which no MUD is likely to take` : `the name of a macro this project defines`) +
+          `, so a slash was probably forgotten. If the text is meant, ${code(`/send -h ${word} ...`)} says so, or ${IGNORE}.`,
+        fix: { title: `Write /${word}`, edits: [{ start: body + u.start, end: body + u.start, newText: "/" }] },
+      });
+    }
+    return out;
+  },
+};
+
+export const LINT_RULES = [emptyMacroBody, loadOfLibraryFile, setWritesGlobal, tfreadWithoutLet, assignWritesGlobal, missingSlash];
 
 /**
  * A comment that turns the lint tier off for the line after it: all of it, or the codes it names

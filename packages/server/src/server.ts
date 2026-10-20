@@ -334,7 +334,12 @@ function diagnosticsFor(document: TextDocument): TfDiagnostic[] {
   if (last && last.version === document.version) return last.diagnostics;
   const file = toPath(document.uri);
   const localPrefix = file === undefined ? undefined : index.localPrefixFor(file);
-  return getDiagnostics(loadedText(document), { tfBuild: buildOf(document), ...(localPrefix ? { localPrefix } : {}) });
+  const text = loadedText(document);
+  return getDiagnostics(text, {
+    tfBuild: buildOf(document),
+    ...(localPrefix ? { localPrefix } : {}),
+    ...(file === undefined ? {} : { projectMacro: index.projectMacroDefined(file, text) }),
+  });
 }
 
 connection.onCompletion((params: CompletionParams): CompletionItem[] => {

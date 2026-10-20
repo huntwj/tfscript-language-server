@@ -45,6 +45,11 @@ export interface FileFacts {
    * before any line that aborts the load, not a comment or a /def inside another command's text.
    */
   macros: ReadonlySet<string>;
+  /**
+   * Whether a macro (lower case) is defined elsewhere in the project: on the file's load path or in
+   * its workspace folder, not in tf's library. Unset where only the file itself is known.
+   */
+  projectMacro?: (name: string) => boolean;
 }
 
 export interface EntryRule {

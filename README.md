@@ -80,7 +80,7 @@ list and skill under `docs/generated/` are all generated from one table, `packag
 | [R9](docs/rules.md#r9-load-paths) | [`unresolved-load`](docs/rules.md#unresolved-load) | a `/load` or `/require`, in a file on the load path, whose file tf wouldn't find; (information) one built from something this check can't follow: a variable it doesn't know, a `~` with no home directory set, `~user`, or one of tf's library files with no library folder set (`tfscript.libraryPath`). Turned off by `tfscript.diagnostics.unresolvedLoads` |
 | [R9](docs/rules.md#r9-load-paths) | [`undefined-macro`](docs/rules.md#undefined-macro) | (information, or a warning where no file this check can see defines it) a call of a macro that no file on this file's load path defines; where another file defines it, the fix adds the `/require`. Turned off by `tfscript.diagnostics.undefinedMacros` |
 | [L1](docs/rules.md#l1-shapes-that-may-be-deliberate) | [`empty-macro-body`](docs/rules.md#empty-macro-body) | a plain `/def` (no `-t`, `-h`, `-b` or `-B`) with nothing after its `=`, which sends an empty line when it runs; a trigger, hook or key binding with an empty body sends nothing, so it isn't flagged |
-| [L1](docs/rules.md#l1-shapes-that-may-be-deliberate) | [`load-of-library-file`](docs/rules.md#load-of-library-file) | a top-level `/load` of a library file that runs `/loaded`, named on its own (found through `TFPATH` or `TFLIBDIR`); the fix writes `/require`. A file without `/loaded`, which `/require` would load again anyway, isn't flagged |
+| [L1](docs/rules.md#l1-shapes-that-may-be-deliberate) | [`load-of-library-file`](docs/rules.md#load-of-library-file) | a top-level `/load` of a library file that runs `/loaded` (in the library of the tf `tfscript.tfBuild` names), named on its own (found through `TFPATH` or `TFLIBDIR`); the fix writes `/require`. A file without `/loaded`, which `/require` would load again anyway, isn't flagged |
 | [L1](docs/rules.md#l1-shapes-that-may-be-deliberate) | [`set-writes-global`](docs/rules.md#set-writes-global) | a `/set` in a macro body of a name the body made local with `/let` before it, or, with `tfscript.diagnostics.localPrefix`, of a name starting with that prefix; the fix writes `/let` |
 | [L1](docs/rules.md#l1-shapes-that-may-be-deliberate) | [`tfread-without-let`](docs/rules.md#tfread-without-let) | a `tfread()` in a macro body whose variable no `/let` before it made local; a warning where the name starts with `tfscript.diagnostics.localPrefix`. The fix puts `/let name=%; ` before the statement |
 | [L1](docs/rules.md#l1-shapes-that-may-be-deliberate) | [`assign-writes-global`](docs/rules.md#assign-writes-global) | only with `tfscript.diagnostics.localPrefix`, and only where `tfscript.tfBuild` is `upstream`: an assignment (`:=`, `++`, `+=` and the rest) in a macro body to a name starting with the prefix that no `/let` before it made local. Upstream, it makes a global; the fork's `%local_assign` makes a local. The fix puts `/let name=%; ` before the statement |
@@ -313,6 +313,10 @@ server reads) and `--tf-build` on the command line:
     the loops inside it, is rejected when the macro is compiled, so nothing after it is checked
     (`block-structure`). Upstream tf compiles it, and running it stops the macro with an internal
     error; with `upstream` the check says so and goes on past it.
+  - The fork's library has `kv.tf`, `bv.tf` and `kv-textlog.tf`, and lacks upstream's
+    `kb-os2.tf`. Which files count as tf's library (for `load-of-library-file`, and for the note
+    when a `/load` of one can't be followed) follows the setting; the tables come from the
+    tinyfugue checkout for the fork and from its `main` for upstream.
 
 ## Command data (drives completion and hover)
 

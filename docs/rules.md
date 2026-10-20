@@ -372,7 +372,7 @@ A plain `/def` (no `-t`, `-h`, `-b` or `-B`) with nothing after its `=`, which s
 
 **Warning.** The file this `/load`s is one of tf's library files, so `/require` loads it only if it isn't loaded yet. Write `/require`, or put `; tflint:ignore-nextline` on the line before if loading it again is the point.
 
-A top-level `/load` of a library file that runs `/loaded`, named on its own (found through `TFPATH` or `TFLIBDIR`); the fix writes `/require`. A file without `/loaded`, which `/require` would load again anyway, isn't flagged.
+A top-level `/load` of a library file that runs `/loaded` (in the library of the tf `tfscript.tfBuild` names), named on its own (found through `TFPATH` or `TFLIBDIR`); the fix writes `/require`. A file without `/loaded`, which `/require` would load again anyway, isn't flagged.
 
 ### set-writes-global
 

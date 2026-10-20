@@ -119,6 +119,17 @@ export function unfollowedOnPath(graph: LoadGraph, label: (file: string) => stri
     .map((u) => ({ raw: u.raw, label: label(u.from), line: u.line }));
 }
 
+/**
+ * The unfollowed load whose file is named after the macro (`alias.tf` for `/alias`, `kv.tf` for
+ * `/kv_new`), which is the likeliest to define it, if there is one.
+ */
+function likelyDefiner(unfollowed: UnfollowedLoad[], name: string): UnfollowedLoad | undefined {
+  return unfollowed.find((u) => {
+    const stem = path.basename(u.raw).replace(/\.tf$/i, "").toLowerCase();
+    return stem !== "" && (name === stem || name.startsWith(`${stem}_`));
+  });
+}
+
 function onPathNames(graph: LoadGraph, file: string, ownText: string, namesOf: (file: string, text: string) => MacroNames): MacroNames {
   const names = new Map([...COMMAND_NAMES].map((n) => [n, n]));
   const prefixes: string[] = [];
@@ -384,7 +395,7 @@ function undefinedMacros(
     }
     const close = nearestName(name, visible.names.keys());
     const nearest = close === undefined ? undefined : (visible.names.get(close) ?? close);
-    const blind = unfollowed[0];
+    const blind = likelyDefiner(unfollowed, name) ?? unfollowed[0];
     const d: TfDiagnostic = blind
       ? {
           // A load this check can't follow may well define it: say so, quietly.

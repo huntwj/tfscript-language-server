@@ -247,6 +247,14 @@ describe("undefined-macro", () => {
     );
   });
 
+  it("names the unfollowed load whose file is named after the macro, when there is one", () => {
+    const files = { [p("tfrc")]: "/eval /load %{d}/kv.tf\n/eval /load %{d}/alias.tf\n/def a = /alias x y%; /kv_new t%; /other_thing\n" };
+    const notes = check(files, p("tfrc")).filter((x) => x.code === "undefined-macro").map((d) => d.message);
+    expect(notes[0]).toMatch(/^\/alias .*the load of %\{d\}\/alias\.tf \(tfrc line 2\)/);
+    expect(notes[1]).toMatch(/^\/kv_new .*the load of %\{d\}\/kv\.tf \(tfrc line 1\)/);
+    expect(notes[2]).toMatch(/^\/other_thing .*the load of %\{d\}\/kv\.tf \(tfrc line 1\)/);
+  });
+
   it("leaves names on the ignore list alone, with * matching any run of characters", () => {
     const files = { [p("tfrc")]: "/def a = /made_later%; /gen_x%; /other\n" };
     expect(check(files, p("tfrc"), { ignoreMacros: ["MADE_LATER", "gen_*"] }).map((d) => d.message)).toEqual([

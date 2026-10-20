@@ -17552,6 +17552,7 @@ var LIBRARY_FILES = [
   "activity_status2.tf",
   "alias.tf",
   "at.tf",
+  "bv.tf",
   "changes.tf",
   "color.tf",
   "complete.tf",
@@ -17593,7 +17594,6 @@ var LIBRARY_FILES = [
   "tintin.tf",
   "tools.tf",
   "tr.tf",
-  "vbind.tf",
   "watch.tf",
   "world-q.tf"
 ];

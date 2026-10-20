@@ -7,6 +7,11 @@
   prefix and no `/let` before it, which makes a global that outlives the macro. The fix puts the
   `/let` first. The fork's `local_assign` makes such an assignment a local, so it isn't flagged there.
 
+- When a macro isn't found and some loads can't be followed, the note names the load whose file is
+  named after the macro (`alias.tf` for `/alias`, `kv.tf` for `/kv_new`), not just the first one.
+
+- The library tables follow the fork's rename of `vbind.tf` to `bv.tf`.
+
 ## 0.4.1
 
 - An assignment (`x := 1`, `++x`) to a name with no variable makes a global in upstream tf; only

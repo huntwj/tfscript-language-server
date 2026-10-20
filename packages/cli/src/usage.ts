@@ -1,5 +1,5 @@
 /** The package's version (a test checks it matches package.json). */
-export const VERSION = "0.4.1";
+export const VERSION = "0.4.2";
 
 export const USAGE = `Usage: tfscript check [options] <file or folder>...
 

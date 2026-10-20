@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.2
+
 - A lint warning, `assign-writes-global`: with `tfscript.diagnostics.localPrefix` and
   `tfscript.tfBuild` upstream, an assignment (`_n := 1`, `++_n`) in a macro body to a name with the
   prefix and no `/let` before it, which makes a global that outlives the macro. The fix puts the

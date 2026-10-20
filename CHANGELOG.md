@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A lint warning, `missing-slash`: a macro-body statement with no `/` whose first word is a tf
+  command no MUD or shell is likely to take (`echo hi`, `let x=1`), or a macro the project defines
+  (`heal` where `/heal` exists), which tf sends to the world as text. The fix writes the `/`. MUD
+  and shell words that are also tf commands (`kill`, `rest`, `quit`, `cat` ...) and tf's library
+  macros (`alias`) are left alone.
+
 ## 0.4.2
 
 - A lint warning, `assign-writes-global`: with `tfscript.diagnostics.localPrefix` and

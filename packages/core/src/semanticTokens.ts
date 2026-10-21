@@ -1,6 +1,7 @@
 import { isCommentLine, splitRawLines } from "./logicalEntries";
 import { RESERVED_MACRO_NAMES } from "./data/commands";
-import { COMMANDS, findUsages, type NavContext } from "./navigation";
+import { tablesFor } from "./data/tables";
+import { findUsages, type NavContext } from "./navigation";
 import { getDocumentSymbols } from "./symbols";
 
 /**
@@ -61,9 +62,10 @@ export function getSemanticTokens(text: string, ctx?: NavContext): SemanticToken
   };
 
   const lines = splitRawLines(text);
+  const commands = tablesFor(ctx?.tfBuild).commandSources;
   for (const u of findUsages(text)) {
     const key = u.name.toLowerCase();
-    const source = COMMANDS.get(key);
+    const source = commands.get(key);
     const { line, character } = u.range.start;
     const length = u.name.length;
     if (u.kind === "substitution") {

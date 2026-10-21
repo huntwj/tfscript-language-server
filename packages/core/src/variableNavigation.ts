@@ -1,7 +1,8 @@
 import { posix } from "node:path";
 import type { ContextFile, Location, NavContext, TextEditAt } from "./navigation";
 import type { Position, Range } from "./symbols";
-import { findVariables, isVariableName, readSelector, SPECIAL_VARIABLE_NAMES, type VariableOccurrence } from "./variables";
+import { tablesFor } from "./data/tables";
+import { findVariables, isVariableName, readSelector, type VariableOccurrence } from "./variables";
 
 /**
  * Go-to-definition, references, rename and highlights for variables, on top of findVariables().
@@ -74,7 +75,7 @@ type RenameCheck = { ok: true; target: VariableOccurrence } | { ok: false; reaso
 function renameCheck(text: string, pos: Position, ctx?: NavContext): RenameCheck {
   const target = variableAt(text, pos);
   if (!target) return undefined;
-  if (target.scope === "global" && SPECIAL_VARIABLE_NAMES.has(target.name)) {
+  if (target.scope === "global" && tablesFor(ctx?.tfBuild).specialVariableNames.has(target.name)) {
     return { ok: false, reason: `${target.name} is one of tf's special variables, so it can't be renamed.` };
   }
   if (findVariables(text).some((v) => v.access === "getopts" && v.name === target.name && v.scope === target.scope)) {
@@ -191,14 +192,14 @@ export function prepareVariableRename(text: string, pos: Position, ctx?: NavCont
 }
 
 /** Why tf wouldn't read `name` as a variable in `%name` or `%{name}`, if it wouldn't. */
-function badName(name: string): string | undefined {
+function badName(name: string, ctx?: NavContext): string | undefined {
   if (!isVariableName(name)) {
     return `"${name}" can't be a variable name: use letters, digits and _, not starting with a digit.`;
   }
   if (readSelector(name, 0)?.name !== name || readSelector(`{${name}}`, 0)?.name !== name) {
     return `"${name}" can't be a variable name here: tf reads %${name} as a positional or special substitution, not a variable.`;
   }
-  if (SPECIAL_VARIABLE_NAMES.has(name)) {
+  if (tablesFor(ctx?.tfBuild).specialVariableNames.has(name)) {
     return `"${name}" is one of tf's special variables: pick another name.`;
   }
   return undefined;
@@ -220,7 +221,7 @@ export function variableRenameEdits(text: string, pos: Position, newName: string
   const check = renameCheck(text, pos, ctx);
   if (!check) return undefined;
   if (!check.ok) return { error: check.reason };
-  const bad = badName(newName);
+  const bad = badName(newName, ctx);
   if (bad) return { error: bad };
   if (newName !== check.target.name) {
     const taken = collision(check.target, newName, text, ctx);

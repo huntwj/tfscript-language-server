@@ -1,26 +1,20 @@
 import { CompletionItem, CompletionItemKind, InsertTextFormat } from "vscode-languageserver/node";
-import { ALL_COMMANDS, RESERVED_MACRO_NAMES, type CommandSource } from "@tfscript/core/data/commands";
-import { FUNCTIONS } from "@tfscript/core/data/functions.generated";
+import { RESERVED_MACRO_NAMES, type CommandSource } from "@tfscript/core/data/commands";
 import { SELECTORS } from "@tfscript/core/data/selectors";
+import { tablesFor, type TfTables } from "@tfscript/core/data/tables";
 import type { TfVariable } from "@tfscript/core/data/types";
-import { SPECIAL_VARIABLES } from "@tfscript/core/data/variables.generated";
 import { cursorContext, textBefore } from "@tfscript/core/expressions";
 import { functionSynopses } from "@tfscript/core/functionSynopses";
 import { isCommentLine, splitRawLines } from "@tfscript/core/logicalEntries";
 import type { NavContext } from "@tfscript/core/navigation";
 import { getDocumentSymbols, type Position } from "@tfscript/core/symbols";
+import { DEFAULT_TF_BUILD, type TfBuild } from "@tfscript/core/tfBuild";
 
 const SOURCE_DETAIL: Record<CommandSource, string> = {
   keyword: "tf control-flow keyword",
   builtin: "tf built-in command",
   stdlib: "stdlib.tf macro (always loaded)",
 };
-
-const COMMAND_ITEMS: CompletionItem[] = ALL_COMMANDS.map((c) => ({
-  label: c.name.toLowerCase(),
-  kind: CompletionItemKind.Function,
-  detail: SOURCE_DETAIL[c.source],
-}));
 
 // The `/` must start the line or follow whitespace, `(`, or `;` (as in a `%;` command
 // separator) — not just any `/`, or `/set d=/script` and `/load %{d}/file` would offer every
@@ -37,8 +31,8 @@ const TRAILING_COMMAND_WORD = /(?:^|[\s;(])\/(\w*)$/;
  * cursor sits right after a `/` and optional partial word (so typing in the middle of an
  * expression, a string, or after a finished command doesn't pop up every tf command).
  */
-export function getCommandCompletions(linePrefix: string): CompletionItem[] | null {
-  return TRAILING_COMMAND_WORD.test(linePrefix) ? COMMAND_ITEMS : null;
+export function getCommandCompletions(linePrefix: string, build?: TfBuild): CompletionItem[] | null {
+  return TRAILING_COMMAND_WORD.test(linePrefix) ? itemsFor(build).commands : null;
 }
 
 function variableDetail(v: TfVariable): string {
@@ -49,7 +43,34 @@ function variableDetail(v: TfVariable): string {
   return parts.join(", ");
 }
 
-const FUNCTION_ITEMS: CompletionItem[] = FUNCTIONS.map((f) => ({
+/** The completion items for what one tf has (tablesFor()), made once per build. */
+interface TfItems {
+  tables: TfTables;
+  commands: CompletionItem[];
+  functions: CompletionItem[];
+  variables: CompletionItem[];
+}
+
+const ITEMS = new Map<TfBuild, TfItems>();
+
+function itemsFor(build: TfBuild = DEFAULT_TF_BUILD): TfItems {
+  let items = ITEMS.get(build);
+  if (!items) {
+    const tables = tablesFor(build);
+    items = { tables, commands: commandItems(tables), functions: functionItems(tables), variables: variableItems(tables) };
+    ITEMS.set(build, items);
+  }
+  return items;
+}
+
+const commandItems = (t: TfTables): CompletionItem[] =>
+  t.commands.map((c) => ({
+    label: c.name.toLowerCase(),
+    kind: CompletionItemKind.Function,
+    detail: SOURCE_DETAIL[c.source],
+  }));
+
+const functionItems = (t: TfTables): CompletionItem[] => t.functions.map((f) => ({
   label: f.name,
   kind: CompletionItemKind.Function,
   detail: functionSynopses(f).join("  |  "),
@@ -60,7 +81,7 @@ const FUNCTION_ITEMS: CompletionItem[] = FUNCTIONS.map((f) => ({
   ...(f.max === 0 ? {} : { command: { title: "", command: "editor.action.triggerParameterHints" } }),
 }));
 
-const SPECIAL_VARIABLE_ITEMS: CompletionItem[] = SPECIAL_VARIABLES.map((v) => ({
+const variableItems = (t: TfTables): CompletionItem[] => t.specialVariables.map((v) => ({
   label: v.name,
   kind: CompletionItemKind.Variable,
   detail: variableDetail(v),
@@ -78,8 +99,7 @@ const ASSIGN_RE = /(?:^|[\s;|(])\/@?(?:set|let|setenv)\s+([A-Za-z_][A-Za-z0-9_]*
 const EXPR_ASSIGN_RE = /\b([A-Za-z_][A-Za-z0-9_]*)\s*:=/g;
 
 /** Variables a script sets — `/set`, `/let`, `/setenv`, `name := ...` — that tf doesn't define itself. */
-function scriptVariables(texts: string[]): Map<string, string> {
-  const special = new Set(SPECIAL_VARIABLES.map((v) => v.name));
+function scriptVariables(texts: string[], special: ReadonlySet<string>): Map<string, string> {
   const found = new Map<string, string>();
   for (const text of texts) {
     for (const line of splitRawLines(text)) {
@@ -94,7 +114,7 @@ function scriptVariables(texts: string[]): Map<string, string> {
 }
 
 function scriptVariableItems(text: string, ctx: NavContext | undefined): CompletionItem[] {
-  return [...scriptVariables([text, ...(ctx?.files ?? []).map((f) => f.text)])].map(([name, how]) => ({
+  return [...scriptVariables([text, ...(ctx?.files ?? []).map((f) => f.text)], tablesFor(ctx?.tfBuild).specialVariableNames)].map(([name, how]) => ({
     label: name,
     kind: CompletionItemKind.Variable,
     detail: `script variable (${how})`,
@@ -125,25 +145,26 @@ function macroItems(text: string, ctx: NavContext | undefined, asFunction: boole
  * Completion for the cursor's context (see expressions.ts): command names after `/` (tf's and
  * your macros), `%{` selectors and variables, variable names after `/set` and friends, the
  * values an enum or flag variable takes after `/set name=`, and functions and variables in an
- * expression. Nothing inside comments or string literals.
+ * expression. Nothing inside comments or string literals. What tf has is the tf `ctx` names.
  */
 export function getCompletions(text: string, pos: Position, ctx?: NavContext): CompletionItem[] {
   const before = textBefore(text, pos);
   if (before === undefined) return [];
   const context = cursorContext(before);
+  const items = itemsFor(ctx?.tfBuild);
   switch (context.kind) {
     case "command": {
-      const tf = new Set(COMMAND_ITEMS.map((i) => i.label));
-      return [...COMMAND_ITEMS, ...macroItems(text, ctx, false).filter((i) => !tf.has(i.label.toLowerCase()))];
+      const tf = new Set(items.commands.map((i) => i.label));
+      return [...items.commands, ...macroItems(text, ctx, false).filter((i) => !tf.has(i.label.toLowerCase()))];
     }
     case "substitution":
       return context.braced || context.partial === ""
-        ? [...SELECTOR_ITEMS, ...SPECIAL_VARIABLE_ITEMS, ...scriptVariableItems(text, ctx)]
-        : [...SPECIAL_VARIABLE_ITEMS, ...scriptVariableItems(text, ctx)];
+        ? [...SELECTOR_ITEMS, ...items.variables, ...scriptVariableItems(text, ctx)]
+        : [...items.variables, ...scriptVariableItems(text, ctx)];
     case "variable-name":
-      return [...SPECIAL_VARIABLE_ITEMS, ...scriptVariableItems(text, ctx)];
+      return [...items.variables, ...scriptVariableItems(text, ctx)];
     case "variable-value": {
-      const v = SPECIAL_VARIABLES.find((s) => s.name === context.variable);
+      const v = items.tables.specialVariables.find((s) => s.name === context.variable);
       return (v?.values ?? []).map((value, i) => ({
         label: value,
         kind: CompletionItemKind.EnumMember,
@@ -152,10 +173,10 @@ export function getCompletions(text: string, pos: Position, ctx?: NavContext): C
     }
     case "expression": {
       if (context.inNumber) return [];
-      const fns = new Set(FUNCTIONS.map((f) => f.name));
+      const fns = items.tables.functionNames;
       return [
-        ...FUNCTION_ITEMS,
-        ...SPECIAL_VARIABLE_ITEMS,
+        ...items.functions,
+        ...items.variables,
         ...scriptVariableItems(text, ctx),
         ...macroItems(text, ctx, true).filter((i) => !fns.has(i.label)),
       ];

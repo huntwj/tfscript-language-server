@@ -110,4 +110,16 @@ describe("getCompletions", () => {
     const item = getCompletions("/test strl", { line: 0, character: 10 }).find((i) => i.label === "strlen");
     expect(item).toMatchObject({ insertText: "strlen($0)", command: { command: "editor.action.triggerParameterHints" } });
   });
+
+  it("offers what the tf tfscript.tfBuild names has: upstream, unless it is the fork", () => {
+    const offered = (text: string, tfBuild?: "upstream" | "fork") =>
+      getCompletions(text, { line: 0, character: text.length }, { uri: "file:///x.tf", files: [], macros: [], ...(tfBuild ? { tfBuild } : {}) }).map((i) => i.label);
+    expect(offered("/test strl", "fork")).toContain("strlen_bytes");
+    expect(offered("/test strl")).not.toContain("strlen_bytes");
+    expect(offered("/test strl")).toContain("strlen");
+    expect(offered("/set loc", "fork")).toContain("local_assign");
+    expect(offered("/set loc", "upstream")).not.toContain("local_assign");
+    expect(offered("/py", "fork")).toContain("python_call_unsafe");
+    expect(offered("/py")).not.toContain("python_call_unsafe");
+  });
 });

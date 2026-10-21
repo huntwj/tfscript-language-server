@@ -82,6 +82,9 @@ export interface VariableOccurrence {
   offset: number;
 }
 
+// The fork's names, which include all of upstream's: the scan reads a file the same way for
+// either tf, so a name only the fork has is still never taken for a macro's (data/tables.ts).
+
 export const SPECIAL_VARIABLE_NAMES: ReadonlySet<string> = new Set(SPECIAL_VARIABLES.map((v) => v.name));
 
 const COMMAND_NAMES: ReadonlySet<string> = new Set(ALL_COMMANDS.map((c) => c.name.toLowerCase()));

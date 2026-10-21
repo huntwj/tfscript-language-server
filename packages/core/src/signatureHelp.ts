@@ -1,11 +1,10 @@
 import { functionSynopses } from "./functionSynopses";
 import { COMMAND_DESCRIPTIONS } from "./data/commandDescriptions";
-import { FUNCTIONS } from "./data/functions.generated";
+import { tablesFor } from "./data/tables";
 import { functionHelpEntry } from "./expressionHover";
 import { cursorContext, textBefore } from "./expressions";
-import { COMMAND_USAGES } from "./data/commandUsages.generated";
 import { isCommentLine, splitLogicalEntries, splitRawLines } from "./logicalEntries";
-import { CALL_RE, COMMANDS, definitionsOf, docCommentAbove, type Def, type NavContext } from "./navigation";
+import { CALL_RE, definitionsOf, docCommentAbove, type Def, type NavContext } from "./navigation";
 import { getDocumentSymbols, type Position } from "./symbols";
 
 /**
@@ -245,7 +244,7 @@ function toSignature(label: string, documentation?: string): TfSignature {
 function commandSignatures(name: string, ctx?: NavContext): TfSignature[] {
   const key = name.toLowerCase();
   const entry = ctx?.help?.get(`/${key}`);
-  const usages = entry && entry.usage.length > 0 ? entry.usage : COMMAND_USAGES[key];
+  const usages = entry && entry.usage.length > 0 ? entry.usage : tablesFor(ctx?.tfBuild).commandUsages[key];
   if (!usages) return [];
   const description = COMMAND_DESCRIPTIONS[key] || entry?.summary || undefined;
   return usages.map((u) => toSignature(u, description));
@@ -266,7 +265,7 @@ function functionSignature(synopsis: string, description?: string): TfSignature 
 }
 
 function functionHelp(name: string, argument: number, ctx?: NavContext): TfSignatureHelp | undefined {
-  const f = FUNCTIONS.find((fn) => fn.name === name.toLowerCase());
+  const f = tablesFor(ctx?.tfBuild).functions.find((fn) => fn.name === name.toLowerCase());
   if (!f) return undefined;
   const summary = functionHelpEntry(f.name, ctx?.help)?.summary;
   const signatures = functionSynopses(f).map((s) => functionSignature(s, summary));
@@ -293,7 +292,7 @@ export function getSignatureHelp(text: string, pos: Position, ctx?: NavContext):
 
   let signatures: TfSignature[];
   if (call.builtin) {
-    const source = COMMANDS.get(call.name.toLowerCase());
+    const source = tablesFor(ctx?.tfBuild).commandSources.get(call.name.toLowerCase());
     signatures = source === "builtin" || source === "keyword" ? commandSignatures(call.name, ctx) : [];
   } else {
     const defs = definitionsOf(call.name, text, getDocumentSymbols(text), ctx);

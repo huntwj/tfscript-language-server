@@ -1,8 +1,9 @@
 import * as path from "node:path";
-import { ALL_COMMANDS } from "../data/commands";
+import { tablesFor } from "../data/tables";
 import type { TfDiagnostic, TfTextEdit } from "../diagnostics";
 import { isCommentLine, splitLogicalEntries, splitRawLines, type LogicalEntry } from "../logicalEntries";
 import { code } from "../structure";
+import type { TfBuild } from "../tfBuild";
 import { findMacroCalls } from "../variables";
 import { fileKey, isForeignPath, type LoadGraph, type UnresolvedLoad } from "./loadGraph";
 
@@ -13,6 +14,8 @@ export interface LoadPathDiagnosticOptions {
   undefinedMacros: boolean;
   /** Macro names the undefined-macro check leaves alone; `*` matches any run of characters. */
   ignoreMacros?: string[];
+  /** Which tf runs the file (tfBuild.ts), whose commands a call may name. Default upstream. */
+  tfBuild?: TfBuild;
 }
 
 /** The macros a file defines, for a file that isn't on this file's load path. */
@@ -53,7 +56,6 @@ export interface MacroNames {
   prefixes: string[];
 }
 
-const COMMAND_NAMES = new Set(ALL_COMMANDS.map((c) => c.name.toLowerCase()));
 
 /**
  * A `/def` (or `/@def`, the builtin) anywhere in a file's text — top level or nested in a macro
@@ -130,8 +132,8 @@ function likelyDefiner(unfollowed: UnfollowedLoad[], name: string): UnfollowedLo
   });
 }
 
-function onPathNames(graph: LoadGraph, file: string, ownText: string, namesOf: (file: string, text: string) => MacroNames): MacroNames {
-  const names = new Map([...COMMAND_NAMES].map((n) => [n, n]));
+function onPathNames(graph: LoadGraph, file: string, ownText: string, namesOf: (file: string, text: string) => MacroNames, build?: TfBuild): MacroNames {
+  const names = new Map([...tablesFor(build).commandSources.keys()].map((n) => [n, n]));
   const prefixes: string[] = [];
   for (const [f, text] of [[file, ownText] as const, ...graph.files.map((g) => [g.path, g.text] as const)]) {
     const d = namesOf(f, text);
@@ -358,8 +360,9 @@ function undefinedMacros(
   onPath: boolean,
   { elsewhere = [], unfollowed = [], requirePath = () => undefined, namesOf = (_f, t) => macroNames(t), readOnly }: MacroContext,
   ignore: string[],
+  build?: TfBuild,
 ): TfDiagnostic[] {
-  const visible = onPathNames(graph, file, text, namesOf);
+  const visible = onPathNames(graph, file, text, namesOf, build);
   const out: TfDiagnostic[] = [];
   for (const call of findMacroCalls(text)) {
     if (call.dynamic) continue;
@@ -460,7 +463,7 @@ export function loadPathDiagnostics(
   const out: TfDiagnostic[] = [];
   if (options.undefinedMacros) {
     const unfollowed = context.unfollowed ?? (onPath ? unfollowedOnPath(graph) : []);
-    for (const d of undefinedMacros(file, text, lines, graph, onPath, { ...context, unfollowed }, options.ignoreMacros ?? [])) out.push(d);
+    for (const d of undefinedMacros(file, text, lines, graph, onPath, { ...context, unfollowed }, options.ignoreMacros ?? [], options.tfBuild)) out.push(d);
   }
   if (!onPath) return out;
   const entries = splitLogicalEntries(text);

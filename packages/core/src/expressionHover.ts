@@ -1,11 +1,11 @@
 import { functionSynopses } from "./functionSynopses";
-import { FUNCTIONS } from "./data/functions.generated";
+import { tablesFor } from "./data/tables";
 import { SELECTORS } from "./data/selectors";
 import type { TfVariable } from "./data/types";
-import { SPECIAL_VARIABLES } from "./data/variables.generated";
 import { cursorContext, textBefore } from "./expressions";
 import { isCommentLine, splitRawLines } from "./logicalEntries";
 import type { Position, Range } from "./symbols";
+import type { TfBuild } from "./tfBuild";
 import type { HelpEntry } from "./workspace/tfHelp";
 
 /**
@@ -50,7 +50,9 @@ export function getExpressionHover(
   text: string,
   pos: Position,
   help?: ReadonlyMap<string, HelpEntry>,
+  build?: TfBuild,
 ): { markdown: string; range: Range } | undefined {
+  const tables = tablesFor(build);
   const line = splitRawLines(text)[pos.line] ?? "";
   if (isCommentLine(line)) return undefined;
   let start = pos.character;
@@ -68,7 +70,7 @@ export function getExpressionHover(
       ?? (/^-?L\d+$/.test(word) ? SELECTORS.find((s) => s.label === (word.startsWith("-") ? "-L" : "L")) : undefined)
       ?? (/^-?\d+$/.test(word) ? SELECTORS.find((s) => s.label === (word.startsWith("-") ? "-1" : "1")) : undefined);
     if (selector) return { markdown: `${code([`%{${word}}`])}\n\n${selector.detail}`, range };
-    const v = SPECIAL_VARIABLES.find((s) => s.name === word);
+    const v = tables.specialVariables.find((s) => s.name === word);
     return v ? { markdown: variableHover(v, help), range } : undefined;
   }
 
@@ -76,13 +78,13 @@ export function getExpressionHover(
   const before = textBefore(text, { line: pos.line, character: start });
   const kind = before === undefined ? "none" : cursorContext(before).kind;
   if (kind === "variable-name") {
-    const v = SPECIAL_VARIABLES.find((s) => s.name === word);
+    const v = tables.specialVariables.find((s) => s.name === word);
     return v ? { markdown: variableHover(v, help), range } : undefined;
   }
   if (kind !== "expression") return undefined;
 
   if (/^\s*\(/.test(line.slice(end))) {
-    const f = FUNCTIONS.find((fn) => fn.name === word.toLowerCase());
+    const f = tables.functions.find((fn) => fn.name === word.toLowerCase());
     if (!f) return undefined;
     const entry = functionHelpEntry(f.name, help);
     const parts = [code(entry?.usage.length ? entry.usage : functionSynopses(f))];
@@ -91,6 +93,6 @@ export function getExpressionHover(
     parts.push(`*tf function, ${counts}${f.requires ? `, only with ${f.requires}` : ""}*`);
     return { markdown: parts.join("\n\n"), range };
   }
-  const v = SPECIAL_VARIABLES.find((s) => s.name === word);
+  const v = tables.specialVariables.find((s) => s.name === word);
   return v ? { markdown: variableHover(v, help), range } : undefined;
 }

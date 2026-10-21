@@ -380,7 +380,7 @@ export class WorkspaceIndex {
       file,
       text,
       graph,
-      { unresolvedLoads: options?.unresolvedLoads ?? true, undefinedMacros, ignoreMacros: options?.ignoreMacros ?? [] },
+      { unresolvedLoads: options?.unresolvedLoads ?? true, undefinedMacros, ignoreMacros: options?.ignoreMacros ?? [], tfBuild: settings.tfBuild },
       undefinedMacros ? this.macroContext(file, folder, graph, settings) : {},
     );
   }
@@ -790,6 +790,7 @@ export class WorkspaceIndex {
       macros,
       libraryFiles: loaded.filter((f) => isLibrary(f.path)).map((f) => ({ uri: uriOf(f.path), text: f.text })),
       help: lib ? this.help(lib) : undefined,
+      tfBuild: settings.tfBuild,
     };
   }
 

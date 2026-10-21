@@ -119,6 +119,7 @@ type Judgement = { kind: "plain" } | { kind: "rejected"; bad: string } | { kind:
 const SELECTOR_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+|[#?*]|-L?[0-9]*|L[0-9]*|P[0-9]+)$/;
 /** What a default may hold to be plain text: nothing /eval would substitute, escape or end it with. */
 const PLAIN_DEFAULT_RE = /^[^%${}\\]*$/;
+// The fork's builtins, which include all of upstream's (data/tables.ts).
 const BUILTINS = new Set(BUILTIN_COMMANDS.map((c) => c.toLowerCase()));
 
 /**

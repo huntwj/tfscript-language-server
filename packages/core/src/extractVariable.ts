@@ -1,5 +1,5 @@
 import { FUNCTION_EFFECTS } from "./data/functionEffects";
-import { FUNCTIONS } from "./data/functions.generated";
+import { tablesFor } from "./data/tables";
 import type { Position, Range, TfTextEdit } from "./diagnostics";
 import { applyEdits, compare, isDefEntry, mentions, readerOutside, selected, trimEnd, type TfExtractAction } from "./extractMacro";
 import { alwaysEvaluated, ExprSyntaxError, nodes, parseExpression, pathTo, type ExprNode } from "./expressionTree";
@@ -78,7 +78,6 @@ export interface ExtractVariableOptions {
 }
 
 const TITLE = "Extract to a local variable";
-const ARITY = new Map(FUNCTIONS.map((f) => [f.name, f]));
 const READS_RESULT = /%+\{?\?|\{\?\}/;
 /** Text the `/test` would substitute again: a `%`, a `$` or a `\`. */
 const SUBSTITUTED = /[%$\\]/;
@@ -216,7 +215,7 @@ function plan(text: string, entry: LogicalEntry, range: Range, options: ExtractV
     const effect = sideEffect(s, n);
     if (effect) return { disabled: `In the selection, ${effect}, and it would be evaluated earlier than it is now: leave that out of the selection.` };
     if (n.kind === "call") {
-      const f = ARITY.get(n.name);
+      const f = tablesFor(options.tfBuild).functions.find((fn) => fn.name === n.name);
       if (f && (n.args.length < f.min || (f.max !== null && n.args.length > f.max))) {
         return { disabled: `${n.name}() has the wrong number of arguments, which tf reports when the macro is compiled; in the /test it would only be reported when that runs: fix the call first.` };
       }

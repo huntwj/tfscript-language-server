@@ -1,10 +1,10 @@
-import { ALL_COMMANDS, RESERVED_MACRO_NAMES, type CommandSource } from "./data/commands";
+import { RESERVED_MACRO_NAMES, type CommandSource } from "./data/commands";
 import { COMMAND_DESCRIPTIONS } from "./data/commandDescriptions";
-import { COMMAND_USAGES } from "./data/commandUsages.generated";
-import { FUNCTIONS } from "./data/functions.generated";
+import { tablesFor } from "./data/tables";
 import { getExpressionHover } from "./expressionHover";
 import { isCommentLine, splitRawLines } from "./logicalEntries";
 import { getDocumentSymbols, type Position, type Range, type TfSymbol } from "./symbols";
+import type { TfBuild } from "./tfBuild";
 import type { HelpEntry } from "./workspace/tfHelp";
 import {
   prepareVariableRename,
@@ -136,6 +136,8 @@ export interface NavContext {
   libraryFiles?: ContextFile[];
   /** The installed tf-help, keyed by topic (`/let`), when a tf library is configured. */
   help?: ReadonlyMap<string, HelpEntry>;
+  /** Which tf runs the file (tfBuild.ts), whose commands, functions and variables it has. Default upstream. */
+  tfBuild?: TfBuild;
 }
 
 export interface Def {
@@ -174,8 +176,6 @@ function targetAt(text: string, pos: Position, symbols: TfSymbol[]): Target | un
   return def && { name: def.name, range: def.selectionRange };
 }
 
-export const COMMANDS = new Map(ALL_COMMANDS.map((c) => [c.name.toLowerCase(), c.source]));
-
 const SOURCE_LABEL: Record<CommandSource, string> = {
   keyword: "tf control-flow keyword",
   builtin: "tf built-in command",
@@ -193,12 +193,13 @@ export interface TfHover {
  * the synopsis comes from the htmldoc extraction shipped in this package. A hand-written
  * COMMAND_DESCRIPTIONS entry wins over tf-help's summary.
  */
-function commandHover(name: string, help?: ReadonlyMap<string, HelpEntry>): string | undefined {
+function commandHover(name: string, ctx: NavContext | undefined): string | undefined {
   const key = name.toLowerCase();
-  const source = COMMANDS.get(key);
-  const entry = help?.get(`/${key}`);
+  const tables = tablesFor(ctx?.tfBuild);
+  const source = tables.commandSources.get(key);
+  const entry = ctx?.help?.get(`/${key}`);
   if (!source && !entry) return undefined;
-  const usages = entry && entry.usage.length > 0 ? entry.usage : COMMAND_USAGES[key];
+  const usages = entry && entry.usage.length > 0 ? entry.usage : tables.commandUsages[key];
   const synopsis = usages ? "```tf\n" + usages.join("\n") + "\n```\n\n" : "";
   const description = COMMAND_DESCRIPTIONS[key] || (entry?.summary && escapeMarkdown(entry.summary));
   const parts = [synopsis.trimEnd(), description ?? "", source ? `*${SOURCE_LABEL[source]}*` : ""].filter(Boolean);
@@ -249,13 +250,13 @@ export function getHover(text: string, pos: Position, ctx?: NavContext): TfHover
   const symbols = getDocumentSymbols(text);
   const target = targetAt(text, pos, symbols);
   // Not a macro name: perhaps a function, a special variable or a %{...} selector.
-  if (!target) return getExpressionHover(text, pos, ctx?.help);
+  if (!target) return getExpressionHover(text, pos, ctx?.help, ctx?.tfBuild);
   const key = target.name.toLowerCase();
-  const source = COMMANDS.get(key);
+  const source = tablesFor(ctx?.tfBuild).commandSources.get(key);
 
   if (target.usage?.kind === "builtin-call") {
     if (source !== "builtin" && source !== "keyword") return undefined;
-    const doc = commandHover(target.name, ctx?.help);
+    const doc = commandHover(target.name, ctx);
     return doc ? { markdown: `${doc}\n\n\`/@\` calls the built-in even if a macro has the same name.`, range: target.range } : undefined;
   }
 
@@ -275,7 +276,7 @@ export function getHover(text: string, pos: Position, ctx?: NavContext): TfHover
     return { markdown: describeDefs(userDefs) + note, range: target.range };
   }
 
-  const command = commandHover(target.name, ctx?.help);
+  const command = commandHover(target.name, ctx);
   const withCommand = (rest: string): string => (command ? `${command}\n\n${rest}` : rest);
 
   if (libraryDefs.length > 0) {
@@ -363,7 +364,7 @@ function renameTarget(text: string, pos: Position, ctx: NavContext | undefined):
     return { ok: false, reason: `/${target.name} is defined in tf's library (${library.label ?? "stdlib.tf"}), which isn't yours to rename.` };
   }
   if (defs.length === 0) {
-    const builtin = COMMANDS.has(target.name.toLowerCase());
+    const builtin = tablesFor(ctx?.tfBuild).commandSources.has(target.name.toLowerCase());
     return {
       ok: false,
       reason: builtin
@@ -375,7 +376,6 @@ function renameTarget(text: string, pos: Position, ctx: NavContext | undefined):
 }
 
 const NEW_NAME_RE = new RegExp(`^${NAME}$`);
-const FUNCTION_NAMES: ReadonlySet<string> = new Set(FUNCTIONS.map((f) => f.name));
 const IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** The range of the name under the cursor, if it can be renamed; otherwise why not. */
@@ -428,7 +428,7 @@ export function getRenameEdits(text: string, pos: Position, newName: string, ctx
   if (fn && !isVariableName(newName)) {
     return { error: `${target.name} is called as ${fn.u.name}(...) on line ${fn.u.range.start.line + 1}, and tf only reads letters, digits and _ as a function name there: pick a name like that.` };
   }
-  if (fn && FUNCTION_NAMES.has(newName)) {
+  if (fn && tablesFor(ctx?.tfBuild).functionNames.has(newName)) {
     return { error: `${target.name} is called as ${fn.u.name}(...) on line ${fn.u.range.start.line + 1}, and ${newName}(...) would call tf's builtin ${newName}() instead: pick another name.` };
   }
   for (const { uri, u } of uses) {

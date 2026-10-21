@@ -1,6 +1,9 @@
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { asLoaded } from "../src/tfBuild";
+import { getHover, type NavContext } from "../src/navigation";
+import { getSignatureHelp } from "../src/signatureHelp";
+import { asLoaded, type TfBuild } from "../src/tfBuild";
+import { prepareVariableRename } from "../src/variableNavigation";
 import { parseConfig } from "../src/workspace/configFile";
 import { documentDiagnostics } from "../src/workspace/documentDiagnostics";
 import { resolveSettings, type Environment, type RawSettings } from "../src/workspace/settings";
@@ -105,5 +108,46 @@ describe("a file saved with CRLF line endings", () => {
     const tfrc = p("fork", "tfrc");
     expect(documentDiagnostics(fs.readFile(tfrc) as string, tfrc, index).map((d) => d.code)).toEqual([]);
     expect(index.tfBuildFor(p("up", "lib.tf"))).toBe("upstream");
+  });
+});
+
+describe("what each tf has", () => {
+  const ctx = (tfBuild: TfBuild): NavContext => ({ uri: "file:///x.tf", files: [], macros: [], tfBuild });
+  const at = (text: string) => ({ line: 0, character: text.indexOf("|") });
+  const strip = (text: string) => text.replace("|", "");
+
+  it("hovers strlen_bytes() and local_assign only for the fork, which has them", () => {
+    const fn = '/test strl|en_bytes("a")';
+    expect(getHover(strip(fn), at(fn), ctx("fork"))?.markdown).toContain("tf function");
+    expect(getHover(strip(fn), at(fn), ctx("upstream"))).toBeUndefined();
+    const v = "/echo %{local_ass|ign}";
+    expect(getHover(strip(v), at(v), ctx("fork"))?.markdown).toContain("tf flag variable");
+    expect(getHover(strip(v), at(v), ctx("upstream"))).toBeUndefined();
+  });
+
+  it("gives tfwrite() its third argument only for the fork", () => {
+    const text = "/test tfwrite(h, s, |";
+    const labels = (b: TfBuild) => getSignatureHelp(strip(text), at(text), ctx(b))?.signatures.map((s) => s.label);
+    expect(labels("fork")).toContain("tfwrite(i, s, flags)");
+    expect(labels("upstream")).not.toContain("tfwrite(i, s, flags)");
+  });
+
+  it("lets a variable upstream doesn't have be renamed, but not the fork's own", () => {
+    const text = "/set local_ass|ign=1";
+    expect(prepareVariableRename(strip(text), at(text), ctx("fork"))).toMatchObject({ error: expect.stringContaining("special variables") });
+    expect(prepareVariableRename(strip(text), at(text), ctx("upstream"))).toMatchObject({ placeholder: "local_assign" });
+  });
+
+  it("knows /python_call_unsafe as a command only for the fork, and says so in the nav context", () => {
+    const fs = memoryFs({ [p("ws", "tfrc")]: "/python_call_unsafe f\n" });
+    const index = new WorkspaceIndex(fs, env(fs));
+    index.setFolders([p("ws")]);
+    const codes = () => documentDiagnostics(fs.readFile(p("ws", "tfrc")) as string, p("ws", "tfrc"), index).map((d) => d.code);
+    index.setSettings(p("ws"), { entryFiles: ["tfrc"] });
+    expect(codes()).toContain("undefined-macro");
+    expect(index.navContext(p("ws", "tfrc"), (f) => f).tfBuild).toBe("upstream");
+    index.setSettings(p("ws"), { entryFiles: ["tfrc"], tfBuild: "fork" });
+    expect(codes()).toEqual([]);
+    expect(index.navContext(p("ws", "tfrc"), (f) => f).tfBuild).toBe("fork");
   });
 });

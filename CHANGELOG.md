@@ -8,6 +8,12 @@
   rather than asking for tf's library. Upstream's `kb-os2.tf`, which the fork dropped, is the
   other way round.
 
+- So do tf's commands, functions and special variables. With `upstream`, completion, hover and
+  signature help no longer offer what only the fork has (`/python_call_unsafe`, `strlen_bytes()`
+  and the other `_bytes` functions, `local_assign` and four more variables, `tfwrite()`'s third
+  argument); `/python_call_unsafe` is an undefined macro there, and `local_assign` an ordinary
+  variable that can be renamed.
+
 ## 0.4.3
 
 - A lint warning, `missing-slash`: a macro-body statement with no `/` whose first word is a tf

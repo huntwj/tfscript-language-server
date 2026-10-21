@@ -1,6 +1,6 @@
 {
   "name": "@tfscript/core",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "description": "Editor-independent analysis for tfscript, TinyFugue's macro language: diagnostics, code actions, navigation and symbols.",
   "license": "MIT",

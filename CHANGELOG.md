@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.4
+
 - Which files are tf's library follows `tfscript.tfBuild`. `kv.tf`, `bv.tf` and `kv-textlog.tf`
   are only in the fork's, so with `upstream` (the default) a `/load kv.tf` gets no
   `load-of-library-file` warning, and one that can't be followed says the file isn't found

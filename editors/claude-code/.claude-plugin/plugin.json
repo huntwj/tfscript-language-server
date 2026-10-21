@@ -1,6 +1,6 @@
 {
   "name": "tfscript",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "TinyFugue scripts (tfscript) in Claude Code: the language server's diagnostics after each edit of a .tf file, tfrc or .tfrc, navigation and hover through the server, and the tf-scripting skill. Runs locally, from bundled files.",
   "author": {
     "name": "Wil Hunt",

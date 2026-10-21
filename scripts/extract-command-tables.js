@@ -19,10 +19,6 @@ const { readFileSync, readdirSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
 
 const MUD_DIR = path.resolve(__dirname, "..", "..");
-const TINYFUGUE_SRC = path.join(MUD_DIR, "tinyfugue", "src");
-const STDLIB_TF = path.join(MUD_DIR, "tinyfugue", "lib", "tf", "stdlib.tf");
-const HTMLDOC_COMMANDS = path.join(MUD_DIR, "tinyfugue", "htmldoc", "commands");
-const UNIX_MAK = path.join(MUD_DIR, "tinyfugue", "unix", "unix.mak");
 const DATA_DIR =path.join(__dirname, "..", "packages", "core", "src", "data");
 
 function extractKeywordTable(expandCText) {
@@ -120,11 +116,12 @@ function extractCommandUsages(pages) {
   return Object.fromEntries(Object.keys(usages).sort().map((k) => [k, usages[k]]));
 }
 
-function readCommandPages(dir) {
-  return readdirSync(dir)
+function readCommandPages(tree) {
+  return tree
+    .list("htmldoc/commands")
     .filter((f) => f.endsWith(".html"))
     .sort()
-    .map((f) => readFileSync(path.join(dir, f), "utf8"));
+    .map((f) => tree.read(`htmldoc/commands/${f}`));
 }
 
 /**
@@ -258,19 +255,39 @@ function extractLibraryLoaded(read, files) {
   return files.filter((f) => /^\/loaded\s/m.test(read(f))).sort();
 }
 
-/** A library file's text from a lib/tf folder on disk. */
-function libraryReader(libDir) {
-  return (f) => readFileSync(path.join(libDir, f), "utf8");
+/**
+ * A tinyfugue tree the tables are read from: `read(file)` gives a file's text and `list(dir)` the
+ * names in a folder, both by paths relative to the tree's root with `/`.
+ */
+
+/** The tinyfugue checkout on disk: the fork, as tfscript.tfBuild `fork` runs it. */
+function checkoutTree(tinyfugueDir) {
+  return {
+    read: (file) => readFileSync(path.join(tinyfugueDir, file), "utf8"),
+    list: (dir) => readdirSync(path.join(tinyfugueDir, dir)),
+  };
 }
 
 /**
- * A file's text as upstream has it: the tinyfugue checkout's `main`, an exact mirror of
- * upstream/main, read through jj without touching its working copy. The checkout itself is the
- * fork's `dev`, whose library has files upstream's lacks (kv.tf, bv.tf ...).
+ * Upstream's tree: the checkout's `main`, an exact mirror of upstream/main, read through jj
+ * without touching its working copy (the checkout itself is the fork's `dev`). One `jj file
+ * show` prints every file the tables need, each after a NUL-delimited header naming it.
  */
-function readUpstream(tinyfugueDir, file) {
-  const args = ["--ignore-working-copy", "-R", tinyfugueDir, "file", "show", "-r", "main", `root:"${file}"`];
-  return require("node:child_process").execFileSync("jj", args, { encoding: "utf8" });
+function upstreamTree(tinyfugueDir) {
+  const paths = ['root:"src"', 'root:"htmldoc"', 'root:"lib/tf"', 'root:"unix/unix.mak"'];
+  const args = ["--ignore-working-copy", "-R", tinyfugueDir, "file", "show", "-r", "main", "-T", '"\\0" ++ path ++ "\\0"', ...paths];
+  const out = require("node:child_process").execFileSync("jj", args, { encoding: "utf8", maxBuffer: 1 << 28 });
+  const files = new Map();
+  const parts = out.split("\0");
+  for (let i = 1; i + 1 < parts.length; i += 2) files.set(parts[i], parts[i + 1]);
+  return {
+    read: (file) => {
+      const text = files.get(file);
+      if (text === undefined) throw new Error(`upstream's main has no ${file}`);
+      return text;
+    },
+    list: (dir) => [...files.keys()].filter((f) => path.posix.dirname(f) === dir).map((f) => path.posix.basename(f)),
+  };
 }
 
 function writeDataFile(fileName, exportName, sourceNote, names) {
@@ -282,16 +299,27 @@ function writeDataFile(fileName, exportName, sourceNote, names) {
   writeFileSync(path.join(DATA_DIR, fileName), body);
 }
 
-/** The sources extractFunctions and extractVariables read, from a tinyfugue checkout. */
-function readFunctionSources(tinyfugueDir) {
-  return [
-    readFileSync(path.join(tinyfugueDir, "src", "funclist.h"), "utf8"),
-    readFileSync(path.join(tinyfugueDir, "htmldoc", "topics", "functions.html"), "utf8"),
-  ];
+/** The sources extractFunctions and extractVariables read, from a tinyfugue tree. */
+function readFunctionSources(tree) {
+  return [tree.read("src/funclist.h"), tree.read("htmldoc/topics/functions.html")];
 }
-function readVariableSources(tinyfugueDir) {
-  const src = (f) => readFileSync(path.join(tinyfugueDir, "src", f), "utf8");
+function readVariableSources(tree) {
+  const src = (f) => tree.read(`src/${f}`);
   return [src("varlist.h"), extractEnums(src("enumlist.h"), src("variable.c"))];
+}
+
+/** Every table a tree gives, as the checked-in files hold them. */
+function extractTables(tree) {
+  const libraryFiles = extractLibraryFiles(tree.read("unix/unix.mak"));
+  return {
+    keywordCommands: extractKeywordTable(tree.read("src/expand.c")),
+    builtinCommands: extractBuiltinCmds(tree.read("src/cmdlist.h")),
+    libraryFiles,
+    libraryLoaded: extractLibraryLoaded((f) => tree.read(`lib/tf/${f}`), libraryFiles),
+    usages: extractCommandUsages(readCommandPages(tree)),
+    functions: extractFunctions(...readFunctionSources(tree)),
+    variables: extractVariables(...readVariableSources(tree)),
+  };
 }
 
 module.exports = {
@@ -305,8 +333,9 @@ module.exports = {
   extractStdlibMacros,
   extractLibraryFiles,
   extractLibraryLoaded,
-  libraryReader,
-  readUpstream,
+  checkoutTree,
+  upstreamTree,
+  extractTables,
   extractCommandUsages,
   readCommandPages,
   tokenize,
@@ -316,92 +345,69 @@ module.exports = {
 // packages/core/test/commandsData.test.ts requires this module for its extraction functions without that
 // side effect.
 if (require.main === module) {
-  const keywordCommands = extractKeywordTable(
-    readFileSync(path.join(TINYFUGUE_SRC, "expand.c"), "utf8"),
-  );
-  const builtinCommands = extractBuiltinCmds(
-    readFileSync(path.join(TINYFUGUE_SRC, "cmdlist.h"), "utf8"),
-  );
-  const stdlibCommands = extractStdlibMacros(readFileSync(STDLIB_TF, "utf8"));
-
-  writeDataFile(
-    "keywordCommands.generated.ts",
-    "KEYWORD_COMMANDS",
-    "tinyfugue/src/expand.c's keyword_table[]",
-    keywordCommands,
-  );
-  writeDataFile(
-    "builtinCommands.generated.ts",
-    "BUILTIN_COMMANDS",
-    "tinyfugue/src/cmdlist.h's defcmd(...) entries",
-    builtinCommands,
-  );
-  writeDataFile(
-    "stdlibCommands.generated.ts",
-    "STDLIB_COMMANDS",
-    "tinyfugue/lib/tf/stdlib.tf's top-level /def macros",
-    stdlibCommands,
-  );
-
-  const libraryFiles = extractLibraryFiles(readFileSync(UNIX_MAK, "utf8"));
-  writeDataFile(
-    "libraryFiles.generated.ts",
-    "LIBRARY_FILES",
-    "tinyfugue/unix/unix.mak's LIBRARY rule (the .tf files make install puts in TFLIBDIR)",
-    libraryFiles,
-  );
-  writeDataFile(
-    "libraryLoaded.generated.ts",
-    "LIBRARY_FILES_WITH_LOADED",
-    "tinyfugue/lib/tf: the library files (LIBRARY_FILES) that run /loaded, which /require loads only once",
-    extractLibraryLoaded(libraryReader(path.join(MUD_DIR, "tinyfugue", "lib", "tf")), libraryFiles),
-  );
-  const upstream = (file) => readUpstream(path.join(MUD_DIR, "tinyfugue"), file);
-  const upstreamLibraryFiles = extractLibraryFiles(upstream("unix/unix.mak"));
-  writeDataFile(
-    "upstreamLibraryFiles.generated.ts",
-    "UPSTREAM_LIBRARY_FILES",
-    "tinyfugue's main (upstream) unix/unix.mak's LIBRARY rule, for tfscript.tfBuild upstream",
-    upstreamLibraryFiles,
-  );
-  writeDataFile(
-    "upstreamLibraryLoaded.generated.ts",
-    "UPSTREAM_LIBRARY_FILES_WITH_LOADED",
-    "tinyfugue's main (upstream) lib/tf: the library files (UPSTREAM_LIBRARY_FILES) that run /loaded",
-    extractLibraryLoaded((f) => upstream(`lib/tf/${f}`), upstreamLibraryFiles),
-  );
-
-  const usages = extractCommandUsages(readCommandPages(HTMLDOC_COMMANDS));
-  writeFileSync(
-    path.join(DATA_DIR, "commandUsages.generated.ts"),
-    `// Generated by scripts/extract-command-tables.js from tinyfugue/htmldoc/commands/*.html's usage\n` +
-      `// blocks (synopses only — see extractCommandUsages). Do not hand-edit — re-run that script\n` +
-      `// after a tinyfugue update; test/commandsData.test.ts checks this file against its source.\n` +
-      `export const COMMAND_USAGES: Readonly<Record<string, readonly string[]>> = ${JSON.stringify(usages, null, 2)};\n`,
-  );
-
   const tinyfugueDir = path.join(MUD_DIR, "tinyfugue");
-  const functions = extractFunctions(...readFunctionSources(tinyfugueDir));
-  writeFileSync(
-    path.join(DATA_DIR, "functions.generated.ts"),
-    `// Generated by scripts/extract-command-tables.js from tinyfugue/src/funclist.h (names and\n` +
-      `// argument counts; max null = any number) and htmldoc/topics/functions.html (synopses only).\n` +
-      `// Do not hand-edit; test/commandsData.test.ts checks it against those sources.\n` +
-      `import type { TfFunction } from "./types";\n\n` +
-      `export const FUNCTIONS: readonly TfFunction[] = ${JSON.stringify(functions, null, 2)};\n`,
-  );
-  const variables = extractVariables(...readVariableSources(tinyfugueDir));
-  writeFileSync(
-    path.join(DATA_DIR, "variables.generated.ts"),
-    `// Generated by scripts/extract-command-tables.js from tinyfugue/src/varlist.h, with the values\n` +
-      `// of enum and flag variables from enumlist.h and variable.c. Do not hand-edit;\n` +
-      `// test/commandsData.test.ts checks it against those sources.\n` +
-      `import type { TfVariable } from "./types";\n\n` +
-      `export const SPECIAL_VARIABLES: readonly TfVariable[] = ${JSON.stringify(variables, null, 2)};\n`,
-  );
+  const writeTyped = (fileName, note, typeName, exportName, type, value) =>
+    writeFileSync(
+      path.join(DATA_DIR, fileName),
+      `// Generated by scripts/extract-command-tables.js from ${note}. Do not hand-edit;\n` +
+        `// test/commandsData.test.ts checks it against those sources.\n` +
+        (typeName ? `import type { ${typeName} } from "./types";\n\n` : "") +
+        `export const ${exportName}: ${type} = ${JSON.stringify(value, null, 2)};\n`,
+    );
 
-  console.log(
-    `keyword: ${keywordCommands.length}, builtin: ${builtinCommands.length}, stdlib: ${stdlibCommands.length}, library: ${libraryFiles.length}, ` +
-      `usages: ${Object.keys(usages).length}, functions: ${functions.length}, variables: ${variables.length}`,
-  );
+  // The fork's tables, from the checkout, and upstream's, from its main. Upstream's keyword table
+  // and stdlib.tf macros are the fork's (the test checks that), so they get no file of their own.
+  const builds = [
+    { tree: checkoutTree(tinyfugueDir), file: (n) => n, name: (n) => n, from: "tinyfugue" },
+    { tree: upstreamTree(tinyfugueDir), file: (n) => `upstream${n[0].toUpperCase()}${n.slice(1)}`, name: (n) => `UPSTREAM_${n}`, from: "tinyfugue's main (upstream)" },
+  ];
+  for (const [i, { tree, file, name, from }] of builds.entries()) {
+    const t = extractTables(tree);
+    if (i === 0) {
+      writeDataFile("keywordCommands.generated.ts", "KEYWORD_COMMANDS", "tinyfugue/src/expand.c's keyword_table[]", t.keywordCommands);
+      const stdlib = extractStdlibMacros(tree.read("lib/tf/stdlib.tf"));
+      writeDataFile("stdlibCommands.generated.ts", "STDLIB_COMMANDS", "tinyfugue/lib/tf/stdlib.tf's top-level /def macros", stdlib);
+    }
+    writeDataFile(file("builtinCommands.generated.ts"), name("BUILTIN_COMMANDS"), `${from}/src/cmdlist.h's defcmd(...) entries`, t.builtinCommands);
+    writeDataFile(
+      file("libraryFiles.generated.ts"),
+      name("LIBRARY_FILES"),
+      `${from}/unix/unix.mak's LIBRARY rule (the .tf files make install puts in TFLIBDIR)`,
+      t.libraryFiles,
+    );
+    writeDataFile(
+      file("libraryLoaded.generated.ts"),
+      name("LIBRARY_FILES_WITH_LOADED"),
+      `${from}/lib/tf: the library files (${name("LIBRARY_FILES")}) that run /loaded, which /require loads only once`,
+      t.libraryLoaded,
+    );
+    writeTyped(
+      file("commandUsages.generated.ts"),
+      `${from}/htmldoc/commands/*.html's usage\n// blocks (synopses only — see extractCommandUsages)`,
+      undefined,
+      name("COMMAND_USAGES"),
+      "Readonly<Record<string, readonly string[]>>",
+      t.usages,
+    );
+    writeTyped(
+      file("functions.generated.ts"),
+      `${from}/src/funclist.h (names and\n// argument counts; max null = any number) and htmldoc/topics/functions.html (synopses only)`,
+      "TfFunction",
+      name("FUNCTIONS"),
+      "readonly TfFunction[]",
+      t.functions,
+    );
+    writeTyped(
+      file("variables.generated.ts"),
+      `${from}/src/varlist.h, with the values\n// of enum and flag variables from enumlist.h and variable.c`,
+      "TfVariable",
+      name("SPECIAL_VARIABLES"),
+      "readonly TfVariable[]",
+      t.variables,
+    );
+    console.log(
+      `${from}: keyword: ${t.keywordCommands.length}, builtin: ${t.builtinCommands.length}, library: ${t.libraryFiles.length}, ` +
+        `usages: ${Object.keys(t.usages).length}, functions: ${t.functions.length}, variables: ${t.variables.length}`,
+    );
+  }
 }

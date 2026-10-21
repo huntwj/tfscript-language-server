@@ -5,7 +5,7 @@ import { BUILTIN_COMMANDS } from "../src/data/builtinCommands.generated";
 import { KEYWORD_COMMANDS } from "../src/data/keywordCommands.generated";
 import { STDLIB_COMMANDS } from "../src/data/stdlibCommands.generated";
 import { tablesFor } from "../src/data/tables";
-import { TF_BUILDS } from "../src/tfBuild";
+import { TF_BUILDS, type TfBuild } from "../src/tfBuild";
 import { ALL_COMMANDS } from "../src/data/commands";
 import { COMMAND_DESCRIPTIONS } from "../src/data/commandDescriptions";
 import { FUNCTIONS } from "../src/data/functions.generated";
@@ -34,12 +34,17 @@ const describeOrSkip = existsSync(TINYFUGUE_DIR) ? describe : describe.skip;
 
 describeOrSkip("command tables (vs. the sibling tinyfugue checkout)", () => {
   // The checkout is the fork; its main is upstream, read through jj (extractor.upstreamTree).
-  const trees = { fork: extractor.checkoutTree(TINYFUGUE_DIR), upstream: extractor.upstreamTree(TINYFUGUE_DIR) };
+  // Read when a test runs, not here: a skipped describe still runs its body to list its tests.
+  const trees = new Map<TfBuild, any>();
+  const tree = (build: TfBuild) => {
+    if (!trees.has(build)) trees.set(build, build === "fork" ? extractor.checkoutTree(TINYFUGUE_DIR) : extractor.upstreamTree(TINYFUGUE_DIR));
+    return trees.get(build);
+  };
 
   for (const build of TF_BUILDS) {
     it(`matches the ${build}'s commands, usages, functions, variables and library`, () => {
       const t = tablesFor(build);
-      const source = extractor.extractTables(trees[build]);
+      const source = extractor.extractTables(tree(build));
       expect([...t.builtinCommands]).toEqual(source.builtinCommands);
       expect(t.commandUsages).toEqual(source.usages);
       expect(t.functions).toEqual(source.functions);
@@ -52,8 +57,8 @@ describeOrSkip("command tables (vs. the sibling tinyfugue checkout)", () => {
     });
 
     it(`matches the ${build}'s keyword table and stdlib.tf macros, which both builds share`, () => {
-      expect([...KEYWORD_COMMANDS]).toEqual(extractor.extractKeywordTable(trees[build].read("src/expand.c")));
-      expect([...STDLIB_COMMANDS]).toEqual(extractor.extractStdlibMacros(trees[build].read("lib/tf/stdlib.tf"), splitLogicalEntries));
+      expect([...KEYWORD_COMMANDS]).toEqual(extractor.extractKeywordTable(tree(build).read("src/expand.c")));
+      expect([...STDLIB_COMMANDS]).toEqual(extractor.extractStdlibMacros(tree(build).read("lib/tf/stdlib.tf"), splitLogicalEntries));
     });
   }
 });

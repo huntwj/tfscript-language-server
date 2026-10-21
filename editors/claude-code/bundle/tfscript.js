@@ -3801,11 +3801,14 @@ function dedupe(infos) {
   }
   return [...seen.values()];
 }
-var ALL_COMMANDS = dedupe([
-  ...KEYWORD_COMMANDS.map((name) => ({ name, source: "keyword" })),
-  ...BUILTIN_COMMANDS.map((name) => ({ name, source: "builtin" })),
-  ...STDLIB_COMMANDS.map((name) => ({ name, source: "stdlib" }))
-]);
+function commandsOf(builtins) {
+  return dedupe([
+    ...KEYWORD_COMMANDS.map((name) => ({ name, source: "keyword" })),
+    ...builtins.map((name) => ({ name, source: "builtin" })),
+    ...STDLIB_COMMANDS.map((name) => ({ name, source: "stdlib" }))
+  ]);
+}
+var ALL_COMMANDS = commandsOf(BUILTIN_COMMANDS);
 var RESERVED_MACRO_NAMES = new Set([...KEYWORD_COMMANDS, "EVAL"].map((n) => n.toLowerCase()));
 
 // packages/core/src/rules/invalidMacroName.ts
@@ -3991,194 +3994,452 @@ var bodyContinuesWithoutBackslash = {
   check: check4
 };
 
-// packages/core/src/data/libraryFiles.generated.ts
-var LIBRARY_FILES = [
-  "activity_status.tf",
-  "activity_status2.tf",
-  "alias.tf",
-  "at.tf",
-  "bv.tf",
-  "changes.tf",
-  "color.tf",
-  "complete.tf",
-  "cylon.tf",
-  "factoral.tf",
-  "filexfer.tf",
-  "finger.tf",
-  "grep.tf",
-  "hanoi.tf",
-  "kb-bash.tf",
-  "kb-emacs.tf",
-  "kb-old.tf",
-  "kb_badterm.tf",
-  "kbbind.tf",
-  "kbfunc.tf",
-  "kbregion.tf",
-  "kbstack.tf",
-  "kv-textlog.tf",
-  "kv.tf",
-  "lisp.tf",
-  "local-eg.tf",
-  "map.tf",
-  "pcmd.tf",
-  "psh.tf",
-  "quoter.tf",
-  "relog.tf",
-  "rwho.tf",
-  "savehist.tf",
-  "spc-page.tf",
-  "spedwalk.tf",
-  "spell.tf",
-  "stack-q.tf",
-  "stdlib.tf",
-  "testcolor.tf",
-  "textencode.tf",
-  "textutil.tf",
-  "tfstatus.tf",
-  "tick.tf",
-  "tintin.tf",
-  "tools.tf",
-  "tr.tf",
-  "watch.tf",
-  "world-q.tf"
-];
-
-// packages/core/src/data/libraryLoaded.generated.ts
-var LIBRARY_FILES_WITH_LOADED = [
-  "activity_status.tf",
-  "activity_status2.tf",
-  "alias.tf",
-  "at.tf",
-  "bv.tf",
-  "complete.tf",
-  "filexfer.tf",
-  "grep.tf",
-  "kb-emacs.tf",
-  "kb-old.tf",
-  "kbbind.tf",
-  "kbfunc.tf",
-  "kbregion.tf",
-  "kbstack.tf",
-  "kv-textlog.tf",
-  "kv.tf",
-  "lisp.tf",
-  "local-eg.tf",
-  "map.tf",
-  "pcmd.tf",
-  "psh.tf",
-  "quoter.tf",
-  "relog.tf",
-  "rwho.tf",
-  "savehist.tf",
-  "spedwalk.tf",
-  "spell.tf",
-  "stack-q.tf",
-  "textencode.tf",
-  "textutil.tf",
-  "tfstatus.tf",
-  "tick.tf",
-  "tintin.tf",
-  "tools.tf",
-  "tr.tf",
-  "watch.tf",
-  "world-q.tf"
-];
-
-// packages/core/src/data/upstreamLibraryFiles.generated.ts
-var UPSTREAM_LIBRARY_FILES = [
-  "activity_status.tf",
-  "activity_status2.tf",
-  "alias.tf",
-  "at.tf",
-  "changes.tf",
-  "color.tf",
-  "complete.tf",
-  "cylon.tf",
-  "factoral.tf",
-  "filexfer.tf",
-  "finger.tf",
-  "grep.tf",
-  "hanoi.tf",
-  "kb-bash.tf",
-  "kb-emacs.tf",
-  "kb-old.tf",
-  "kb-os2.tf",
-  "kb_badterm.tf",
-  "kbbind.tf",
-  "kbfunc.tf",
-  "kbregion.tf",
-  "kbstack.tf",
-  "lisp.tf",
-  "local-eg.tf",
-  "map.tf",
-  "pcmd.tf",
-  "psh.tf",
-  "quoter.tf",
-  "relog.tf",
-  "rwho.tf",
-  "savehist.tf",
-  "spc-page.tf",
-  "spedwalk.tf",
-  "spell.tf",
-  "stack-q.tf",
-  "stdlib.tf",
-  "testcolor.tf",
-  "textencode.tf",
-  "textutil.tf",
-  "tfstatus.tf",
-  "tick.tf",
-  "tintin.tf",
-  "tools.tf",
-  "tr.tf",
-  "watch.tf",
-  "world-q.tf"
-];
-
-// packages/core/src/data/upstreamLibraryLoaded.generated.ts
-var UPSTREAM_LIBRARY_FILES_WITH_LOADED = [
-  "activity_status.tf",
-  "activity_status2.tf",
-  "alias.tf",
-  "at.tf",
-  "complete.tf",
-  "filexfer.tf",
-  "grep.tf",
-  "kb-emacs.tf",
-  "kb-old.tf",
-  "kbbind.tf",
-  "kbfunc.tf",
-  "kbregion.tf",
-  "kbstack.tf",
-  "lisp.tf",
-  "local-eg.tf",
-  "map.tf",
-  "pcmd.tf",
-  "psh.tf",
-  "quoter.tf",
-  "relog.tf",
-  "rwho.tf",
-  "savehist.tf",
-  "spedwalk.tf",
-  "spell.tf",
-  "stack-q.tf",
-  "textencode.tf",
-  "textutil.tf",
-  "tfstatus.tf",
-  "tick.tf",
-  "tintin.tf",
-  "tools.tf",
-  "tr.tf",
-  "watch.tf",
-  "world-q.tf"
-];
-
-// packages/core/src/data/library.ts
-function libraryFiles(build) {
-  return build === "fork" ? LIBRARY_FILES : UPSTREAM_LIBRARY_FILES;
-}
-function libraryFilesWithLoaded(build) {
-  return build === "fork" ? LIBRARY_FILES_WITH_LOADED : UPSTREAM_LIBRARY_FILES_WITH_LOADED;
-}
+// packages/core/src/data/commandUsages.generated.ts
+var COMMAND_USAGES = {
+  "_echo": [
+    "/_echo text"
+  ],
+  "addworld": [
+    "/addworld [-pxe] [-Ttype] [-ssrchost] name [char pass] host port [file]",
+    "/addworld [-Ttype] [-ssrchost] name",
+    "/addworld [-Ttype] DEFAULT [char pass [file]]"
+  ],
+  "alias": [
+    "/alias [name [command]]"
+  ],
+  "at": [
+    "/at [-v] [date] time commands"
+  ],
+  "bamf": [
+    "/bamf [OFF|ON|OLD]"
+  ],
+  "beep": [
+    "/beep [number|ON|OFF]"
+  ],
+  "bg": [
+    "/bg"
+  ],
+  "bind": [
+    "/bind sequence = command"
+  ],
+  "break": [
+    "/break [n]"
+  ],
+  "cat": [
+    "/cat [%]"
+  ],
+  "cd": [
+    "/cd [dir]"
+  ],
+  "changes": [
+    "/changes [version]"
+  ],
+  "complete": [
+    "/complete [type]"
+  ],
+  "connect": [
+    "/connect [-lqxbf] [world]",
+    "/connect host port"
+  ],
+  "dc": [
+    "/dc [world|-ALL]"
+  ],
+  "def": [
+    "/def [options] [name] [= body]"
+  ],
+  "dokey": [
+    "/dokey name"
+  ],
+  "dopath": [
+    "/dopath path"
+  ],
+  "echo": [
+    "/echo [-peA] [-aattrs] [-w[world]] text"
+  ],
+  "edit": [
+    "/edit [options] [name] [= body]"
+  ],
+  "endpaste": [
+    "/endpaste"
+  ],
+  "escape": [
+    "/escape metacharacters string"
+  ],
+  "eval": [
+    "/eval [-slevel] text"
+  ],
+  "exit": [
+    "/exit [n]"
+  ],
+  "export": [
+    "/export variable"
+  ],
+  "expr": [
+    "/expr expression"
+  ],
+  "false": [
+    "/false"
+  ],
+  "features": [
+    "/features [name]"
+  ],
+  "fg": [
+    "/fg [-nsq<>l] [-cN] [world]"
+  ],
+  "finger": [
+    "/finger [user][@host]"
+  ],
+  "first": [
+    "/first text"
+  ],
+  "for": [
+    "/for variable start end commands"
+  ],
+  "gag": [
+    "/gag [pattern [=response]]"
+  ],
+  "getfile_lp": [
+    "/getfile_lp file [remote-file]"
+  ],
+  "getfile_muck": [
+    "/getfile_muck file [remote-file]"
+  ],
+  "getfile_unix": [
+    "/getfile_unix file [remote-file]"
+  ],
+  "grab": [
+    "/grab text"
+  ],
+  "help": [
+    "/help [topic]"
+  ],
+  "hilite": [
+    "/hilite [pattern [= response]]"
+  ],
+  "histsize": [
+    "/histsize [-lig] [-w[world]] [size]"
+  ],
+  "hook": [
+    "/hook event[ pattern] [= body]",
+    "/hook [OFF|ON]"
+  ],
+  "if": [
+    "/if (expr) list [ /ELSEIF (expr) list ]... [ /ELSE list ] /ENDIF",
+    "/if list /THEN list [ /ELSEIF list /THEN list ]... [ /ELSE list ] /ENDIF"
+  ],
+  "input": [
+    "/input text"
+  ],
+  "ismacro": [
+    "/ismacro macro-options"
+  ],
+  "isvar": [
+    "/isvar name"
+  ],
+  "kill": [
+    "/kill pid..."
+  ],
+  "last": [
+    "/last text"
+  ],
+  "lcd": [
+    "/lcd [dir]"
+  ],
+  "let": [
+    "/let name=value",
+    "/let name value"
+  ],
+  "limit": [
+    "/limit [-v] [-a] [-mstyle] n] [-Bn] [-Cn] --> [pattern]"
+  ],
+  "list": [
+    "/list [-s] [macro-options] [name] [= body]"
+  ],
+  "listsockets": [
+    "/listsockets [-sn] [-mstyle] [-Sfield] [-Ttype] [name]"
+  ],
+  "liststreams": [
+    "/liststreams"
+  ],
+  "listvar": [
+    "/listvar [-mmatching] [-gxsv] [name [value]]"
+  ],
+  "listworlds": [
+    "/listworlds [-cus] [-mstyle] [-Sfield] [-Ttype] [name]"
+  ],
+  "load": [
+    "/load [-q] file"
+  ],
+  "loaded": [
+    "/loaded token"
+  ],
+  "localecho": [
+    "/localecho [ON|OFF]"
+  ],
+  "log": [
+    "/log [-ligw[world]] [OFF|ON|file]"
+  ],
+  "map": [
+    "/map"
+  ],
+  "mark": [
+    "/mark dir"
+  ],
+  "more": [
+    "/more [OFF|ON]"
+  ],
+  "nogag": [
+    "/nogag [pattern]"
+  ],
+  "nohilite": [
+    "/nohilite [pattern]"
+  ],
+  "not": [
+    "/not [-slevel] text"
+  ],
+  "nth": [
+    "/nth n text"
+  ],
+  "partial": [
+    "/partial regexp"
+  ],
+  "paste": [
+    "/paste [-pnx] [prefix]"
+  ],
+  "path": [
+    "/path"
+  ],
+  "prompt": [
+    "/prompt [-aattrs] [-p] text"
+  ],
+  "ps": [
+    "/ps [-srq] [-wworld] [pid]"
+  ],
+  "purge": [
+    "/purge [macro-options] [name] [= body]"
+  ],
+  "purgeworld": [
+    "/purgeworld [-mstyle] [-Ttype] [name]"
+  ],
+  "putfile_lp": [
+    "/putfile_lp file [remote-file]"
+  ],
+  "putfile_muck": [
+    "/putfile_muck file [remote-file]"
+  ],
+  "putfile_unix": [
+    "/putfile_unix file [remote-file]"
+  ],
+  "pwd": [
+    "/pwd"
+  ],
+  "python": [
+    "/python [command]",
+    "/python import glob",
+    '/python tf.out( "Logfiles: " + ", ".join(glob.glob("*.log")) )'
+  ],
+  "python_load": [
+    "/python_load urlwatch",
+    "/python_load mymodule"
+  ],
+  "quit": [
+    "/quit [-y]"
+  ],
+  "quote": [
+    `/quote [options] [pre] '"file"[suf]`,
+    '/quote [options] [pre] #"recall_args"[suf]',
+    '/quote [options] [pre] !"shell_cmd"[suf]',
+    '/quote [options] [pre] `"TF_cmd"[suf]'
+  ],
+  "recall": [
+    "/recall [-wworld] [-ligv] [-t[format]] [-aattrs] [-mstyle] [-An] [-Bn] [-Cn] [#]range [pattern]"
+  ],
+  "recordline": [
+    "/recordline [-lig] [-w[world]] [-ttime] text"
+  ],
+  "relimit": [
+    "/relimit"
+  ],
+  "repeat": [
+    "/repeat [-w[world]] [-n] {[-time]|-S|-P} count command"
+  ],
+  "replace": [
+    "/replace old new string"
+  ],
+  "require": [
+    "/require [-q] file"
+  ],
+  "restrict": [
+    "/restrict [SHELL|FILE|WORLD]"
+  ],
+  "result": [
+    "/result [expression]"
+  ],
+  "return": [
+    "/return [expression]"
+  ],
+  "runtime": [
+    "/runtime command"
+  ],
+  "rwho": [
+    "/rwho",
+    "/rwho name=player",
+    "/rwho mud=mud"
+  ],
+  "save": [
+    "/save [-a] file [list-options]"
+  ],
+  "savepath": [
+    "/savepath name"
+  ],
+  "saveworld": [
+    "/saveworld [-a] [file]"
+  ],
+  "send": [
+    "/send [-W] [-Ttype] [-w[world]] [-n] [-b | -q] [-Fpolicy] text"
+  ],
+  "set": [
+    "/set name=value",
+    "/set [name [value]]"
+  ],
+  "setenv": [
+    "/setenv [name [value]]",
+    "/setenv name=value"
+  ],
+  "sh": [
+    "/sh [-q] [command]"
+  ],
+  "shift": [
+    "/shift [n]"
+  ],
+  "signal": [
+    "/signal [sig]"
+  ],
+  "spell_line": [
+    "/spell_line"
+  ],
+  "split": [
+    "/split args"
+  ],
+  "sub": [
+    "/sub [OFF|ON|FULL]"
+  ],
+  "substitute": [
+    "/substitute [-aattrs] [-p] text"
+  ],
+  "suspend": [
+    "/suspend"
+  ],
+  "sys": [
+    "/sys shell-command"
+  ],
+  "telnet": [
+    "/telnet host [port]"
+  ],
+  "test": [
+    "/test expression"
+  ],
+  "tick": [
+    "/tick"
+  ],
+  "tickoff": [
+    "/tickoff"
+  ],
+  "tickon": [
+    "/tickon"
+  ],
+  "tickset": [
+    "/tickset"
+  ],
+  "ticksize": [
+    "/ticksize n"
+  ],
+  "time": [
+    "/time [format]"
+  ],
+  "toggle": [
+    "/toggle variable"
+  ],
+  "tr": [
+    "/tr domain range string"
+  ],
+  "trig": [
+    "/trig pattern = body"
+  ],
+  "trigc": [
+    "/trigc chance pattern = body"
+  ],
+  "trigger": [
+    "/trigger [-ln] [-g] [-w[world]] [-h[event]] text"
+  ],
+  "trigp": [
+    "/trigp priority pattern = body"
+  ],
+  "trigpc": [
+    "/trigpc priority chance pattern = body"
+  ],
+  "true": [
+    "/true"
+  ],
+  "unalias": [
+    "/unalias name"
+  ],
+  "unbind": [
+    "/unbind sequence"
+  ],
+  "undef": [
+    "/undef name..."
+  ],
+  "undefn": [
+    "/undefn number ..."
+  ],
+  "undeft": [
+    "/undeft trigger"
+  ],
+  "unhook": [
+    "/unhook event [pattern]"
+  ],
+  "unlimit": [
+    "/unlimit"
+  ],
+  "unmark": [
+    "/unmark"
+  ],
+  "unpath": [
+    "/unpath"
+  ],
+  "unset": [
+    "/unset name"
+  ],
+  "untrig": [
+    "/untrig [-aattrs] trigger"
+  ],
+  "unworld": [
+    "/unworld name..."
+  ],
+  "ver": [
+    "/ver"
+  ],
+  "version": [
+    "/version"
+  ],
+  "watchdog": [
+    "/watchdog [OFF|ON]",
+    "/watchdog n1 [n2]"
+  ],
+  "watchname": [
+    "/watchname [OFF|ON]",
+    "/watchname n1 [n2]"
+  ],
+  "while": [
+    "/while (expr) list /DONE",
+    "/while list /DO list /DONE"
+  ],
+  "world": [
+    "/world [-lqnxfb] [world]",
+    "/world host port"
+  ]
+};
 
 // packages/core/src/data/functions.generated.ts
 var FUNCTIONS = [
@@ -5023,6 +5284,2417 @@ var FUNCTIONS = [
       "world_info(s2)",
       "world_info()"
     ]
+  }
+];
+
+// packages/core/src/data/libraryFiles.generated.ts
+var LIBRARY_FILES = [
+  "activity_status.tf",
+  "activity_status2.tf",
+  "alias.tf",
+  "at.tf",
+  "bv.tf",
+  "changes.tf",
+  "color.tf",
+  "complete.tf",
+  "cylon.tf",
+  "factoral.tf",
+  "filexfer.tf",
+  "finger.tf",
+  "grep.tf",
+  "hanoi.tf",
+  "kb-bash.tf",
+  "kb-emacs.tf",
+  "kb-old.tf",
+  "kb_badterm.tf",
+  "kbbind.tf",
+  "kbfunc.tf",
+  "kbregion.tf",
+  "kbstack.tf",
+  "kv-textlog.tf",
+  "kv.tf",
+  "lisp.tf",
+  "local-eg.tf",
+  "map.tf",
+  "pcmd.tf",
+  "psh.tf",
+  "quoter.tf",
+  "relog.tf",
+  "rwho.tf",
+  "savehist.tf",
+  "spc-page.tf",
+  "spedwalk.tf",
+  "spell.tf",
+  "stack-q.tf",
+  "stdlib.tf",
+  "testcolor.tf",
+  "textencode.tf",
+  "textutil.tf",
+  "tfstatus.tf",
+  "tick.tf",
+  "tintin.tf",
+  "tools.tf",
+  "tr.tf",
+  "watch.tf",
+  "world-q.tf"
+];
+
+// packages/core/src/data/libraryLoaded.generated.ts
+var LIBRARY_FILES_WITH_LOADED = [
+  "activity_status.tf",
+  "activity_status2.tf",
+  "alias.tf",
+  "at.tf",
+  "bv.tf",
+  "complete.tf",
+  "filexfer.tf",
+  "grep.tf",
+  "kb-emacs.tf",
+  "kb-old.tf",
+  "kbbind.tf",
+  "kbfunc.tf",
+  "kbregion.tf",
+  "kbstack.tf",
+  "kv-textlog.tf",
+  "kv.tf",
+  "lisp.tf",
+  "local-eg.tf",
+  "map.tf",
+  "pcmd.tf",
+  "psh.tf",
+  "quoter.tf",
+  "relog.tf",
+  "rwho.tf",
+  "savehist.tf",
+  "spedwalk.tf",
+  "spell.tf",
+  "stack-q.tf",
+  "textencode.tf",
+  "textutil.tf",
+  "tfstatus.tf",
+  "tick.tf",
+  "tintin.tf",
+  "tools.tf",
+  "tr.tf",
+  "watch.tf",
+  "world-q.tf"
+];
+
+// packages/core/src/data/upstreamBuiltinCommands.generated.ts
+var UPSTREAM_BUILTIN_COMMANDS = [
+  "BEEP",
+  "BIND",
+  "CALLLUA",
+  "CONNECT",
+  "CORE",
+  "DC",
+  "DEF",
+  "DOKEY",
+  "EDIT",
+  "EVAL",
+  "EXIT",
+  "EXPORT",
+  "FEATURES",
+  "FG",
+  "GAG",
+  "HELP",
+  "HILITE",
+  "HISTSIZE",
+  "HOOK",
+  "INPUT",
+  "KILL",
+  "LCD",
+  "LET",
+  "LIMIT",
+  "LIST",
+  "LISTSOCKETS",
+  "LISTSTREAMS",
+  "LISTVAR",
+  "LISTWORLDS",
+  "LOAD",
+  "LOADLUA",
+  "LOCALECHO",
+  "LOG",
+  "PS",
+  "PURGE",
+  "PURGELUA",
+  "PYTHON",
+  "PYTHON_CALL",
+  "PYTHON_KILL",
+  "PYTHON_LOAD",
+  "QUIT",
+  "QUOTE",
+  "RECALL",
+  "RECORDLINE",
+  "RELIMIT",
+  "REPEAT",
+  "RESTRICT",
+  "SAVE",
+  "SAVEWORLD",
+  "SET",
+  "SETENV",
+  "SH",
+  "SHIFT",
+  "STATUS_ADD",
+  "STATUS_CLEAR",
+  "STATUS_EDIT",
+  "STATUS_RM",
+  "SUSPEND",
+  "TRIGGER",
+  "TRIGPC",
+  "UNBIND",
+  "UNDEF",
+  "UNDEFN",
+  "UNLIMIT",
+  "UNSET",
+  "UNWORLD",
+  "VERSION",
+  "WATCHDOG",
+  "WATCHNAME"
+];
+
+// packages/core/src/data/upstreamCommandUsages.generated.ts
+var UPSTREAM_COMMAND_USAGES = {
+  "_echo": [
+    "/_echo text"
+  ],
+  "addworld": [
+    "/addworld [-pxe] [-Ttype] [-ssrchost] name [char pass] host port [file]",
+    "/addworld [-Ttype] [-ssrchost] name",
+    "/addworld [-Ttype] DEFAULT [char pass [file]]"
+  ],
+  "alias": [
+    "/alias [name [command]]"
+  ],
+  "at": [
+    "/at [-v] [date] time commands"
+  ],
+  "bamf": [
+    "/bamf [OFF|ON|OLD]"
+  ],
+  "beep": [
+    "/beep [number|ON|OFF]"
+  ],
+  "bg": [
+    "/bg"
+  ],
+  "bind": [
+    "/bind sequence = command"
+  ],
+  "break": [
+    "/break [n]"
+  ],
+  "cat": [
+    "/cat [%]"
+  ],
+  "cd": [
+    "/cd [dir]"
+  ],
+  "changes": [
+    "/changes [version]"
+  ],
+  "complete": [
+    "/complete [type]"
+  ],
+  "connect": [
+    "/connect [-lqxbf] [world]",
+    "/connect host port"
+  ],
+  "dc": [
+    "/dc [world|-ALL]"
+  ],
+  "def": [
+    "/def [options] [name] [= body]"
+  ],
+  "dokey": [
+    "/dokey name"
+  ],
+  "dopath": [
+    "/dopath path"
+  ],
+  "echo": [
+    "/echo [-peA] [-aattrs] [-w[world]] text"
+  ],
+  "edit": [
+    "/edit [options] [name] [= body]"
+  ],
+  "endpaste": [
+    "/endpaste"
+  ],
+  "escape": [
+    "/escape metacharacters string"
+  ],
+  "eval": [
+    "/eval [-slevel] text"
+  ],
+  "exit": [
+    "/exit [n]"
+  ],
+  "export": [
+    "/export variable"
+  ],
+  "expr": [
+    "/expr expression"
+  ],
+  "false": [
+    "/false"
+  ],
+  "features": [
+    "/features [name]"
+  ],
+  "fg": [
+    "/fg [-nsq<>l] [-cN] [world]"
+  ],
+  "finger": [
+    "/finger [user][@host]"
+  ],
+  "first": [
+    "/first text"
+  ],
+  "for": [
+    "/for variable start end commands"
+  ],
+  "gag": [
+    "/gag [pattern [=response]]"
+  ],
+  "getfile_lp": [
+    "/getfile_lp file [remote-file]"
+  ],
+  "getfile_muck": [
+    "/getfile_muck file [remote-file]"
+  ],
+  "getfile_unix": [
+    "/getfile_unix file [remote-file]"
+  ],
+  "grab": [
+    "/grab text"
+  ],
+  "help": [
+    "/help [topic]"
+  ],
+  "hilite": [
+    "/hilite [pattern [= response]]"
+  ],
+  "histsize": [
+    "/histsize [-lig] [-w[world]] [size]"
+  ],
+  "hook": [
+    "/hook event[ pattern] [= body]",
+    "/hook [OFF|ON]"
+  ],
+  "if": [
+    "/if (expr) list [ /ELSEIF (expr) list ]... [ /ELSE list ] /ENDIF",
+    "/if list /THEN list [ /ELSEIF list /THEN list ]... [ /ELSE list ] /ENDIF"
+  ],
+  "input": [
+    "/input text"
+  ],
+  "ismacro": [
+    "/ismacro macro-options"
+  ],
+  "isvar": [
+    "/isvar name"
+  ],
+  "kill": [
+    "/kill pid..."
+  ],
+  "last": [
+    "/last text"
+  ],
+  "lcd": [
+    "/lcd [dir]"
+  ],
+  "let": [
+    "/let name=value",
+    "/let name value"
+  ],
+  "limit": [
+    "/limit [-v] [-a] [-mstyle] n] [-Bn] [-Cn] --> [pattern]"
+  ],
+  "list": [
+    "/list [-s] [macro-options] [name] [= body]"
+  ],
+  "listsockets": [
+    "/listsockets [-sn] [-mstyle] [-Sfield] [-Ttype] [name]"
+  ],
+  "liststreams": [
+    "/liststreams"
+  ],
+  "listvar": [
+    "/listvar [-mmatching] [-gxsv] [name [value]]"
+  ],
+  "listworlds": [
+    "/listworlds [-cus] [-mstyle] [-Sfield] [-Ttype] [name]"
+  ],
+  "load": [
+    "/load [-q] file"
+  ],
+  "loaded": [
+    "/loaded token"
+  ],
+  "localecho": [
+    "/localecho [ON|OFF]"
+  ],
+  "log": [
+    "/log [-ligw[world]] [OFF|ON|file]"
+  ],
+  "map": [
+    "/map"
+  ],
+  "mark": [
+    "/mark dir"
+  ],
+  "more": [
+    "/more [OFF|ON]"
+  ],
+  "nogag": [
+    "/nogag [pattern]"
+  ],
+  "nohilite": [
+    "/nohilite [pattern]"
+  ],
+  "not": [
+    "/not [-slevel] text"
+  ],
+  "nth": [
+    "/nth n text"
+  ],
+  "partial": [
+    "/partial regexp"
+  ],
+  "paste": [
+    "/paste [-pnx] [prefix]"
+  ],
+  "path": [
+    "/path"
+  ],
+  "prompt": [
+    "/prompt [-aattrs] [-p] text"
+  ],
+  "ps": [
+    "/ps [-srq] [-wworld] [pid]"
+  ],
+  "purge": [
+    "/purge [macro-options] [name] [= body]"
+  ],
+  "purgeworld": [
+    "/purgeworld [-mstyle] [-Ttype] [name]"
+  ],
+  "putfile_lp": [
+    "/putfile_lp file [remote-file]"
+  ],
+  "putfile_muck": [
+    "/putfile_muck file [remote-file]"
+  ],
+  "putfile_unix": [
+    "/putfile_unix file [remote-file]"
+  ],
+  "pwd": [
+    "/pwd"
+  ],
+  "python": [
+    "/python [command]",
+    "/python import glob",
+    '/python tf.out( "Logfiles: " + ", ".join(glob.glob("*.log")) )'
+  ],
+  "python_load": [
+    "/python_load mymodule"
+  ],
+  "quit": [
+    "/quit [-y]"
+  ],
+  "quote": [
+    `/quote [options] [pre] '"file"[suf]`,
+    '/quote [options] [pre] #"recall_args"[suf]',
+    '/quote [options] [pre] !"shell_cmd"[suf]',
+    '/quote [options] [pre] `"TF_cmd"[suf]'
+  ],
+  "recall": [
+    "/recall [-wworld] [-ligv] [-t[format]] [-aattrs] [-mstyle] [-An] [-Bn] [-Cn] [#]range [pattern]"
+  ],
+  "recordline": [
+    "/recordline [-lig] [-w[world]] [-ttime] text"
+  ],
+  "relimit": [
+    "/relimit"
+  ],
+  "repeat": [
+    "/repeat [-w[world]] [-n] {[-time]|-S|-P} count command"
+  ],
+  "replace": [
+    "/replace old new string"
+  ],
+  "require": [
+    "/require [-q] file"
+  ],
+  "restrict": [
+    "/restrict [SHELL|FILE|WORLD]"
+  ],
+  "result": [
+    "/result [expression]"
+  ],
+  "return": [
+    "/return [expression]"
+  ],
+  "runtime": [
+    "/runtime command"
+  ],
+  "rwho": [
+    "/rwho",
+    "/rwho name=player",
+    "/rwho mud=mud"
+  ],
+  "save": [
+    "/save [-a] file [list-options]"
+  ],
+  "savepath": [
+    "/savepath name"
+  ],
+  "saveworld": [
+    "/saveworld [-a] [file]"
+  ],
+  "send": [
+    "/send [-W] [-Ttype] [-w[world]] [-n] text"
+  ],
+  "set": [
+    "/set name=value",
+    "/set [name [value]]"
+  ],
+  "setenv": [
+    "/setenv [name [value]]",
+    "/setenv name=value"
+  ],
+  "sh": [
+    "/sh [-q] [command]"
+  ],
+  "shift": [
+    "/shift [n]"
+  ],
+  "signal": [
+    "/signal [sig]"
+  ],
+  "spell_line": [
+    "/spell_line"
+  ],
+  "split": [
+    "/split args"
+  ],
+  "sub": [
+    "/sub [OFF|ON|FULL]"
+  ],
+  "substitute": [
+    "/substitute [-aattrs] [-p] text"
+  ],
+  "suspend": [
+    "/suspend"
+  ],
+  "sys": [
+    "/sys shell-command"
+  ],
+  "telnet": [
+    "/telnet host [port]"
+  ],
+  "test": [
+    "/test expression"
+  ],
+  "tick": [
+    "/tick"
+  ],
+  "tickoff": [
+    "/tickoff"
+  ],
+  "tickon": [
+    "/tickon"
+  ],
+  "tickset": [
+    "/tickset"
+  ],
+  "ticksize": [
+    "/ticksize n"
+  ],
+  "time": [
+    "/time [format]"
+  ],
+  "toggle": [
+    "/toggle variable"
+  ],
+  "tr": [
+    "/tr domain range string"
+  ],
+  "trig": [
+    "/trig pattern = body"
+  ],
+  "trigc": [
+    "/trigc chance pattern = body"
+  ],
+  "trigger": [
+    "/trigger [-ln] [-g] [-w[world]] [-h[event]] text"
+  ],
+  "trigp": [
+    "/trigp priority pattern = body"
+  ],
+  "trigpc": [
+    "/trigpc priority chance pattern = body"
+  ],
+  "true": [
+    "/true"
+  ],
+  "unalias": [
+    "/unalias name"
+  ],
+  "unbind": [
+    "/unbind sequence"
+  ],
+  "undef": [
+    "/undef name..."
+  ],
+  "undefn": [
+    "/undefn number ..."
+  ],
+  "undeft": [
+    "/undeft trigger"
+  ],
+  "unhook": [
+    "/unhook event [pattern]"
+  ],
+  "unlimit": [
+    "/unlimit"
+  ],
+  "unmark": [
+    "/unmark"
+  ],
+  "unpath": [
+    "/unpath"
+  ],
+  "unset": [
+    "/unset name"
+  ],
+  "untrig": [
+    "/untrig [-aattrs] trigger"
+  ],
+  "unworld": [
+    "/unworld name..."
+  ],
+  "ver": [
+    "/ver"
+  ],
+  "version": [
+    "/version"
+  ],
+  "watchdog": [
+    "/watchdog [OFF|ON]",
+    "/watchdog n1 [n2]"
+  ],
+  "watchname": [
+    "/watchname [OFF|ON]",
+    "/watchname n1 [n2]"
+  ],
+  "while": [
+    "/while (expr) list /DONE",
+    "/while list /DO list /DONE"
+  ],
+  "world": [
+    "/world [-lqnxfb] [world]",
+    "/world host port"
+  ]
+};
+
+// packages/core/src/data/upstreamFunctions.generated.ts
+var UPSTREAM_FUNCTIONS = [
+  {
+    "name": "abs",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "abs(n)"
+    ]
+  },
+  {
+    "name": "acos",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "acos(r)"
+    ]
+  },
+  {
+    "name": "addworld",
+    "min": 2,
+    "max": 9,
+    "synopses": [
+      "addworld(name, type, host, port, char, pass, file, use_proxy)"
+    ]
+  },
+  {
+    "name": "ascii",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "ascii(s)"
+    ]
+  },
+  {
+    "name": "asin",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "asin(r)"
+    ]
+  },
+  {
+    "name": "atan",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "atan(r)"
+    ]
+  },
+  {
+    "name": "atcp",
+    "min": 1,
+    "max": 2,
+    "requires": "ENABLE_ATCP"
+  },
+  {
+    "name": "calllua",
+    "min": 1,
+    "max": null,
+    "requires": "LUA_ENABLED"
+  },
+  {
+    "name": "char",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "char(i)"
+    ]
+  },
+  {
+    "name": "columns",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "columns()"
+    ]
+  },
+  {
+    "name": "cos",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "cos(r)"
+    ]
+  },
+  {
+    "name": "cputime",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "cputime()"
+    ]
+  },
+  {
+    "name": "decode_ansi",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "decode_ansi(s)"
+    ]
+  },
+  {
+    "name": "decode_attr",
+    "min": 1,
+    "max": 3,
+    "synopses": [
+      "decode_attr(s1 [, s2 [, f]])"
+    ]
+  },
+  {
+    "name": "echo",
+    "min": 1,
+    "max": 4,
+    "synopses": [
+      "echo(s1 [,attrs [,inline [,dest]]])"
+    ]
+  },
+  {
+    "name": "encode_ansi",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "encode_ansi(s)"
+    ]
+  },
+  {
+    "name": "encode_attr",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "encode_attr(s)"
+    ]
+  },
+  {
+    "name": "eval",
+    "min": 1,
+    "max": 2,
+    "synopses": [
+      "eval(s1 [, s2])"
+    ]
+  },
+  {
+    "name": "exp",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "exp(r)"
+    ]
+  },
+  {
+    "name": "fake_recv",
+    "min": 1,
+    "max": 3
+  },
+  {
+    "name": "fg_world",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "fg_world()"
+    ]
+  },
+  {
+    "name": "filename",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "filename(s)"
+    ]
+  },
+  {
+    "name": "ftime",
+    "min": 0,
+    "max": 2,
+    "synopses": [
+      "ftime(s,n)",
+      "ftime(s)",
+      "ftime()"
+    ]
+  },
+  {
+    "name": "fwrite",
+    "min": 2,
+    "max": 2,
+    "synopses": [
+      "fwrite(s1,s2)"
+    ]
+  },
+  {
+    "name": "gethostname",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "gethostname()"
+    ]
+  },
+  {
+    "name": "getopts",
+    "min": 1,
+    "max": 2,
+    "synopses": [
+      "getopts(s1, s2)"
+    ]
+  },
+  {
+    "name": "getpid",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "getpid()"
+    ]
+  },
+  {
+    "name": "gmcp",
+    "min": 1,
+    "max": 2,
+    "requires": "ENABLE_GMCP"
+  },
+  {
+    "name": "idle",
+    "min": 0,
+    "max": 1,
+    "synopses": [
+      "idle()",
+      "idle(s)"
+    ]
+  },
+  {
+    "name": "is_connected",
+    "min": 0,
+    "max": 1,
+    "synopses": [
+      "is_connected()",
+      "is_connected(s)"
+    ]
+  },
+  {
+    "name": "is_open",
+    "min": 0,
+    "max": 1,
+    "synopses": [
+      "is_open()",
+      "is_open(s)"
+    ]
+  },
+  {
+    "name": "isatty",
+    "min": 0,
+    "max": 0
+  },
+  {
+    "name": "kbdel",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "kbdel(i)"
+    ]
+  },
+  {
+    "name": "kbgoto",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "kbgoto(i)"
+    ]
+  },
+  {
+    "name": "kbhead",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "kbhead()"
+    ]
+  },
+  {
+    "name": "kblen",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "kblen()"
+    ]
+  },
+  {
+    "name": "kbmatch",
+    "min": 0,
+    "max": 1,
+    "synopses": [
+      "kbmatch()",
+      "kbmatch(i)"
+    ]
+  },
+  {
+    "name": "kbpoint",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "kbpoint()"
+    ]
+  },
+  {
+    "name": "kbtail",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "kbtail()"
+    ]
+  },
+  {
+    "name": "kbwordleft",
+    "min": 0,
+    "max": 1,
+    "synopses": [
+      "kbwordleft()",
+      "kbwordleft(i)"
+    ]
+  },
+  {
+    "name": "kbwordright",
+    "min": 0,
+    "max": 1,
+    "synopses": [
+      "kbwordright()",
+      "kbwordright(i)"
+    ]
+  },
+  {
+    "name": "keycode",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "keycode(s)"
+    ]
+  },
+  {
+    "name": "lines",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "lines()"
+    ]
+  },
+  {
+    "name": "ln",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "ln(n)"
+    ]
+  },
+  {
+    "name": "log10",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "log10(n)"
+    ]
+  },
+  {
+    "name": "mktime",
+    "min": 1,
+    "max": 7,
+    "synopses": [
+      "mktime(year [, month [, day [, hour [, minute [, second [, microsecond]]]]]])"
+    ]
+  },
+  {
+    "name": "mod",
+    "min": 2,
+    "max": 2,
+    "synopses": [
+      "mod(i1,i2)"
+    ]
+  },
+  {
+    "name": "morepaused",
+    "min": 0,
+    "max": 1,
+    "synopses": [
+      "morepaused([s1])"
+    ]
+  },
+  {
+    "name": "morescroll",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "morescroll(i)"
+    ]
+  },
+  {
+    "name": "moresize",
+    "min": 0,
+    "max": 2,
+    "synopses": [
+      "moresize([s1 [, s2]])"
+    ]
+  },
+  {
+    "name": "msdp",
+    "min": 1,
+    "max": 2,
+    "requires": "ENABLE_MSDP"
+  },
+  {
+    "name": "nactive",
+    "min": 0,
+    "max": 1,
+    "synopses": [
+      "nactive()",
+      "nactive(s)"
+    ]
+  },
+  {
+    "name": "nlog",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "nlog()"
+    ]
+  },
+  {
+    "name": "nmail",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "nmail()"
+    ]
+  },
+  {
+    "name": "nread",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "nread()"
+    ]
+  },
+  {
+    "name": "option102",
+    "min": 1,
+    "max": 2,
+    "requires": "ENABLE_OPTION102"
+  },
+  {
+    "name": "pad",
+    "min": 1,
+    "max": null,
+    "synopses": [
+      "pad([s, i]...)"
+    ]
+  },
+  {
+    "name": "pow",
+    "min": 2,
+    "max": 2,
+    "synopses": [
+      "pow(n1, n2)"
+    ]
+  },
+  {
+    "name": "prompt",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "prompt(s1)"
+    ]
+  },
+  {
+    "name": "python",
+    "min": 1,
+    "max": 1,
+    "requires": "TFPYTHON"
+  },
+  {
+    "name": "rand",
+    "min": 0,
+    "max": 2,
+    "synopses": [
+      "rand()",
+      "rand(i)",
+      "rand(i1,i2)"
+    ]
+  },
+  {
+    "name": "read",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "read()"
+    ]
+  },
+  {
+    "name": "regmatch",
+    "min": 2,
+    "max": 2,
+    "synopses": [
+      "regmatch(s1, s2)"
+    ]
+  },
+  {
+    "name": "replace",
+    "min": 3,
+    "max": 3,
+    "synopses": [
+      "replace(s1, s2, s3)"
+    ]
+  },
+  {
+    "name": "send",
+    "min": 1,
+    "max": 3,
+    "synopses": [
+      "send(s1[, world[, flags]])"
+    ]
+  },
+  {
+    "name": "sidle",
+    "min": 0,
+    "max": 1,
+    "synopses": [
+      "sidle()",
+      "sidle(s)"
+    ]
+  },
+  {
+    "name": "sin",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "sin(r)"
+    ]
+  },
+  {
+    "name": "sqrt",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "sqrt(n)"
+    ]
+  },
+  {
+    "name": "status_fields",
+    "min": 0,
+    "max": 1,
+    "synopses": [
+      "status_fields([i])"
+    ]
+  },
+  {
+    "name": "status_width",
+    "min": 1,
+    "max": 1
+  },
+  {
+    "name": "strcat",
+    "min": 1,
+    "max": null,
+    "synopses": [
+      "strcat(s...)"
+    ]
+  },
+  {
+    "name": "strchr",
+    "min": 2,
+    "max": 3,
+    "synopses": [
+      "strchr(s1, s2)",
+      "strchr(s1, s2, i)"
+    ]
+  },
+  {
+    "name": "strcmp",
+    "min": 2,
+    "max": 2,
+    "synopses": [
+      "strcmp(s1, s2)"
+    ]
+  },
+  {
+    "name": "strcmpattr",
+    "min": 2,
+    "max": 2,
+    "synopses": [
+      "strcmpattr(s1, s2)"
+    ]
+  },
+  {
+    "name": "strip_attr",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "strip_attr(s)"
+    ]
+  },
+  {
+    "name": "strlen",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "strlen(s)"
+    ]
+  },
+  {
+    "name": "strncmp",
+    "min": 3,
+    "max": 3,
+    "synopses": [
+      "strncmp(s1, s2, i)"
+    ]
+  },
+  {
+    "name": "strrchr",
+    "min": 2,
+    "max": 3,
+    "synopses": [
+      "strrchr(s1, s2)",
+      "strrchr(s1, s2, i)"
+    ]
+  },
+  {
+    "name": "strrep",
+    "min": 2,
+    "max": 2,
+    "synopses": [
+      "strrep(s, i)"
+    ]
+  },
+  {
+    "name": "strstr",
+    "min": 2,
+    "max": 3,
+    "synopses": [
+      "strstr(s1, s2)",
+      "strstr(s1, s2, i)"
+    ]
+  },
+  {
+    "name": "substitute",
+    "min": 1,
+    "max": 3,
+    "synopses": [
+      "substitute(s [,attrs [,inline]])"
+    ]
+  },
+  {
+    "name": "substr",
+    "min": 2,
+    "max": 3,
+    "synopses": [
+      "substr(s, i1)",
+      "substr(s, i1, i2)"
+    ]
+  },
+  {
+    "name": "systype",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "systype()"
+    ]
+  },
+  {
+    "name": "tan",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "tan(r)"
+    ]
+  },
+  {
+    "name": "test",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "test(s)"
+    ]
+  },
+  {
+    "name": "tfclose",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "tfclose(i)"
+    ]
+  },
+  {
+    "name": "tfflush",
+    "min": 1,
+    "max": 2,
+    "synopses": [
+      "tfflush(i)",
+      "tfflush(i, f)"
+    ]
+  },
+  {
+    "name": "tfopen",
+    "min": 0,
+    "max": 2,
+    "synopses": [
+      "tfopen(s1, s2)",
+      "tfopen()"
+    ]
+  },
+  {
+    "name": "tfread",
+    "min": 1,
+    "max": 2,
+    "synopses": [
+      "tfread(i, v)",
+      "tfread(v)"
+    ]
+  },
+  {
+    "name": "tfreadable",
+    "min": 1,
+    "max": 1
+  },
+  {
+    "name": "tfwrite",
+    "min": 1,
+    "max": 2,
+    "synopses": [
+      "tfwrite(i, s)",
+      "tfwrite(s)"
+    ]
+  },
+  {
+    "name": "time",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "time()"
+    ]
+  },
+  {
+    "name": "tolower",
+    "min": 1,
+    "max": 2,
+    "synopses": [
+      "tolower(s)",
+      "tolower(s, i)"
+    ]
+  },
+  {
+    "name": "toupper",
+    "min": 1,
+    "max": 2,
+    "synopses": [
+      "toupper(s)",
+      "toupper(s, i)"
+    ]
+  },
+  {
+    "name": "trunc",
+    "min": 1,
+    "max": 1,
+    "synopses": [
+      "trunc(r)"
+    ]
+  },
+  {
+    "name": "whatis",
+    "min": 1,
+    "max": 1
+  },
+  {
+    "name": "winlines",
+    "min": 0,
+    "max": 0,
+    "synopses": [
+      "winlines()"
+    ]
+  },
+  {
+    "name": "world_info",
+    "min": 0,
+    "max": 2,
+    "synopses": [
+      "world_info(s1, s2)",
+      "world_info(s2)",
+      "world_info()"
+    ]
+  }
+];
+
+// packages/core/src/data/upstreamLibraryFiles.generated.ts
+var UPSTREAM_LIBRARY_FILES = [
+  "activity_status.tf",
+  "activity_status2.tf",
+  "alias.tf",
+  "at.tf",
+  "changes.tf",
+  "color.tf",
+  "complete.tf",
+  "cylon.tf",
+  "factoral.tf",
+  "filexfer.tf",
+  "finger.tf",
+  "grep.tf",
+  "hanoi.tf",
+  "kb-bash.tf",
+  "kb-emacs.tf",
+  "kb-old.tf",
+  "kb-os2.tf",
+  "kb_badterm.tf",
+  "kbbind.tf",
+  "kbfunc.tf",
+  "kbregion.tf",
+  "kbstack.tf",
+  "lisp.tf",
+  "local-eg.tf",
+  "map.tf",
+  "pcmd.tf",
+  "psh.tf",
+  "quoter.tf",
+  "relog.tf",
+  "rwho.tf",
+  "savehist.tf",
+  "spc-page.tf",
+  "spedwalk.tf",
+  "spell.tf",
+  "stack-q.tf",
+  "stdlib.tf",
+  "testcolor.tf",
+  "textencode.tf",
+  "textutil.tf",
+  "tfstatus.tf",
+  "tick.tf",
+  "tintin.tf",
+  "tools.tf",
+  "tr.tf",
+  "watch.tf",
+  "world-q.tf"
+];
+
+// packages/core/src/data/upstreamLibraryLoaded.generated.ts
+var UPSTREAM_LIBRARY_FILES_WITH_LOADED = [
+  "activity_status.tf",
+  "activity_status2.tf",
+  "alias.tf",
+  "at.tf",
+  "complete.tf",
+  "filexfer.tf",
+  "grep.tf",
+  "kb-emacs.tf",
+  "kb-old.tf",
+  "kbbind.tf",
+  "kbfunc.tf",
+  "kbregion.tf",
+  "kbstack.tf",
+  "lisp.tf",
+  "local-eg.tf",
+  "map.tf",
+  "pcmd.tf",
+  "psh.tf",
+  "quoter.tf",
+  "relog.tf",
+  "rwho.tf",
+  "savehist.tf",
+  "spedwalk.tf",
+  "spell.tf",
+  "stack-q.tf",
+  "textencode.tf",
+  "textutil.tf",
+  "tfstatus.tf",
+  "tick.tf",
+  "tintin.tf",
+  "tools.tf",
+  "tr.tf",
+  "watch.tf",
+  "world-q.tf"
+];
+
+// packages/core/src/data/upstreamVariables.generated.ts
+var UPSTREAM_SPECIAL_VARIABLES = [
+  {
+    "name": "alert_attr",
+    "type": "string",
+    "default": "Br"
+  },
+  {
+    "name": "alert_time",
+    "type": "time"
+  },
+  {
+    "name": "ansi_log",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "atcp",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on",
+    "requires": "ENABLE_ATCP"
+  },
+  {
+    "name": "background",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "backslash",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "bamf",
+    "type": "enum",
+    "values": [
+      "off",
+      "on",
+      "old"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "beep",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "bg_output",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "binary_eol",
+    "type": "enum",
+    "values": [
+      "LF",
+      "CR",
+      "CRLF"
+    ]
+  },
+  {
+    "name": "borg",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "cecho",
+    "type": "enum",
+    "values": [
+      "off",
+      "on",
+      "all"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "cecho_attr",
+    "type": "string",
+    "default": "Cgreen"
+  },
+  {
+    "name": "cleardone",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "clearfull",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "connect",
+    "type": "enum",
+    "values": [
+      "blocking",
+      "nonblocking"
+    ]
+  },
+  {
+    "name": "default_charset",
+    "type": "string",
+    "default": "UTF-8",
+    "requires": "WIDECHAR"
+  },
+  {
+    "name": "defcompile",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "emulation",
+    "type": "enum",
+    "values": [
+      "raw",
+      "print",
+      "ansi_strip",
+      "ansi_attr",
+      "debug"
+    ]
+  },
+  {
+    "name": "error_attr",
+    "type": "string"
+  },
+  {
+    "name": "expand_tabs",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "expnonvis",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "gag",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "gethostbyname",
+    "type": "enum",
+    "values": [
+      "blocking",
+      "nonblocking"
+    ]
+  },
+  {
+    "name": "gmcp",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on",
+    "requires": "ENABLE_GMCP"
+  },
+  {
+    "name": "gpri",
+    "type": "integer",
+    "default": "0"
+  },
+  {
+    "name": "hilite",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "hiliteattr",
+    "type": "string",
+    "default": "B"
+  },
+  {
+    "name": "histsize",
+    "type": "position"
+  },
+  {
+    "name": "hook",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "hpri",
+    "type": "integer",
+    "default": "0"
+  },
+  {
+    "name": "iecho",
+    "type": "enum",
+    "values": [
+      "off",
+      "on",
+      "all"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "iecho_attr",
+    "type": "string",
+    "default": "Cred"
+  },
+  {
+    "name": "info_attr",
+    "type": "string"
+  },
+  {
+    "name": "insert",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "interactive",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ]
+  },
+  {
+    "name": "isize",
+    "type": "position"
+  },
+  {
+    "name": "istrip",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "kbnum",
+    "type": "string"
+  },
+  {
+    "name": "kecho",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "kecho_attr",
+    "type": "string"
+  },
+  {
+    "name": "keepalive",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "keypad",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "kprefix",
+    "type": "string"
+  },
+  {
+    "name": "LANG",
+    "type": "string",
+    "requires": "HAVE_SETLOCALE"
+  },
+  {
+    "name": "LC_ALL",
+    "type": "string",
+    "requires": "HAVE_SETLOCALE"
+  },
+  {
+    "name": "LC_CTYPE",
+    "type": "string",
+    "requires": "HAVE_SETLOCALE"
+  },
+  {
+    "name": "LC_TIME",
+    "type": "string",
+    "requires": "HAVE_SETLOCALE"
+  },
+  {
+    "name": "log_prefix",
+    "type": "string",
+    "default": "%t # "
+  },
+  {
+    "name": "log_time_format",
+    "type": "string",
+    "default": "%H:%M:%S"
+  },
+  {
+    "name": "login",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "lp",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "lpquote",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "MAIL",
+    "type": "string"
+  },
+  {
+    "name": "maildelay",
+    "type": "time"
+  },
+  {
+    "name": "matching",
+    "type": "enum",
+    "values": [
+      "simple",
+      "glob",
+      "regexp",
+      "substr"
+    ],
+    "default": "glob"
+  },
+  {
+    "name": "max_hook",
+    "type": "integer",
+    "default": "1000"
+  },
+  {
+    "name": "max_instr",
+    "type": "integer",
+    "default": "1000000"
+  },
+  {
+    "name": "max_kbnum",
+    "type": "integer",
+    "default": "999"
+  },
+  {
+    "name": "max_recur",
+    "type": "integer",
+    "default": "100"
+  },
+  {
+    "name": "max_trig",
+    "type": "integer",
+    "default": "1000"
+  },
+  {
+    "name": "mccp",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on",
+    "requires": "HAVE_MCCP"
+  },
+  {
+    "name": "mecho",
+    "type": "enum",
+    "values": [
+      "off",
+      "on",
+      "all"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "mecho_attr",
+    "type": "string"
+  },
+  {
+    "name": "meta_esc",
+    "type": "enum",
+    "values": [
+      "off",
+      "on",
+      "nonprint"
+    ]
+  },
+  {
+    "name": "more",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "mprefix",
+    "type": "string",
+    "default": "+"
+  },
+  {
+    "name": "msdp",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on",
+    "requires": "ENABLE_MSDP"
+  },
+  {
+    "name": "oldslash",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "optimize",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "option102",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on",
+    "requires": "ENABLE_OPTION102"
+  },
+  {
+    "name": "pedantic",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "prompt_sec",
+    "type": "string"
+  },
+  {
+    "name": "prompt_usec",
+    "type": "string"
+  },
+  {
+    "name": "prompt_wait",
+    "type": "time"
+  },
+  {
+    "name": "proxy_host",
+    "type": "string"
+  },
+  {
+    "name": "proxy_port",
+    "type": "string",
+    "default": "23"
+  },
+  {
+    "name": "ptime",
+    "type": "time"
+  },
+  {
+    "name": "qecho",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "qecho_attr",
+    "type": "string"
+  },
+  {
+    "name": "qprefix",
+    "type": "string"
+  },
+  {
+    "name": "quiet",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "quitdone",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "redef",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "refreshtime",
+    "type": "integer",
+    "default": "100000"
+  },
+  {
+    "name": "scroll",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "secho",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "secho_attr",
+    "type": "string"
+  },
+  {
+    "name": "shpause",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "sidescroll",
+    "type": "position"
+  },
+  {
+    "name": "sigfigs",
+    "type": "integer",
+    "default": "15"
+  },
+  {
+    "name": "snarf",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "sockmload",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "sprefix",
+    "type": "string"
+  },
+  {
+    "name": "ssl_ca_dir",
+    "type": "string"
+  },
+  {
+    "name": "ssl_ca_file",
+    "type": "string"
+  },
+  {
+    "name": "ssl_continue",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "ssl_depth",
+    "type": "integer",
+    "default": "10"
+  },
+  {
+    "name": "ssl_insecure",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "ssl_verbose",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "status_attr",
+    "type": "string"
+  },
+  {
+    "name": "status_fields",
+    "type": "string"
+  },
+  {
+    "name": "status_height",
+    "type": "position"
+  },
+  {
+    "name": "status_int_clock",
+    "type": "string"
+  },
+  {
+    "name": "status_int_more",
+    "type": "string"
+  },
+  {
+    "name": "status_int_world",
+    "type": "string"
+  },
+  {
+    "name": "status_pad",
+    "type": "string",
+    "default": "_"
+  },
+  {
+    "name": "sub",
+    "type": "enum",
+    "values": [
+      "off",
+      "on",
+      "full"
+    ]
+  },
+  {
+    "name": "tabsize",
+    "type": "position"
+  },
+  {
+    "name": "telopt",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "TERM",
+    "type": "string"
+  },
+  {
+    "name": "textdiv",
+    "type": "enum",
+    "values": [
+      "off",
+      "on",
+      "always",
+      "clear"
+    ]
+  },
+  {
+    "name": "textdiv_str",
+    "type": "string",
+    "default": "====="
+  },
+  {
+    "name": "tfhost",
+    "type": "string"
+  },
+  {
+    "name": "TFLIBDIR",
+    "type": "string"
+  },
+  {
+    "name": "TFMAILPATH",
+    "type": "string"
+  },
+  {
+    "name": "TFPATH",
+    "type": "string"
+  },
+  {
+    "name": "tfpy_debug",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off",
+    "requires": "TFPYTHON"
+  },
+  {
+    "name": "time_format",
+    "type": "string",
+    "default": "%H:%M"
+  },
+  {
+    "name": "TZ",
+    "type": "string"
+  },
+  {
+    "name": "virtscreen",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "visual",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ]
+  },
+  {
+    "name": "warn_5keys",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "warn_curly_re",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "warn_def_B",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "warn_status",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "warning_attr",
+    "type": "string"
+  },
+  {
+    "name": "watchdog",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "watchname",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "wordpunct",
+    "type": "string",
+    "default": "_"
+  },
+  {
+    "name": "wrap",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "on"
+  },
+  {
+    "name": "wraplog",
+    "type": "flag",
+    "values": [
+      "off",
+      "on"
+    ],
+    "default": "off"
+  },
+  {
+    "name": "wrappunct",
+    "type": "integer",
+    "default": "10"
+  },
+  {
+    "name": "wrapsize",
+    "type": "integer",
+    "default": "0"
+  },
+  {
+    "name": "wrapspace",
+    "type": "integer",
+    "default": "4"
   }
 ];
 
@@ -5988,6 +8660,37 @@ var SPECIAL_VARIABLES = [
   }
 ];
 
+// packages/core/src/data/tables.ts
+function tables(builtinCommands, commandUsages, functions, specialVariables, libraryFiles, libraryFilesWithLoaded) {
+  const commands = commandsOf(builtinCommands);
+  return {
+    commands,
+    commandSources: new Map(commands.map((c) => [c.name.toLowerCase(), c.source])),
+    builtinCommands,
+    commandUsages,
+    functions,
+    functionNames: new Set(functions.map((f) => f.name)),
+    specialVariables,
+    specialVariableNames: new Set(specialVariables.map((v) => v.name)),
+    libraryFiles,
+    libraryFilesWithLoaded
+  };
+}
+var BY_BUILD = {
+  fork: tables(BUILTIN_COMMANDS, COMMAND_USAGES, FUNCTIONS, SPECIAL_VARIABLES, LIBRARY_FILES, LIBRARY_FILES_WITH_LOADED),
+  upstream: tables(
+    UPSTREAM_BUILTIN_COMMANDS,
+    UPSTREAM_COMMAND_USAGES,
+    UPSTREAM_FUNCTIONS,
+    UPSTREAM_SPECIAL_VARIABLES,
+    UPSTREAM_LIBRARY_FILES,
+    UPSTREAM_LIBRARY_FILES_WITH_LOADED
+  )
+};
+function tablesFor(build = DEFAULT_TF_BUILD) {
+  return BY_BUILD[build];
+}
+
 // packages/core/src/variables.ts
 var SPECIAL_VARIABLE_NAMES = new Set(SPECIAL_VARIABLES.map((v) => v.name));
 var COMMAND_NAMES = new Set(ALL_COMMANDS.map((c) => c.name.toLowerCase()));
@@ -6641,7 +9344,7 @@ var loadOfLibraryFile = {
     const m = /^\/load((?:[ \t]+-\S+)*)[ \t]+(\S+)[ \t]*$/.exec(text.slice(start));
     if (!m) return [];
     const file = m[2];
-    if (!libraryFilesWithLoaded(facts.tfBuild).includes(file)) return [];
+    if (!tablesFor(facts.tfBuild).libraryFilesWithLoaded.includes(file)) return [];
     const at2 = start + 1;
     return [
       {
@@ -7189,7 +9892,7 @@ function expandVariables(text, vars) {
 function isLibraryFile(file, build) {
   const name = file.replace(/^(?:\.\/)+/, "");
   const fold = (s) => process.platform === "win32" ? s.toLowerCase() : s;
-  return libraryFiles(build).some((f) => fold(f) === fold(name));
+  return tablesFor(build).libraryFiles.some((f) => fold(f) === fold(name));
 }
 function resolveLoadPath(file, env) {
   const mappings = env.pathMappings ?? [];
@@ -7539,7 +10242,6 @@ function parseTfHelp(text) {
 
 // packages/core/src/workspace/loadPathDiagnostics.ts
 var path5 = __toESM(require("node:path"));
-var COMMAND_NAMES2 = new Set(ALL_COMMANDS.map((c) => c.name.toLowerCase()));
 var ANY_DEF_RE = /(?:^|[\s;|(])\/@?def\b((?:\s+-(?:[^\s"'`]|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)*)*)\s+([^\s=]+)/gi;
 function macroNames(text) {
   const names = /* @__PURE__ */ new Map();
@@ -7568,8 +10270,8 @@ function likelyDefiner(unfollowed, name) {
     return stem !== "" && (name === stem || name.startsWith(`${stem}_`));
   });
 }
-function onPathNames(graph, file, ownText, namesOf) {
-  const names = new Map([...COMMAND_NAMES2].map((n) => [n, n]));
+function onPathNames(graph, file, ownText, namesOf, build) {
+  const names = new Map([...tablesFor(build).commandSources.keys()].map((n) => [n, n]));
   const prefixes = [];
   for (const [f, text] of [[file, ownText], ...graph.files.map((g) => [g.path, g.text])]) {
     const d = namesOf(f, text);
@@ -7722,8 +10424,8 @@ function userHomeExplanation(u) {
   return `If \`${user}\` is misspelt, or there is no such user, tf doesn't warn: it reads \`./~${user}${rest}\` from its current directory instead.`;
 }
 var UNDEFINED_EXPLANATION = `tf looks the name up when the command runs, and with no macro or command of that name it prints ${code("NAME: no such command or macro")}, sets ${code("%?")} to 1 and goes on with the next command. This check looked in this file, the files on its load path, the other tf files in the workspace and tf's library. A macro made while tf runs (${code("/eval /def")}, or a file loaded some other way) isn't seen: add its name to ${code("tfscript.diagnostics.ignoreMacros")}.`;
-function undefinedMacros(file, text, lines, graph, onPath, { elsewhere = [], unfollowed = [], requirePath = () => void 0, namesOf = (_f, t) => macroNames(t), readOnly }, ignore) {
-  const visible = onPathNames(graph, file, text, namesOf);
+function undefinedMacros(file, text, lines, graph, onPath, { elsewhere = [], unfollowed = [], requirePath = () => void 0, namesOf = (_f, t) => macroNames(t), readOnly }, ignore, build) {
+  const visible = onPathNames(graph, file, text, namesOf, build);
   const out = [];
   for (const call of findMacroCalls(text)) {
     if (call.dynamic) continue;
@@ -7788,7 +10490,7 @@ function loadPathDiagnostics(file, text, graph, options, context = {}) {
   const out = [];
   if (options.undefinedMacros) {
     const unfollowed = context.unfollowed ?? (onPath ? unfollowedOnPath(graph) : []);
-    for (const d of undefinedMacros(file, text, lines, graph, onPath, { ...context, unfollowed }, options.ignoreMacros ?? [])) out.push(d);
+    for (const d of undefinedMacros(file, text, lines, graph, onPath, { ...context, unfollowed }, options.ignoreMacros ?? [], options.tfBuild)) out.push(d);
   }
   if (!onPath) return out;
   const entries = splitLogicalEntries(text);
@@ -8093,7 +10795,7 @@ var WorkspaceIndex = class {
       file,
       text,
       graph,
-      { unresolvedLoads: options?.unresolvedLoads ?? true, undefinedMacros: undefinedMacros2, ignoreMacros: options?.ignoreMacros ?? [] },
+      { unresolvedLoads: options?.unresolvedLoads ?? true, undefinedMacros: undefinedMacros2, ignoreMacros: options?.ignoreMacros ?? [], tfBuild: settings.tfBuild },
       undefinedMacros2 ? this.macroContext(file, folder, graph, settings) : {}
     );
   }
@@ -8465,7 +11167,8 @@ var WorkspaceIndex = class {
       files: onPath ? loaded.filter((f) => !isLibrary(f.path)).map((f) => ({ uri: uriOf(f.path), text: f.text })) : [],
       macros,
       libraryFiles: loaded.filter((f) => isLibrary(f.path)).map((f) => ({ uri: uriOf(f.path), text: f.text })),
-      help: lib ? this.help(lib) : void 0
+      help: lib ? this.help(lib) : void 0,
+      tfBuild: settings.tfBuild
     };
   }
   /**

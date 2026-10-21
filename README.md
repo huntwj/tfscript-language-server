@@ -313,10 +313,15 @@ server reads) and `--tf-build` on the command line:
     the loops inside it, is rejected when the macro is compiled, so nothing after it is checked
     (`block-structure`). Upstream tf compiles it, and running it stops the macro with an internal
     error; with `upstream` the check says so and goes on past it.
-  - The fork's library has `kv.tf`, `bv.tf` and `kv-textlog.tf`, and lacks upstream's
-    `kb-os2.tf`. Which files count as tf's library (for `load-of-library-file`, and for the note
-    when a `/load` of one can't be followed) follows the setting; the tables come from the
-    tinyfugue checkout for the fork and from its `main` for upstream.
+  - The fork has more: `/python_call_unsafe`; `strlen_bytes()`, `substr_bytes()` and the other
+    `_bytes` functions; `local_assign`, `int_range`, `send_queue`, `send_queue_full` and
+    `telnet_offers`; a third argument to `tfwrite()`. Its library has `kv.tf`, `bv.tf` and
+    `kv-textlog.tf`, and lacks upstream's `kb-os2.tf`. Completion, hover, signature help,
+    highlighting, rename, `undefined-macro`, `load-of-library-file` and extracting a variable
+    use the tables of the tf the setting names (`packages/core/src/data/tables.ts`): the
+    tinyfugue checkout's for the fork, its `main`'s for upstream. Telling a `name(...)` that
+    calls a macro from a function call, and picking a new macro's name, use the fork's, which
+    hold every name upstream's do.
 
 ## Command data (drives completion and hover)
 

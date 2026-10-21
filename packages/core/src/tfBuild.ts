@@ -10,8 +10,8 @@
  *     - A `?:` whose condition is a true constant no longer crashes tf in a macro body.
  *     - A `,` in a `$[...]` in command text no longer loses the text before it.
  *     - `/else` no longer also runs after a true `/if` and a true `/elseif`.
- *    Its library differs too: it adds kv.tf, bv.tf and kv-textlog.tf, and drops kb-os2.tf
- *    (data/library.ts).
+ *    It also has more commands, functions and special variables, and a different library
+ *    (data/tables.ts).
  */
 export type TfBuild = "upstream" | "fork";
 

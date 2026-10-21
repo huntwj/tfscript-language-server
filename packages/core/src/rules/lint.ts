@@ -1,5 +1,5 @@
 import { ALL_COMMANDS } from "../data/commands";
-import { libraryFilesWithLoaded } from "../data/library";
+import { tablesFor } from "../data/tables";
 import { isTfSpace } from "../logicalEntries";
 import { code, commandParts, macroBodyStart, parseLayout } from "../structure";
 import { defFiresOnEvent, defHasInvalidOption } from "../symbols";
@@ -80,7 +80,7 @@ export const loadOfLibraryFile: EntryRule = {
     const m = /^\/load((?:[ \t]+-\S+)*)[ \t]+(\S+)[ \t]*$/.exec(text.slice(start));
     if (!m) return [];
     const file = m[2] as string;
-    if (!libraryFilesWithLoaded(facts.tfBuild).includes(file)) return [];
+    if (!tablesFor(facts.tfBuild).libraryFilesWithLoaded.includes(file)) return [];
     const at = start + 1;
     return [
       {

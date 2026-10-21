@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { libraryFiles } from "../data/library";
+import { tablesFor } from "../data/tables";
 import { entryCommands, shortenPercents, type LoadCommand } from "../loadCommands";
 import type { SubLevel } from "../structure";
 import { splitLogicalEntries, type LogicalEntry } from "../logicalEntries";
@@ -211,7 +211,7 @@ export interface LoadPathEnvironment {
 function isLibraryFile(file: string, build: TfBuild): boolean {
   const name = file.replace(/^(?:\.\/)+/, "");
   const fold = (s: string) => (process.platform === "win32" ? s.toLowerCase() : s);
-  return libraryFiles(build).some((f) => fold(f) === fold(name));
+  return tablesFor(build).libraryFiles.some((f) => fold(f) === fold(name));
 }
 
 /**

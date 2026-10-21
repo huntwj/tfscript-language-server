@@ -1,16 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { BUILTIN_COMMANDS } from "../src/data/builtinCommands.generated";
 import { KEYWORD_COMMANDS } from "../src/data/keywordCommands.generated";
 import { STDLIB_COMMANDS } from "../src/data/stdlibCommands.generated";
-import { LIBRARY_FILES } from "../src/data/libraryFiles.generated";
-import { LIBRARY_FILES_WITH_LOADED } from "../src/data/libraryLoaded.generated";
-import { UPSTREAM_LIBRARY_FILES } from "../src/data/upstreamLibraryFiles.generated";
-import { UPSTREAM_LIBRARY_FILES_WITH_LOADED } from "../src/data/upstreamLibraryLoaded.generated";
+import { tablesFor } from "../src/data/tables";
+import { TF_BUILDS } from "../src/tfBuild";
 import { ALL_COMMANDS } from "../src/data/commands";
 import { COMMAND_DESCRIPTIONS } from "../src/data/commandDescriptions";
-import { COMMAND_USAGES } from "../src/data/commandUsages.generated";
 import { FUNCTIONS } from "../src/data/functions.generated";
 import { SPECIAL_VARIABLES } from "../src/data/variables.generated";
 import { splitLogicalEntries } from "../src/logicalEntries";
@@ -20,7 +17,7 @@ import { splitLogicalEntries } from "../src/logicalEntries";
 const extractor = require("../../../scripts/extract-command-tables");
 
 /**
- * Sync check, same idea as ~/ai/mud's own tinyfugue.pin.json: the three src/data/*.generated.ts
+ * Sync check, same idea as ~/ai/mud's own tinyfugue.pin.json: the src/data/*.generated.ts
  * files are checked in so the server works without a sibling tinyfugue checkout, but if one
  * is present, re-run the real extractor (scripts/extract-command-tables.js, required as a
  * module, not reimplemented here) and fail if it disagrees with what's checked in — a silent
@@ -36,53 +33,48 @@ const TINYFUGUE_DIR = join(__dirname, "..", "..", "..", "..", "tinyfugue");
 const describeOrSkip = existsSync(TINYFUGUE_DIR) ? describe : describe.skip;
 
 describeOrSkip("command tables (vs. the sibling tinyfugue checkout)", () => {
-  it("matches tinyfugue/src/expand.c's keyword_table[]", () => {
-    const text = readFileSync(join(TINYFUGUE_DIR, "src", "expand.c"), "utf8");
-    expect([...KEYWORD_COMMANDS]).toEqual(extractor.extractKeywordTable(text));
+  // The checkout is the fork; its main is upstream, read through jj (extractor.upstreamTree).
+  const trees = { fork: extractor.checkoutTree(TINYFUGUE_DIR), upstream: extractor.upstreamTree(TINYFUGUE_DIR) };
+
+  for (const build of TF_BUILDS) {
+    it(`matches the ${build}'s commands, usages, functions, variables and library`, () => {
+      const t = tablesFor(build);
+      const source = extractor.extractTables(trees[build]);
+      expect([...t.builtinCommands]).toEqual(source.builtinCommands);
+      expect(t.commandUsages).toEqual(source.usages);
+      expect(t.functions).toEqual(source.functions);
+      expect(t.specialVariables).toEqual(source.variables);
+      expect([...t.libraryFiles]).toEqual(source.libraryFiles);
+      expect([...t.libraryFilesWithLoaded]).toEqual(source.libraryLoaded);
+      expect(t.libraryFiles).toContain("alias.tf");
+      expect(t.libraryFilesWithLoaded).toContain("alias.tf");
+      expect(t.libraryFilesWithLoaded).not.toContain("stdlib.tf");
+    });
+
+    it(`matches the ${build}'s keyword table and stdlib.tf macros, which both builds share`, () => {
+      expect([...KEYWORD_COMMANDS]).toEqual(extractor.extractKeywordTable(trees[build].read("src/expand.c")));
+      expect([...STDLIB_COMMANDS]).toEqual(extractor.extractStdlibMacros(trees[build].read("lib/tf/stdlib.tf"), splitLogicalEntries));
+    });
+  }
+});
+
+describe("tablesFor", () => {
+  it("gives the fork every command, function and variable upstream has, and more", () => {
+    const [fork, upstream] = [tablesFor("fork"), tablesFor("upstream")];
+    for (const name of upstream.commandSources.keys()) expect(fork.commandSources.has(name), name).toBe(true);
+    for (const name of upstream.functionNames) expect(fork.functionNames.has(name), name).toBe(true);
+    for (const name of upstream.specialVariableNames) expect(fork.specialVariableNames.has(name), name).toBe(true);
+    expect(fork.functionNames.has("strlen_bytes")).toBe(true);
+    expect(upstream.functionNames.has("strlen_bytes")).toBe(false);
+    expect(upstream.specialVariableNames.has("local_assign")).toBe(false);
+    expect(upstream.commandSources.has("python_call_unsafe")).toBe(false);
+    expect(fork.functions.find((f) => f.name === "tfwrite")?.max).toBe(3);
+    expect(upstream.functions.find((f) => f.name === "tfwrite")?.max).toBe(2);
+    expect(tablesFor()).toBe(upstream);
   });
 
-  it("matches tinyfugue/src/cmdlist.h's defcmd(...) entries", () => {
-    const text = readFileSync(join(TINYFUGUE_DIR, "src", "cmdlist.h"), "utf8");
-    expect([...BUILTIN_COMMANDS]).toEqual(extractor.extractBuiltinCmds(text));
-  });
-
-  it("matches lib/tf/stdlib.tf's top-level /def macros", () => {
-    const text = readFileSync(join(TINYFUGUE_DIR, "lib", "tf", "stdlib.tf"), "utf8");
-    expect([...STDLIB_COMMANDS]).toEqual(extractor.extractStdlibMacros(text, splitLogicalEntries));
-  });
-
-  it("matches unix/unix.mak's list of the .tf files make install puts in tf's library", () => {
-    const text = readFileSync(join(TINYFUGUE_DIR, "unix", "unix.mak"), "utf8");
-    expect([...LIBRARY_FILES]).toEqual(extractor.extractLibraryFiles(text));
-    expect(LIBRARY_FILES).toContain("alias.tf");
-  });
-
-  it("matches lib/tf's library files that run /loaded", () => {
-    expect([...LIBRARY_FILES_WITH_LOADED]).toEqual(extractor.extractLibraryLoaded(extractor.libraryReader(join(TINYFUGUE_DIR, "lib", "tf")), [...LIBRARY_FILES]));
-    expect(LIBRARY_FILES_WITH_LOADED).toContain("alias.tf");
-    expect(LIBRARY_FILES_WITH_LOADED).not.toContain("stdlib.tf");
-  });
-
-  it("matches upstream's library, the checkout's main, and its files that run /loaded", () => {
-    const upstream = (file: string): string => extractor.readUpstream(TINYFUGUE_DIR, file);
-    expect([...UPSTREAM_LIBRARY_FILES]).toEqual(extractor.extractLibraryFiles(upstream("unix/unix.mak")));
-    expect([...UPSTREAM_LIBRARY_FILES_WITH_LOADED]).toEqual(
-      extractor.extractLibraryLoaded((f: string) => upstream(`lib/tf/${f}`), [...UPSTREAM_LIBRARY_FILES]),
-    );
-    expect(UPSTREAM_LIBRARY_FILES).toContain("alias.tf");
-  });
-
-  it("matches htmldoc/commands/*.html's usage synopses", () => {
-    const pages = extractor.readCommandPages(join(TINYFUGUE_DIR, "htmldoc", "commands"));
-    expect(COMMAND_USAGES).toEqual(extractor.extractCommandUsages(pages));
-  });
-
-  it("matches src/funclist.h's functions and functions.html's synopses", () => {
-    expect(FUNCTIONS).toEqual(extractor.extractFunctions(...extractor.readFunctionSources(TINYFUGUE_DIR)));
-  });
-
-  it("matches src/varlist.h's special variables and their enum values", () => {
-    expect(SPECIAL_VARIABLES).toEqual(extractor.extractVariables(...extractor.readVariableSources(TINYFUGUE_DIR)));
+  it("has ALL_COMMANDS hold the fork's commands", () => {
+    expect(ALL_COMMANDS).toEqual(tablesFor("fork").commands);
   });
 });
 

@@ -29,16 +29,24 @@ function dedupe(infos: CommandInfo[]): CommandInfo[] {
 }
 
 /**
- * Every top-level command name this engine knows about, from the three sources
- * scripts/extract-command-tables.js pulls from tinyfugue. A handful of names (EXIT, LET,
+ * Every top-level command name of a tf whose builtin commands are `builtins`, from the three
+ * sources scripts/extract-command-tables.js pulls from tinyfugue. A handful of names (EXIT, LET,
  * SET, SETENV) appear in both the keyword and builtin tables; "keyword" wins there, since
  * the bytecode compiler sees them first.
  */
-export const ALL_COMMANDS: readonly CommandInfo[] = dedupe([
-  ...KEYWORD_COMMANDS.map((name): CommandInfo => ({ name, source: "keyword" })),
-  ...BUILTIN_COMMANDS.map((name): CommandInfo => ({ name, source: "builtin" })),
-  ...STDLIB_COMMANDS.map((name): CommandInfo => ({ name, source: "stdlib" })),
-]);
+export function commandsOf(builtins: readonly string[]): readonly CommandInfo[] {
+  return dedupe([
+    ...KEYWORD_COMMANDS.map((name): CommandInfo => ({ name, source: "keyword" })),
+    ...builtins.map((name): CommandInfo => ({ name, source: "builtin" })),
+    ...STDLIB_COMMANDS.map((name): CommandInfo => ({ name, source: "stdlib" })),
+  ]);
+}
+
+/**
+ * The fork's commands, which include all of upstream's: for code that only steers clear of tf's
+ * names. What one tf has is tables.ts's tablesFor().
+ */
+export const ALL_COMMANDS: readonly CommandInfo[] = commandsOf(BUILTIN_COMMANDS);
 
 /**
  * Names `/def` refuses with `"name" is a reserved word.` (macro.c: `keyword(spec->name)` or a
